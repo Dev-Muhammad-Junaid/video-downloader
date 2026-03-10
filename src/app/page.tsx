@@ -10,7 +10,8 @@ import {
     CardHeader,
     CardTitle,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -75,6 +76,7 @@ export default function LibraryPage() {
     const [searchQuery, setSearchQuery] = useState("");
     const [sortBy, setSortBy] = useState<"newest" | "oldest" | "size-desc" | "size-asc">("newest");
     const [platformFilter, setPlatformFilter] = useState("all");
+    const [groupByDate, setGroupByDate] = useState(true);
 
     // Renaming state
     const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
@@ -453,6 +455,129 @@ export default function LibraryPage() {
         return Array.from(set).sort();
     }, [videos]);
 
+    const renderVideoCard = (video: Video) => (
+        <Card key={video.id} className="flex flex-col group overflow-hidden border-border/40 hover:border-primary/30 transition-all hover:shadow-lg bg-card/50 backdrop-blur-sm">
+            <CardHeader className="p-4 z-10 bg-gradient-to-b from-card to-transparent border-b border-border/10 relative">
+                {editingVideoId === video.id ? (
+                    <div className="flex items-center gap-2 mb-1.5">
+                        <Input
+                            autoFocus
+                            value={editTitle}
+                            onChange={e => setEditTitle(e.target.value)}
+                            className="h-7 text-xs px-2 py-1"
+                            onKeyDown={e => e.key === 'Enter' && handleRename(video.id)}
+                        />
+                        <Button size="sm" variant="default" className="h-7 px-2" onClick={() => handleRename(video.id)}>
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                        </Button>
+                    </div>
+                ) : (
+                    <div className="flex items-start justify-between gap-1 group/title">
+                        <CardTitle className="text-base line-clamp-2 leading-snug pr-4" title={video.title}>{video.title}</CardTitle>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="w-6 h-6 shrink-0 opacity-0 group-hover/title:opacity-100 transition-opacity absolute right-2 top-3"
+                            onClick={() => {
+                                setEditTitle(video.title);
+                                setEditingVideoId(video.id);
+                            }}
+                        >
+                            <Pencil className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground" />
+                        </Button>
+                    </div>
+                )}
+
+                {/* Labels Area */}
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                    {video.labels?.map(label => (
+                        <Badge key={label.id} variant="secondary" className="text-[10px] px-1.5 py-0 hover:bg-destructive/10 hover:text-destructive cursor-pointer hover:line-through transition-all" onClick={() => detachLabel(video.id, label.id)} title="Click to remove">
+                            {label.name}
+                        </Badge>
+                    ))}
+
+                    <Popover>
+                        <PopoverTrigger className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-[18px] text-[10px] px-1.5 py-0 text-muted-foreground hover:text-foreground border border-dashed border-border/50 rounded-full")}>
+                            <PlusCircle className="w-3 h-3 mr-1" /> Add Label
+                        </PopoverTrigger>
+                        <PopoverContent className="w-52 p-0" align="start">
+                            <Command>
+                                <CommandInput placeholder="Search labels..." className="h-8 text-xs" />
+                                <CommandList>
+                                    <CommandEmpty className="py-2 px-2">
+                                        <div className="flex flex-col gap-2">
+                                            <span className="text-xs text-muted-foreground">No label found.</span>
+                                            <div className="flex bg-muted/40 p-1 rounded-md">
+                                                <Input placeholder="New label name" value={newLabelName} onChange={e => setNewLabelName(e.target.value)} className="h-7 text-xs border-r-0 rounded-r-none focus-visible:ring-0 shadow-none border -mr-px" onKeyDown={e => e.key === 'Enter' && createLabel()} />
+                                                <Button size="sm" onClick={createLabel} className="h-7 rounded-l-none text-xs px-2 shadow-none border">Add</Button>
+                                            </div>
+                                        </div>
+                                    </CommandEmpty>
+                                    <CommandGroup>
+                                        {globalLabels.filter(gl => !(video.labels || []).find(vl => vl.id === gl.id)).map(label => (
+                                            <CommandItem
+                                                key={label.id}
+                                                onSelect={() => attachLabel(video.id, label.id)}
+                                                className="text-xs py-1"
+                                            >
+                                                <Tags className="mr-2 h-3 w-3 opacity-50" />
+                                                {label.name}
+                                            </CommandItem>
+                                        ))}
+                                    </CommandGroup>
+                                </CommandList>
+                            </Command>
+                        </PopoverContent>
+                    </Popover>
+                </div>
+
+                <CardDescription className="text-xs mt-2.5 flex items-center gap-1.5">
+                    <span className="opacity-80">{new Date(video.createdAt).toLocaleDateString()}</span>
+                    <span className="w-1 h-1 rounded-full bg-muted-foreground/30"></span>
+                    <span className="opacity-80">{video.sourcePlatform || "Unknown"}</span>
+                    {video.originalUrl && (
+                        <a href={video.originalUrl} target="_blank" rel="noopener noreferrer" className="ml-0.5 text-primary hover:text-primary/80 transition-colors" title="Open source link">
+                            <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                    )}
+                    {video.fileSize && (
+                        <>
+                            <span className="w-1 h-1 rounded-full bg-muted-foreground/30"></span>
+                            <span className="opacity-80 font-medium text-foreground/60">{(video.fileSize / (1024 * 1024)).toFixed(1)} MB</span>
+                        </>
+                    )}
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0 flex-1 flex items-center justify-center bg-black relative min-h-[140px] overflow-hidden">
+                <video
+                    src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
+                    controls
+                    preload="metadata"
+                    className="w-full h-full object-cover"
+                />
+            </CardContent>
+            <CardFooter className="p-3 border-t border-border/40 flex items-center gap-2 justify-between bg-card/80 backdrop-blur z-10">
+                <div className="text-[11px] text-muted-foreground/70 truncate pr-2 font-mono" title={video.localPath}>
+                    {video.localPath.split('/').pop()}
+                </div>
+                <div className="flex gap-1 flex-shrink-0 bg-background/50 rounded-lg p-0.5 border border-border/20">
+                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => copyToClipboard(video.localPath)} title="Copy Path">
+                        <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => handleOpenFolder(video.localPath)} title="View in Explorer">
+                        <FolderOpen className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => handleCloudUpload(video)} title="Upload to Cloud">
+                        <Cloud className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-destructive/20 hover:text-destructive shadow-sm ml-1" onClick={() => handleDelete(video.id, video.title)} title="Delete Video">
+                        <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                </div>
+            </CardFooter>
+        </Card>
+    );
+
     if (loading) {
         return <div className="p-8 flex items-center justify-center min-h-[50vh]"><Loader2 className="w-8 h-8 animate-spin text-primary/50" /></div>;
     }
@@ -587,6 +712,14 @@ export default function LibraryPage() {
                                 <SelectItem value="size-asc">Smallest Size</SelectItem>
                             </SelectContent>
                         </Select>
+
+                        <Button
+                            variant={groupByDate ? "secondary" : "ghost"}
+                            className="h-9 bg-background/50 border border-border/50 rounded-lg text-foreground/80 hover:bg-background/80"
+                            onClick={() => setGroupByDate(!groupByDate)}
+                        >
+                            Group by Date
+                        </Button>
                     </div>
                 </div>
 
@@ -600,132 +733,41 @@ export default function LibraryPage() {
                         <div>No matching videos found</div>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                        {displayedVideos.map((video) => (
-                            <Card key={video.id} className="flex flex-col group overflow-hidden border-border/40 hover:border-primary/30 transition-all hover:shadow-lg bg-card/50 backdrop-blur-sm">
-                                <CardHeader className="p-4 z-10 bg-gradient-to-b from-card to-transparent border-b border-border/10 relative">
-                                    {editingVideoId === video.id ? (
-                                        <div className="flex items-center gap-2 mb-1.5">
-                                            <Input
-                                                autoFocus
-                                                value={editTitle}
-                                                onChange={e => setEditTitle(e.target.value)}
-                                                className="h-7 text-xs px-2 py-1"
-                                                onKeyDown={e => e.key === 'Enter' && handleRename(video.id)}
-                                            />
-                                            <Button size="sm" variant="default" className="h-7 px-2" onClick={() => handleRename(video.id)}>
-                                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                            </Button>
+                    <>
+                        {!groupByDate ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                {displayedVideos.map(renderVideoCard)}
+                            </div>
+                        ) : (
+                            <div className="space-y-10">
+                                {Object.entries(
+                                    displayedVideos.reduce((acc, video) => {
+                                        const date = new Date(video.createdAt);
+                                        const today = new Date();
+                                        const yesterday = new Date(today);
+                                        yesterday.setDate(yesterday.getDate() - 1);
+
+                                        let dateBucket = date.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                                        if (date.toDateString() === today.toDateString()) dateBucket = "Today";
+                                        else if (date.toDateString() === yesterday.toDateString()) dateBucket = "Yesterday";
+
+                                        if (!acc[dateBucket]) acc[dateBucket] = [];
+                                        acc[dateBucket].push(video);
+                                        return acc;
+                                    }, {} as Record<string, Video[]>)
+                                ).map(([dateObj, groupVids]) => (
+                                    <div key={dateObj} className="space-y-4">
+                                        <h3 className="text-xl font-bold tracking-tight text-foreground/90 border-b border-border/40 pb-2 mb-4 sticky top-[72px] bg-background/80 backdrop-blur z-20 py-2">
+                                            {dateObj}
+                                        </h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                            {groupVids.map(renderVideoCard)}
                                         </div>
-                                    ) : (
-                                        <div className="flex items-start justify-between gap-1 group/title">
-                                            <CardTitle className="text-base line-clamp-2 leading-snug pr-4" title={video.title}>{video.title}</CardTitle>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="w-6 h-6 shrink-0 opacity-0 group-hover/title:opacity-100 transition-opacity absolute right-2 top-3"
-                                                onClick={() => {
-                                                    setEditTitle(video.title);
-                                                    setEditingVideoId(video.id);
-                                                }}
-                                            >
-                                                <Pencil className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground" />
-                                            </Button>
-                                        </div>
-                                    )}
-
-                                    {/* Labels Area */}
-                                    <div className="flex flex-wrap gap-1.5 mt-2">
-                                        {video.labels?.map(label => (
-                                            <Badge key={label.id} variant="secondary" className="text-[10px] px-1.5 py-0 hover:bg-destructive/10 hover:text-destructive cursor-pointer hover:line-through transition-all" onClick={() => detachLabel(video.id, label.id)} title="Click to remove">
-                                                {label.name}
-                                            </Badge>
-                                        ))}
-
-                                        <Popover>
-                                            <PopoverTrigger>
-                                                <Button variant="ghost" size="sm" className="h-[18px] text-[10px] px-1.5 py-0 text-muted-foreground hover:text-foreground border border-dashed border-border/50 rounded-full">
-                                                    <PlusCircle className="w-3 h-3 mr-1" /> Add Label
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-52 p-0" align="start">
-                                                <Command>
-                                                    <CommandInput placeholder="Search labels..." className="h-8 text-xs" />
-                                                    <CommandList>
-                                                        <CommandEmpty className="py-2 px-2">
-                                                            <div className="flex flex-col gap-2">
-                                                                <span className="text-xs text-muted-foreground">No label found.</span>
-                                                                <div className="flex bg-muted/40 p-1 rounded-md">
-                                                                    <Input placeholder="New label name" value={newLabelName} onChange={e => setNewLabelName(e.target.value)} className="h-7 text-xs border-r-0 rounded-r-none focus-visible:ring-0 shadow-none border -mr-px" onKeyDown={e => e.key === 'Enter' && createLabel()} />
-                                                                    <Button size="sm" onClick={createLabel} className="h-7 rounded-l-none text-xs px-2 shadow-none border">Add</Button>
-                                                                </div>
-                                                            </div>
-                                                        </CommandEmpty>
-                                                        <CommandGroup>
-                                                            {globalLabels.filter(gl => !(video.labels || []).find(vl => vl.id === gl.id)).map(label => (
-                                                                <CommandItem
-                                                                    key={label.id}
-                                                                    onSelect={() => attachLabel(video.id, label.id)}
-                                                                    className="text-xs py-1"
-                                                                >
-                                                                    <Tags className="mr-2 h-3 w-3 opacity-50" />
-                                                                    {label.name}
-                                                                </CommandItem>
-                                                            ))}
-                                                        </CommandGroup>
-                                                    </CommandList>
-                                                </Command>
-                                            </PopoverContent>
-                                        </Popover>
                                     </div>
-
-                                    <CardDescription className="text-xs mt-2.5 flex items-center gap-1.5">
-                                        <span className="opacity-80">{new Date(video.createdAt).toLocaleDateString()}</span>
-                                        <span className="w-1 h-1 rounded-full bg-muted-foreground/30"></span>
-                                        <span className="opacity-80">{video.sourcePlatform || "Unknown"}</span>
-                                        {video.originalUrl && (
-                                            <a href={video.originalUrl} target="_blank" rel="noopener noreferrer" className="ml-0.5 text-primary hover:text-primary/80 transition-colors" title="Open source link">
-                                                <ExternalLink className="w-3.5 h-3.5" />
-                                            </a>
-                                        )}
-                                        {video.fileSize && (
-                                            <>
-                                                <span className="w-1 h-1 rounded-full bg-muted-foreground/30"></span>
-                                                <span className="opacity-80 font-medium text-foreground/60">{(video.fileSize / (1024 * 1024)).toFixed(1)} MB</span>
-                                            </>
-                                        )}
-                                    </CardDescription>
-                                </CardHeader>
-                                <CardContent className="p-0 flex-1 flex items-center justify-center bg-black relative min-h-[140px] overflow-hidden">
-                                    <video
-                                        src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
-                                        controls
-                                        preload="metadata"
-                                        className="w-full h-full object-cover"
-                                    />
-                                </CardContent>
-                                <CardFooter className="p-3 border-t border-border/40 flex items-center gap-2 justify-between bg-card/80 backdrop-blur z-10">
-                                    <div className="text-[11px] text-muted-foreground/70 truncate pr-2 font-mono" title={video.localPath}>
-                                        {video.localPath.split('/').pop()}
-                                    </div>
-                                    <div className="flex gap-1 flex-shrink-0 bg-background/50 rounded-lg p-0.5 border border-border/20">
-                                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => copyToClipboard(video.localPath)} title="Copy Path">
-                                            <Copy className="h-3.5 w-3.5" />
-                                        </Button>
-                                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => handleOpenFolder(video.localPath)} title="View in Explorer">
-                                            <FolderOpen className="h-3.5 w-3.5" />
-                                        </Button>
-                                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => handleCloudUpload(video)} title="Upload to Cloud">
-                                            <Cloud className="h-3.5 w-3.5" />
-                                        </Button>
-                                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-destructive/20 hover:text-destructive shadow-sm ml-1" onClick={() => handleDelete(video.id, video.title)} title="Delete Video">
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                        </Button>
-                                    </div>
-                                </CardFooter>
-                            </Card>
-                        ))}
-                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
         </div>

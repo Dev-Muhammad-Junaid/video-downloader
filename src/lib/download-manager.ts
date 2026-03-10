@@ -15,7 +15,9 @@ export interface DownloadJob {
     error?: string;
 }
 
-const activeDownloads = new Map<string, DownloadJob>();
+const globalForDownloads = global as unknown as { activeDownloads: Map<string, DownloadJob> };
+export const activeDownloads = globalForDownloads.activeDownloads || new Map<string, DownloadJob>();
+if (process.env.NODE_ENV !== "production") globalForDownloads.activeDownloads = activeDownloads;
 
 // Ensure downloads directory exists
 const downloadsDir = path.join(process.cwd(), "downloads");
@@ -130,6 +132,18 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
                     fileSize,
                 };
 
+                // Generalized Taxonomy Dictionary
+                const taxonomy: Record<string, string[]> = {
+                    "Politics": ["biden", "trump", "election", "government", "congress", "parliament", "senate", "president", "political", "democrat", "republican", "policy", "vote"],
+                    "Conflict & War": ["war", "conflict", "military", "army", "missile", "bomb", "iran", "gaza", "israel", "palestine", "ukraine", "russia", "combat", "soldier", "troops", "strike", "hamas", "idf"],
+                    "Entertainment": ["movie", "music", "song", "comedy", "funny", "meme", "entertainment", "gaming", "gameplay", "streamer", "twitch", "joke", "prank", "dance", "tiktok", "viral"],
+                    "Sports": ["football", "basketball", "soccer", "sports", "athlete", "tournament", "match", "nfl", "nba", "fifa", "champion", "olympics"],
+                    "Technology": ["tech", "software", "ai", "coding", "programming", "computer", "phone", "review", "apple", "google", "microsoft", "hardware", "gadget", "cyber"],
+                    "News & Report": ["news", "breaking", "update", "report", "journalism", "interview", "journalist", "media", "press"],
+                    "Education": ["tutorial", "how to", "learn", "education", "science", "history", "documentary", "study", "lecture", "explain"],
+                    "Finance": ["crypto", "finance", "money", "stock", "trading", "invest", "economy", "bitcoin", "wealth", "business", "market", "wall street"]
+                };
+
                 // Prepare tags for relation
                 const allTags = new Set<string>();
 
@@ -144,22 +158,31 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
                         const infoContent = fs.readFileSync(infoJsonPath, 'utf8');
                         const info = JSON.parse(infoContent);
 
-                        // Extract native tags if available
-                        if (Array.isArray(info.tags)) {
-                            info.tags.forEach((tag: string) => {
-                                if (tag && typeof tag === 'string') {
-                                    allTags.add(tag.trim());
+                        const textToParse = `${info.title || ''} ${info.description || ''} ${(info.tags || []).join(' ')}`.toLowerCase();
+
+                        // Score categories based on keyword hits
+                        const scores: Record<string, number> = {};
+
+                        for (const [category, keywords] of Object.entries(taxonomy)) {
+                            scores[category] = 0;
+                            for (const keyword of keywords) {
+                                // use simple word boundary regex to avoid partial matches
+                                const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
+                                const match = textToParse.match(regex);
+                                if (match) {
+                                    scores[category] += match.length;
                                 }
-                            });
+                            }
                         }
 
-                        // Extract hashtags from description and title
-                        const textToParse = `${info.title || ''} ${info.description || ''}`;
-                        const hashtagMatches = textToParse.match(/#[\w_]+/g) || [];
-                        hashtagMatches.forEach(tag => {
-                            // remove the '#' character for the label name itself
-                            allTags.add(tag.substring(1));
-                        });
+                        // Sort categories by score descending
+                        const sortedCategories = Object.entries(scores)
+                            .filter(([_, score]) => score > 0)
+                            .sort((a, b) => b[1] - a[1]);
+
+                        // Take top 2 generalized categories
+                        const topCategories = sortedCategories.slice(0, 2).map(c => c[0]);
+                        topCategories.forEach(c => allTags.add(c));
 
                         // cleanup info json file since we have extracted what we needed
                         fs.unlinkSync(infoJsonPath);
@@ -169,11 +192,11 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
                 }
 
                 // If any labels were collected, string them up for Prisma connectOrCreate
-                if (allTags.size > 0) {
+                const finalTagsToInsert = Array.from(allTags);
+
+                if (finalTagsToInsert.length > 0) {
                     dbData.labels = {
-                        connectOrCreate: Array.from(allTags)
-                            // some sanity bounds so we don't insert 50 paragraph long tags
-                            .filter(t => t.length > 1 && t.length < 40)
+                        connectOrCreate: finalTagsToInsert
                             .map(tag => ({
                                 where: { name: tag },
                                 create: { name: tag, color: "bg-sage-600/30 text-sage-foreground font-medium border-sage-500/30" }
