@@ -45,4 +45,5 @@ next-env.d.ts
 # local data
 /dev.db
 /downloads
+/download_destination
 ytdlp_test.json

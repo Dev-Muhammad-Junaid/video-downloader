@@ -22,10 +22,32 @@ const globalForDownloads = global as unknown as { activeDownloads: Map<string, D
 export const activeDownloads = globalForDownloads.activeDownloads || new Map<string, DownloadJob>();
 if (process.env.NODE_ENV !== "production") globalForDownloads.activeDownloads = activeDownloads;
 
-// Ensure downloads directory exists
-const downloadsDir = path.join(process.cwd(), "downloads");
+// Ensure downloads directory exists — read configurable destination
+const settingsPath = path.join(process.cwd(), "download_destination");
+let downloadsDir = path.join(process.cwd(), "downloads"); // default
+try {
+    if (fs.existsSync(settingsPath)) {
+        const customDir = fs.readFileSync(settingsPath, "utf-8").trim();
+        if (customDir && fs.existsSync(customDir)) {
+            downloadsDir = customDir;
+        }
+    }
+} catch { }
 if (!fs.existsSync(downloadsDir)) {
     fs.mkdirSync(downloadsDir, { recursive: true });
+}
+
+export function getDownloadsDir() {
+    return downloadsDir;
+}
+
+export function setDownloadsDir(newDir: string) {
+    downloadsDir = newDir;
+    if (!fs.existsSync(downloadsDir)) {
+        fs.mkdirSync(downloadsDir, { recursive: true });
+    }
+    // Persist to file
+    fs.writeFileSync(settingsPath, newDir, "utf-8");
 }
 
 const GALLERY_DL_PATH = path.join(os.homedir(), ".local", "bin", "gallery-dl");

@@ -20,6 +20,9 @@ model Video {
   mediaType         String   @default("video") // "video" or "image"
   previewUrl        String?
   sourceId          String?  // The ID from the platform (e.g. tweet ID or youtube ID)
+  cloudKey          String?  // S3 object key (e.g. "uploads/123_video.mp4")
+  cloudUrl          String?  // Full URL to the cloud-stored file
+  cloudUploadedAt   DateTime? // When the file was uploaded to R2
   
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

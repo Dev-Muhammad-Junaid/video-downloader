@@ -8,6 +8,8 @@ import { prisma } from "@/lib/prisma";
 const execAsync = promisify(exec);
 
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mkv", ".webm", ".mov", ".avi"]);
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp"]);
+const ALL_MEDIA_EXTENSIONS = new Set([...VIDEO_EXTENSIONS, ...IMAGE_EXTENSIONS]);
 
 async function getDuration(filePath: string): Promise<number | null> {
     try {
@@ -29,7 +31,7 @@ async function scanDirectory(dir: string): Promise<string[]> {
             const fullPath = path.join(dir, entry.name);
             if (entry.isDirectory()) {
                 result.push(...await scanDirectory(fullPath));
-            } else if (VIDEO_EXTENSIONS.has(path.extname(fullPath).toLowerCase())) {
+            } else if (ALL_MEDIA_EXTENSIONS.has(path.extname(fullPath).toLowerCase())) {
                 result.push(fullPath);
             }
         }
@@ -50,27 +52,40 @@ export async function POST(req: Request) {
         const videoFiles = await scanDirectory(folderPath);
         const imported: any[] = [];
 
+        // Pre-fetch all existing localPaths and filenames for fast dedup
+        const allExisting = await prisma.video.findMany({
+            select: { localPath: true },
+        });
+        const existingPaths = new Set(allExisting.map(v => v.localPath));
+        const existingFilenames = new Set(allExisting.map(v => path.basename(v.localPath)));
+
         for (const filePath of videoFiles) {
-            // Check if already in DB
-            const existing = await prisma.video.findFirst({
-                where: { localPath: filePath },
-            });
+            const fileName = path.basename(filePath);
 
-            if (!existing) {
-                const stats = await fs.stat(filePath);
-                const duration = await getDuration(filePath);
-
-                const video = await prisma.video.create({
-                    data: {
-                        title: path.basename(filePath),
-                        localPath: filePath,
-                        fileSize: stats.size,
-                        duration,
-                        sourcePlatform: "Local Import",
-                    },
-                });
-                imported.push(video);
+            // Skip if exact path OR same filename already in DB (prevents duplicates
+            // when watch folder overlaps with download destination)
+            if (existingPaths.has(filePath) || existingFilenames.has(fileName)) {
+                continue;
             }
+
+            const ext = path.extname(filePath).toLowerCase();
+            const isImage = IMAGE_EXTENSIONS.has(ext);
+            const stats = await fs.stat(filePath);
+            const duration = isImage ? null : await getDuration(filePath);
+
+            const video = await prisma.video.create({
+                data: {
+                    title: fileName,
+                    localPath: filePath,
+                    fileSize: stats.size,
+                    duration,
+                    mediaType: isImage ? "image" : "video",
+                    sourcePlatform: "Local Import",
+                },
+            });
+            imported.push(video);
+            existingPaths.add(filePath);
+            existingFilenames.add(fileName);
         }
 
         return NextResponse.json({ success: true, count: imported.length, videos: imported });

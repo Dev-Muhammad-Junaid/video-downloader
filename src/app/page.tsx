@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
-import { Copy, FolderOpen, Play, Cloud, DownloadCloud, Loader2, CheckCircle2, AlertCircle, Video as VideoIcon, Image as ImageIcon, Search, Pencil, Filter, ExternalLink, HelpCircle, XCircle } from "lucide-react";
+import { Copy, FolderOpen, Play, Cloud, CloudOff, DownloadCloud, Loader2, CheckCircle2, AlertCircle, Video as VideoIcon, Image as ImageIcon, Search, Pencil, Filter, ExternalLink, HelpCircle, XCircle } from "lucide-react";
 import {
     Card,
     CardContent,
@@ -51,6 +51,9 @@ type Video = {
     originalUrl?: string | null;
     createdAt: string;
     labels?: { id: string; name: string; color: string | null }[];
+    cloudKey?: string | null;
+    cloudUrl?: string | null;
+    cloudUploadedAt?: string | null;
 };
 
 type QueueItem = {
@@ -349,11 +352,43 @@ export default function LibraryPage() {
             const result = await res.json();
             if (res.ok && result.success) {
                 toast.success(`Uploaded successfully`, { id: toastId });
+                // Optimistic update
+                setVideos(prev => prev.map(v => v.id === video.id ? { ...v, cloudKey: result.key, cloudUrl: result.cloudUrl, cloudUploadedAt: new Date().toISOString() } : v));
             } else {
                 toast.error(`Upload failed: ${result.error}`, { id: toastId });
             }
         } catch {
             toast.error("Upload failed", { id: toastId });
+        }
+    };
+
+    const handleCloudRemove = async (video: Video) => {
+        const saved = localStorage.getItem("r2_credentials");
+        if (!saved) {
+            toast.error("Please configure S3 credentials in Settings first");
+            return;
+        }
+
+        if (!confirm(`Remove "${video.title}" from cloud storage? The local file will not be affected.`)) return;
+
+        const toastId = toast.loading(`Removing from cloud...`);
+        try {
+            const res = await fetch("/api/sync", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ videoId: video.id, credentials: JSON.parse(saved) }),
+            });
+
+            const result = await res.json();
+            if (res.ok && result.success) {
+                toast.success(`Removed from cloud`, { id: toastId });
+                // Optimistic update
+                setVideos(prev => prev.map(v => v.id === video.id ? { ...v, cloudKey: null, cloudUrl: null, cloudUploadedAt: null } : v));
+            } else {
+                toast.error(`Remove failed: ${result.error}`, { id: toastId });
+            }
+        } catch {
+            toast.error("Remove from cloud failed", { id: toastId });
         }
     };
 
@@ -541,21 +576,31 @@ export default function LibraryPage() {
                     </Popover>
                 </div>
 
-                <CardDescription className="text-xs mt-2.5 flex items-center gap-1.5">
-                    <span className="opacity-80">{new Date(video.createdAt).toLocaleDateString()}</span>
-                    <span className="w-1 h-1 rounded-full bg-muted-foreground/30"></span>
-                    <span className="opacity-80">{video.sourcePlatform || "Unknown"}</span>
-                    {video.originalUrl && (
-                        <a href={video.originalUrl} target="_blank" rel="noopener noreferrer" className="ml-0.5 text-primary hover:text-primary/80 transition-colors" title="Open source link">
-                            <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
-                    )}
-                    {video.fileSize && (
-                        <>
-                            <span className="w-1 h-1 rounded-full bg-muted-foreground/30"></span>
+                <CardDescription className="text-xs mt-2.5 space-y-1.5">
+                    <div className="flex items-center gap-1.5">
+                        <span className="opacity-80">{new Date(video.createdAt).toLocaleDateString()}</span>
+                        <span className="w-1 h-1 rounded-full bg-muted-foreground/30"></span>
+                        <span className="opacity-80 truncate">{video.sourcePlatform || "Unknown"}</span>
+                        {video.originalUrl && (
+                            <a href={video.originalUrl} target="_blank" rel="noopener noreferrer" className="ml-0.5 text-primary hover:text-primary/80 transition-colors flex-shrink-0" title="Open source link">
+                                <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                        {video.fileSize && (
                             <span className="opacity-80 font-medium text-foreground/60">{(video.fileSize / (1024 * 1024)).toFixed(1)} MB</span>
-                        </>
-                    )}
+                        )}
+                        {video.cloudKey && (
+                            <>
+                                {video.fileSize && <span className="w-1 h-1 rounded-full bg-muted-foreground/30"></span>}
+                                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-500">
+                                    <Cloud className="w-3 h-3" />
+                                    Synced
+                                </span>
+                            </>
+                        )}
+                    </div>
                 </CardDescription>
             </CardHeader>
             <CardContent className="p-0 flex-1 flex items-center justify-center bg-black relative min-h-[140px] overflow-hidden">
@@ -585,9 +630,15 @@ export default function LibraryPage() {
                     <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => handleOpenFolder(video.localPath)} title="View in Explorer">
                         <FolderOpen className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => handleCloudUpload(video)} title="Upload to Cloud">
-                        <Cloud className="h-3.5 w-3.5" />
-                    </Button>
+                    {video.cloudKey ? (
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-orange-500/10 hover:text-orange-500 shadow-sm" onClick={() => handleCloudRemove(video)} title="Remove from Cloud">
+                            <CloudOff className="h-3.5 w-3.5" />
+                        </Button>
+                    ) : (
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => handleCloudUpload(video)} title="Upload to Cloud">
+                            <Cloud className="h-3.5 w-3.5" />
+                        </Button>
+                    )}
                     <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-destructive/20 hover:text-destructive shadow-sm ml-1" onClick={() => handleDelete(video.id, video.title)} title="Delete Video">
                         <Trash2 className="h-3.5 w-3.5" />
                     </Button>

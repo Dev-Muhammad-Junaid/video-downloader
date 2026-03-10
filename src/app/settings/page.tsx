@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { FolderOpen, Loader2 } from "lucide-react";
+import { FolderOpen, Loader2, Download, Eye } from "lucide-react";
 
 export default function SettingsPage() {
     const [settings, setSettings] = useState({
@@ -16,21 +16,32 @@ export default function SettingsPage() {
         s3SecretKey: "",
         s3Region: "auto",
         watchFolder: "",
+        destinationFolder: "",
     });
-    const [pickingFolder, setPickingFolder] = useState(false);
+    const [pickingFolder, setPickingFolder] = useState<"watch" | "destination" | null>(null);
 
     useEffect(() => {
         const saved = localStorage.getItem("r2_credentials");
         const folder = localStorage.getItem("watch_folder") || "";
 
         if (saved) {
-            setSettings({ ...JSON.parse(saved), watchFolder: folder });
+            setSettings(s => ({ ...s, ...JSON.parse(saved), watchFolder: folder }));
         } else {
             setSettings(s => ({ ...s, watchFolder: folder }));
         }
+
+        // Fetch the current download destination from the server
+        fetch("/api/settings/destination")
+            .then(res => res.json())
+            .then(data => {
+                if (data.path) {
+                    setSettings(s => ({ ...s, destinationFolder: data.path }));
+                }
+            })
+            .catch(console.error);
     }, []);
 
-    const handleSave = () => {
+    const handleSaveCredentials = () => {
         localStorage.setItem("r2_credentials", JSON.stringify({
             s3Endpoint: settings.s3Endpoint,
             s3Bucket: settings.s3Bucket,
@@ -38,27 +49,51 @@ export default function SettingsPage() {
             s3SecretKey: settings.s3SecretKey,
             s3Region: settings.s3Region
         }));
-        localStorage.setItem("watch_folder", settings.watchFolder);
-        toast.success("Settings saved");
+        toast.success("Credentials saved");
     };
 
-    const handlePickFolder = async () => {
-        setPickingFolder(true);
+    const handleSaveWatchFolder = () => {
+        localStorage.setItem("watch_folder", settings.watchFolder);
+        toast.success("Watch folder saved");
+    };
+
+    const handleSaveDestination = async () => {
+        try {
+            const res = await fetch("/api/settings/destination", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ path: settings.destinationFolder }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                toast.success("Download destination saved");
+            } else {
+                toast.error(data.error || "Failed to save destination");
+            }
+        } catch {
+            toast.error("Failed to save destination");
+        }
+    };
+
+    const handlePickFolder = async (type: "watch" | "destination") => {
+        setPickingFolder(type);
         try {
             const res = await fetch("/api/folder-picker");
             const data = await res.json();
             if (data.path) {
-                setSettings(s => ({ ...s, watchFolder: data.path }));
+                if (type === "watch") {
+                    setSettings(s => ({ ...s, watchFolder: data.path }));
+                } else {
+                    setSettings(s => ({ ...s, destinationFolder: data.path }));
+                }
                 toast.success("Folder selected");
-            } else if (data.cancelled) {
-                // User cancelled
             } else if (data.error) {
                 toast.error(data.error);
             }
         } catch {
             toast.error("Failed to open folder picker");
         } finally {
-            setPickingFolder(false);
+            setPickingFolder(null);
         }
     };
 
@@ -67,32 +102,36 @@ export default function SettingsPage() {
             <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Destination Folder */}
                 <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
                     <CardHeader>
-                        <CardTitle>Local Watch Folder</CardTitle>
+                        <CardTitle className="flex items-center gap-2">
+                            <Download className="w-5 h-5 text-primary" />
+                            Download Destination
+                        </CardTitle>
                         <CardDescription>
-                            Set an absolute path on your computer. When you open the Library, it will automatically sync new video files dropped into this folder.
+                            Where downloaded videos and images are saved on your computer.
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="space-y-2">
-                            <Label htmlFor="watchFolder">Folder Path</Label>
+                            <Label htmlFor="destinationFolder">Folder Path</Label>
                             <div className="flex gap-2">
                                 <Input
-                                    id="watchFolder"
-                                    placeholder="/Users/username/Downloads/social-media"
-                                    value={settings.watchFolder}
-                                    onChange={(e) => setSettings({ ...settings, watchFolder: e.target.value })}
+                                    id="destinationFolder"
+                                    placeholder="/Users/username/Downloads/videos"
+                                    value={settings.destinationFolder}
+                                    onChange={(e) => setSettings({ ...settings, destinationFolder: e.target.value })}
                                     className="flex-1"
                                 />
                                 <Button
                                     variant="outline"
-                                    onClick={handlePickFolder}
-                                    disabled={pickingFolder}
+                                    onClick={() => handlePickFolder("destination")}
+                                    disabled={pickingFolder === "destination"}
                                     className="flex-shrink-0 gap-2"
                                     title="Browse for folder"
                                 >
-                                    {pickingFolder ? (
+                                    {pickingFolder === "destination" ? (
                                         <Loader2 className="w-4 h-4 animate-spin" />
                                     ) : (
                                         <FolderOpen className="w-4 h-4" />
@@ -101,11 +140,54 @@ export default function SettingsPage() {
                                 </Button>
                             </div>
                         </div>
-                        <Button onClick={handleSave} className="w-full">Save Watch Folder</Button>
+                        <Button onClick={handleSaveDestination} className="w-full">Save Destination</Button>
                     </CardContent>
                 </Card>
 
+                {/* Watch Folder */}
                 <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <Eye className="w-5 h-5 text-primary" />
+                            Watch Folder
+                        </CardTitle>
+                        <CardDescription>
+                            Drop media files here to auto-import them into your library. This should be a separate folder from the download destination.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="watchFolder">Folder Path</Label>
+                            <div className="flex gap-2">
+                                <Input
+                                    id="watchFolder"
+                                    placeholder="/Users/username/Videos/watch"
+                                    value={settings.watchFolder}
+                                    onChange={(e) => setSettings({ ...settings, watchFolder: e.target.value })}
+                                    className="flex-1"
+                                />
+                                <Button
+                                    variant="outline"
+                                    onClick={() => handlePickFolder("watch")}
+                                    disabled={pickingFolder === "watch"}
+                                    className="flex-shrink-0 gap-2"
+                                    title="Browse for folder"
+                                >
+                                    {pickingFolder === "watch" ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                        <FolderOpen className="w-4 h-4" />
+                                    )}
+                                    Browse
+                                </Button>
+                            </div>
+                        </div>
+                        <Button onClick={handleSaveWatchFolder} className="w-full">Save Watch Folder</Button>
+                    </CardContent>
+                </Card>
+
+                {/* Cloudflare R2 Credentials */}
+                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg lg:col-span-2">
                     <CardHeader>
                         <CardTitle>Cloudflare R2 / S3 Credentials</CardTitle>
                         <CardDescription>
@@ -162,7 +244,7 @@ export default function SettingsPage() {
                                 />
                             </div>
                         </div>
-                        <Button onClick={handleSave} className="w-full">Save Credentials</Button>
+                        <Button onClick={handleSaveCredentials} className="w-full">Save Credentials</Button>
                     </CardContent>
                 </Card>
             </div>
