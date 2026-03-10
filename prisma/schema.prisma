@@ -1,0 +1,38 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Video {
+  id                String   @id @default(uuid())
+  title             String
+  duration          Float?
+  originalUrl       String?
+  sourcePlatform    String?
+  localPath         String
+  fileSize          Int?
+  previewUrl        String?
+  sourceId          String?  // The ID from the platform (e.g. tweet ID or youtube ID)
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  labels            Label[]  // Implicit m-to-n relation
+}
+
+model Label {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  color     String?  // Optional hex or color literal
+  
+  videos    Video[]  // Implicit m-to-n relation
+  
+  createdAt DateTime @default(now())
+}
+
