@@ -8,8 +8,10 @@ import {
     Settings,
     Cloud,
 } from "lucide-react";
+import Image from "next/image";
 import {
     Sidebar,
+    SidebarHeader,
     SidebarContent,
     SidebarGroup,
     SidebarGroupContent,
@@ -40,6 +42,10 @@ const items = [
 export function AppSidebar() {
     return (
         <Sidebar>
+            <SidebarHeader className="p-4 flex items-center gap-2 flex-row border-b">
+                <Image src="/logo.png" alt="SnapDown Logo" width={32} height={32} className="rounded-sm" />
+                <span className="font-bold text-lg leading-none">SnapDown</span>
+            </SidebarHeader>
             <SidebarContent>
                 <SidebarGroup>
                     <SidebarGroupLabel>Application</SidebarGroupLabel>
