@@ -2,6 +2,21 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 
+const MIME_TYPES: Record<string, string> = {
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mkv": "video/x-matroska",
+    ".mov": "video/quicktime",
+    ".avi": "video/x-msvideo",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".bmp": "image/bmp",
+};
+
 export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const mediaPath = searchParams.get("path");
@@ -15,9 +30,13 @@ export async function GET(req: Request) {
     try {
         const stat = fs.statSync(absolutePath);
         const fileSize = stat.size;
+        const ext = path.extname(absolutePath).toLowerCase();
+        const contentType = MIME_TYPES[ext] || "application/octet-stream";
+        const isVideo = contentType.startsWith("video/");
+
         const range = req.headers.get("range");
 
-        if (range) {
+        if (range && isVideo) {
             const parts = range.replace(/bytes=/, "").split("-");
             const start = parseInt(parts[0], 10);
             const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
@@ -27,15 +46,15 @@ export async function GET(req: Request) {
                 "Content-Range": `bytes ${start}-${end}/${fileSize}`,
                 "Accept-Ranges": "bytes",
                 "Content-Length": chunksize,
-                "Content-Type": "video/mp4",
+                "Content-Type": contentType,
             };
 
-            // We must cast NextResponse due to Type mismatches with ReadableStream
             return new NextResponse(file as any, { status: 206, headers: head as any });
         } else {
             const head = {
                 "Content-Length": fileSize,
-                "Content-Type": "video/mp4",
+                "Content-Type": contentType,
+                "Cache-Control": "public, max-age=31536000",
             };
             const file = fs.createReadStream(absolutePath);
             return new NextResponse(file as any, { status: 200, headers: head as any });

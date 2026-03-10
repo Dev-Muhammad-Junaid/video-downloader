@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
-import { Copy, FolderOpen, Play, Cloud, DownloadCloud, Loader2, CheckCircle2, AlertCircle, Video as VideoIcon, Search, Pencil, Filter, ExternalLink } from "lucide-react";
+import { Copy, FolderOpen, Play, Cloud, DownloadCloud, Loader2, CheckCircle2, AlertCircle, Video as VideoIcon, Image as ImageIcon, Search, Pencil, Filter, ExternalLink } from "lucide-react";
 import {
     Card,
     CardContent,
@@ -46,6 +46,7 @@ type Video = {
     sourcePlatform: string | null;
     localPath: string;
     fileSize: number | null;
+    mediaType?: string | null;
     originalUrl?: string | null;
     createdAt: string;
     labels?: { id: string; name: string; color: string | null }[];
@@ -77,6 +78,7 @@ export default function LibraryPage() {
     const [sortBy, setSortBy] = useState<"newest" | "oldest" | "size-desc" | "size-asc">("newest");
     const [platformFilter, setPlatformFilter] = useState("all");
     const [groupByDate, setGroupByDate] = useState(true);
+    const [mediaTypeFilter, setMediaTypeFilter] = useState<"all" | "video" | "image">("all");
 
     // Renaming state
     const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
@@ -209,7 +211,9 @@ export default function LibraryPage() {
                 body: JSON.stringify({
                     url: metadata.originalUrl,
                     title: metadata.title,
-                    sourcePlatform: metadata.sourcePlatform
+                    sourcePlatform: metadata.sourcePlatform,
+                    mediaType: metadata.mediaType || "video",
+                    imageUrl: metadata.imageUrl,
                 }),
             });
             const dlData = await dlRes.json();
@@ -431,6 +435,11 @@ export default function LibraryPage() {
             );
         }
 
+        // Filter by media type
+        if (mediaTypeFilter !== "all") {
+            result = result.filter(v => (v.mediaType || "video") === mediaTypeFilter);
+        }
+
         // Search query
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
@@ -447,7 +456,7 @@ export default function LibraryPage() {
         });
 
         return result;
-    }, [videos, searchQuery, sortBy, platformFilter]);
+    }, [videos, searchQuery, sortBy, platformFilter, mediaTypeFilter]);
 
     // Get unique platforms for filter
     const platforms = useMemo(() => {
@@ -549,12 +558,20 @@ export default function LibraryPage() {
                 </CardDescription>
             </CardHeader>
             <CardContent className="p-0 flex-1 flex items-center justify-center bg-black relative min-h-[140px] overflow-hidden">
-                <video
-                    src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
-                    controls
-                    preload="metadata"
-                    className="w-full h-full object-cover"
-                />
+                {(video.mediaType === "image") ? (
+                    <img
+                        src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
+                        alt={video.title}
+                        className="w-full h-full object-cover"
+                    />
+                ) : (
+                    <video
+                        src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
+                        controls
+                        preload="metadata"
+                        className="w-full h-full object-cover"
+                    />
+                )}
             </CardContent>
             <CardFooter className="p-3 border-t border-border/40 flex items-center gap-2 justify-between bg-card/80 backdrop-blur z-10">
                 <div className="text-[11px] text-muted-foreground/70 truncate pr-2 font-mono" title={video.localPath}>
@@ -712,6 +729,36 @@ export default function LibraryPage() {
                                 <SelectItem value="size-asc">Smallest Size</SelectItem>
                             </SelectContent>
                         </Select>
+
+                        {/* Media Type Toggle */}
+                        <div className="flex items-center border border-border/50 rounded-lg overflow-hidden bg-background/50">
+                            <Button
+                                variant={mediaTypeFilter === "all" ? "secondary" : "ghost"}
+                                size="sm"
+                                className="h-9 rounded-none border-none text-xs px-3"
+                                onClick={() => setMediaTypeFilter("all")}
+                            >
+                                All
+                            </Button>
+                            <Button
+                                variant={mediaTypeFilter === "video" ? "secondary" : "ghost"}
+                                size="sm"
+                                className="h-9 rounded-none border-none px-3"
+                                onClick={() => setMediaTypeFilter("video")}
+                                title="Videos only"
+                            >
+                                <VideoIcon className="w-4 h-4" />
+                            </Button>
+                            <Button
+                                variant={mediaTypeFilter === "image" ? "secondary" : "ghost"}
+                                size="sm"
+                                className="h-9 rounded-none border-none px-3"
+                                onClick={() => setMediaTypeFilter("image")}
+                                title="Images only"
+                            >
+                                <ImageIcon className="w-4 h-4" />
+                            </Button>
+                        </div>
 
                         <Button
                             variant={groupByDate ? "secondary" : "ghost"}

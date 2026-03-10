@@ -17,6 +17,7 @@ model Video {
   sourcePlatform    String?
   localPath         String
   fileSize          Int?
+  mediaType         String   @default("video") // "video" or "image"
   previewUrl        String?
   sourceId          String?  // The ID from the platform (e.g. tweet ID or youtube ID)
   
