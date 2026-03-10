@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
-import { Copy, FolderOpen, Play, Cloud, DownloadCloud, Loader2, CheckCircle2, AlertCircle, Video as VideoIcon, Image as ImageIcon, Search, Pencil, Filter, ExternalLink } from "lucide-react";
+import { Copy, FolderOpen, Play, Cloud, DownloadCloud, Loader2, CheckCircle2, AlertCircle, Video as VideoIcon, Image as ImageIcon, Search, Pencil, Filter, ExternalLink, HelpCircle, XCircle } from "lucide-react";
 import {
     Card,
     CardContent,
@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/command";
 import { toast } from "sonner";
 import { Trash2, Tags, PlusCircle } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 type Video = {
     id: string;
@@ -169,7 +170,7 @@ export default function LibraryPage() {
     };
 
     const handleAddLinks = () => {
-        const links = urlText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        const links = [...new Set(urlText.split('\n').map(l => l.trim()).filter(l => l.length > 0))];
         if (links.length === 0) return;
 
         const newItems: QueueItem[] = links.map(url => ({
@@ -612,6 +613,21 @@ export default function LibraryPage() {
                         <CardTitle className="flex items-center gap-2 text-2xl font-bold tracking-tight">
                             <DownloadCloud className="w-6 h-6 text-primary" />
                             Studio Downloader
+                            <Tooltip>
+                                <TooltipTrigger className="ml-1 cursor-help">
+                                    <HelpCircle className="w-4 h-4 text-muted-foreground/60 hover:text-muted-foreground transition-colors" />
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-[280px] p-3 text-left leading-relaxed">
+                                    <p className="font-semibold mb-1">Supported Features</p>
+                                    <ul className="space-y-0.5 text-[11px] opacity-90 list-disc pl-3">
+                                        <li>Videos from X/Twitter, YouTube, Instagram, TikTok, Reddit &amp; more</li>
+                                        <li>Images from tweets &amp; social posts</li>
+                                        <li>Bulk download — one URL per line</li>
+                                        <li>Auto-labeling by content category</li>
+                                        <li>Duplicate detection</li>
+                                    </ul>
+                                </TooltipContent>
+                            </Tooltip>
                         </CardTitle>
                         <CardDescription className="text-sm">
                             Paste multiple links (one per line) to bulk extract and save.
@@ -637,6 +653,25 @@ export default function LibraryPage() {
                             Active Queue
                             {queue.length > 0 && <span className="ml-2 text-sm font-normal text-muted-foreground px-2 py-0.5 bg-muted rounded-full">{queue.length} jobs</span>}
                         </h2>
+                        {queue.length > 0 && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 text-xs text-muted-foreground hover:text-destructive gap-1.5"
+                                onClick={async () => {
+                                    try {
+                                        await fetch("/api/download/queue?mode=all", { method: "DELETE" });
+                                        setQueue([]);
+                                        toast.success("Queue cleared");
+                                    } catch {
+                                        toast.error("Failed to clear queue");
+                                    }
+                                }}
+                            >
+                                <XCircle className="w-3.5 h-3.5" />
+                                Clear Queue
+                            </Button>
+                        )}
                     </div>
 
                     <div className="flex-1 min-h-[220px] max-h-[300px] overflow-y-auto space-y-3 pr-2 scrollbar-thin">

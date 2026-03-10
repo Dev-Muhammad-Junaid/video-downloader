@@ -38,6 +38,23 @@ export function getAllJobs() {
     return Array.from(activeDownloads.values());
 }
 
+export function clearCompletedJobs() {
+    for (const [id, job] of activeDownloads) {
+        if (job.status === "completed" || job.status === "error") {
+            activeDownloads.delete(id);
+        }
+    }
+}
+
+export function clearAllJobs() {
+    for (const [id, job] of activeDownloads) {
+        // Only keep actively downloading jobs
+        if (job.status !== "downloading" && job.status !== "processing") {
+            activeDownloads.delete(id);
+        }
+    }
+}
+
 // Generalized Taxonomy Dictionary
 const taxonomy: Record<string, string[]> = {
     "Politics": ["biden", "trump", "election", "government", "congress", "parliament", "senate", "president", "political", "democrat", "republican", "policy", "vote"],
