@@ -93,10 +93,11 @@ export default function CloudSyncPage() {
             return null;
         }
         try {
+            const creds = JSON.parse(saved);
             const res = await fetch("/api/sync/presign", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ videoId, credentials: JSON.parse(saved) }),
+                body: JSON.stringify({ videoId, credentials: creds, expiresIn: creds.urlExpiry || 604800 }),
             });
             const data = await res.json();
             if (res.ok && data.url) return data.url;

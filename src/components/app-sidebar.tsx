@@ -2,13 +2,14 @@
 
 import * as React from "react";
 import {
-    Home,
-    Download,
     Library,
     Settings,
     Cloud,
+    Moon,
+    Sun,
 } from "lucide-react";
 import Image from "next/image";
+import { useTheme } from "next-themes";
 import {
     Sidebar,
     SidebarHeader,
@@ -19,7 +20,9 @@ import {
     SidebarMenu,
     SidebarMenuButton,
     SidebarMenuItem,
+    SidebarFooter,
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
 
 const items = [
     {
@@ -40,6 +43,11 @@ const items = [
 ];
 
 export function AppSidebar() {
+    const { theme, setTheme } = useTheme();
+    const [mounted, setMounted] = React.useState(false);
+
+    React.useEffect(() => setMounted(true), []);
+
     return (
         <Sidebar>
             <SidebarHeader className="p-4 flex items-center gap-2 flex-row border-b">
@@ -65,6 +73,27 @@ export function AppSidebar() {
                     </SidebarGroupContent>
                 </SidebarGroup>
             </SidebarContent>
+            <SidebarFooter className="p-3 border-t">
+                {mounted && (
+                    <Button
+                        variant="ghost"
+                        className="w-full justify-start gap-2 h-9 text-sm text-muted-foreground hover:text-foreground"
+                        onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                    >
+                        {theme === "dark" ? (
+                            <>
+                                <Sun className="w-4 h-4" />
+                                Light Mode
+                            </>
+                        ) : (
+                            <>
+                                <Moon className="w-4 h-4" />
+                                Dark Mode
+                            </>
+                        )}
+                    </Button>
+                )}
+            </SidebarFooter>
         </Sidebar>
     );
 }

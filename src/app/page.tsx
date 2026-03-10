@@ -619,10 +619,7 @@ export default function LibraryPage() {
                     />
                 )}
             </CardContent>
-            <CardFooter className="p-3 border-t border-border/40 flex items-center gap-2 justify-between bg-card/80 backdrop-blur z-10">
-                <div className="text-[11px] text-muted-foreground/70 truncate pr-2 font-mono" title={video.localPath}>
-                    {video.localPath.split('/').pop()}
-                </div>
+            <CardFooter className="p-3 border-t border-border/40 flex items-center justify-end bg-card/80 backdrop-blur z-10">
                 <div className="flex gap-1 flex-shrink-0 bg-background/50 rounded-lg p-0.5 border border-border/20">
                     <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => copyToClipboard(video.localPath)} title="Copy Path">
                         <Copy className="h-3.5 w-3.5" />

@@ -17,7 +17,7 @@ function createS3Client(credentials: any) {
 // POST — generate a presigned URL for a cloud file
 export async function POST(req: Request) {
     try {
-        const { videoId, credentials } = await req.json();
+        const { videoId, credentials, expiresIn: requestedExpiry } = await req.json();
 
         if (!videoId || !credentials || !credentials.s3Endpoint || !credentials.s3Bucket) {
             return NextResponse.json({ error: "Missing required data" }, { status: 400 });
@@ -35,8 +35,10 @@ export async function POST(req: Request) {
             Key: video.cloudKey,
         });
 
-        // Generate a presigned URL valid for 1 hour
-        const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+        // Use requested expiry or default to 7 days, cap at 7 days max
+        const expiresIn = Math.min(requestedExpiry || 604800, 604800);
+
+        const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn });
 
         return NextResponse.json({ success: true, url: presignedUrl });
     } catch (error: any) {

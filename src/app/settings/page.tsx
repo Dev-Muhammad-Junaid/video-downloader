@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { FolderOpen, Loader2, Download, Eye } from "lucide-react";
+import { FolderOpen, Loader2, Download, Eye, Clock } from "lucide-react";
 
 export default function SettingsPage() {
     const [settings, setSettings] = useState({
@@ -17,6 +17,7 @@ export default function SettingsPage() {
         s3Region: "auto",
         watchFolder: "",
         destinationFolder: "",
+        urlExpiry: 604800,
     });
     const [pickingFolder, setPickingFolder] = useState<"watch" | "destination" | null>(null);
 
@@ -25,7 +26,8 @@ export default function SettingsPage() {
         const folder = localStorage.getItem("watch_folder") || "";
 
         if (saved) {
-            setSettings(s => ({ ...s, ...JSON.parse(saved), watchFolder: folder }));
+            const parsed = JSON.parse(saved);
+            setSettings(s => ({ ...s, ...parsed, watchFolder: folder, urlExpiry: parsed.urlExpiry || 604800 }));
         } else {
             setSettings(s => ({ ...s, watchFolder: folder }));
         }
@@ -47,7 +49,8 @@ export default function SettingsPage() {
             s3Bucket: settings.s3Bucket,
             s3AccessKey: settings.s3AccessKey,
             s3SecretKey: settings.s3SecretKey,
-            s3Region: settings.s3Region
+            s3Region: settings.s3Region,
+            urlExpiry: settings.urlExpiry,
         }));
         toast.success("Credentials saved");
     };
@@ -244,7 +247,26 @@ export default function SettingsPage() {
                                 />
                             </div>
                         </div>
-                        <Button onClick={handleSaveCredentials} className="w-full">Save Credentials</Button>
+                        <div className="space-y-2 sm:col-span-2">
+                            <Label htmlFor="urlExpiry" className="flex items-center gap-2">
+                                <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                                Presigned URL Expiry
+                            </Label>
+                            <select
+                                id="urlExpiry"
+                                value={settings.urlExpiry}
+                                onChange={(e) => setSettings({ ...settings, urlExpiry: Number(e.target.value) })}
+                                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                            >
+                                <option value={3600}>1 hour</option>
+                                <option value={21600}>6 hours</option>
+                                <option value={86400}>24 hours</option>
+                                <option value={259200}>3 days</option>
+                                <option value={604800}>7 days (default)</option>
+                            </select>
+                            <p className="text-xs text-muted-foreground">How long preview and download links stay valid before expiring.</p>
+                        </div>
+                        <Button onClick={handleSaveCredentials} className="w-full sm:col-span-2">Save Credentials</Button>
                     </CardContent>
                 </Card>
             </div>
