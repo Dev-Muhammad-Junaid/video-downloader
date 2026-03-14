@@ -1,0 +1,111 @@
+import { spawn } from "child_process";
+import path from "path";
+import fs from "fs";
+
+// Thumbnails directory within the project
+const thumbnailsDir = path.join(process.cwd(), "thumbnails");
+if (!fs.existsSync(thumbnailsDir)) {
+    fs.mkdirSync(thumbnailsDir, { recursive: true });
+}
+
+/**
+ * Generate a thumbnail for a video file using ffmpeg.
+ * Captures a frame at 1 second, scaled to 480px wide, saved as .webp
+ */
+export function generateVideoThumbnail(videoPath: string, videoId: string): Promise<string | null> {
+    return new Promise((resolve) => {
+        const outputPath = path.join(thumbnailsDir, `${videoId}.webp`);
+
+        // If thumbnail already exists, return it
+        if (fs.existsSync(outputPath)) {
+            return resolve(outputPath);
+        }
+
+        // Verify video file exists
+        if (!fs.existsSync(videoPath)) {
+            console.error(`Video file not found for thumbnail: ${videoPath}`);
+            return resolve(null);
+        }
+
+        const ffmpeg = spawn("ffmpeg", [
+            "-y",           // Overwrite
+            "-ss", "1",     // Seek to 1 second
+            "-i", videoPath,
+            "-vframes", "1",
+            "-vf", "scale=480:-1",
+            "-f", "webp",
+            "-quality", "80",
+            outputPath,
+        ]);
+
+        ffmpeg.on("close", (code) => {
+            if (code === 0 && fs.existsSync(outputPath)) {
+                resolve(outputPath);
+            } else {
+                console.error(`ffmpeg thumbnail generation failed with code ${code}`);
+                resolve(null);
+            }
+        });
+
+        ffmpeg.on("error", (err) => {
+            console.error("ffmpeg spawn error:", err);
+            resolve(null);
+        });
+    });
+}
+
+/**
+ * Generate a thumbnail for an image file.
+ * Uses ffmpeg to resize to 480px wide and save as .webp
+ */
+export function generateImageThumbnail(imagePath: string, videoId: string): Promise<string | null> {
+    return new Promise((resolve) => {
+        const outputPath = path.join(thumbnailsDir, `${videoId}.webp`);
+
+        if (fs.existsSync(outputPath)) {
+            return resolve(outputPath);
+        }
+
+        if (!fs.existsSync(imagePath)) {
+            console.error(`Image file not found for thumbnail: ${imagePath}`);
+            return resolve(null);
+        }
+
+        const ffmpeg = spawn("ffmpeg", [
+            "-y",
+            "-i", imagePath,
+            "-vf", "scale=480:-1",
+            "-f", "webp",
+            "-quality", "80",
+            outputPath,
+        ]);
+
+        ffmpeg.on("close", (code) => {
+            if (code === 0 && fs.existsSync(outputPath)) {
+                resolve(outputPath);
+            } else {
+                console.error(`ffmpeg image thumbnail failed with code ${code}`);
+                resolve(null);
+            }
+        });
+
+        ffmpeg.on("error", (err) => {
+            console.error("ffmpeg spawn error:", err);
+            resolve(null);
+        });
+    });
+}
+
+/**
+ * Generate a thumbnail for any media file based on type.
+ */
+export async function generateThumbnail(filePath: string, videoId: string, mediaType: string): Promise<string | null> {
+    if (mediaType === "image") {
+        return generateImageThumbnail(filePath, videoId);
+    }
+    return generateVideoThumbnail(filePath, videoId);
+}
+
+export function getThumbnailsDir() {
+    return thumbnailsDir;
+}

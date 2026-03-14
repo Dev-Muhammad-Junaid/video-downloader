@@ -10,17 +10,151 @@ const GALLERY_DL_PATH = path.join(os.homedir(), ".local", "bin", "gallery-dl");
 
 export async function POST(req: Request) {
     try {
-        const { url } = await req.json();
+        let { url } = await req.json();
 
         if (!url) {
             return NextResponse.json({ error: "URL is required" }, { status: 400 });
         }
 
+        // Check for playlist first
+        try {
+            // Check if we are already requesting a specific item from a playlist to avoid recursion
+            const parsedInputUrl = new URL(url);
+            const playlistItemMatch = parsedInputUrl.searchParams.get("snapdown_playlist_item");
+            
+            let playlistOut = "";
+            if (!playlistItemMatch) {
+                const { stdout } = await execAsync(`yt-dlp --flat-playlist -j "${url}"`, { timeout: 15000 });
+                playlistOut = stdout;
+            }
+
+            if (playlistOut) {
+                const playlistLines = playlistOut.trim().split("\n").filter(Boolean);
+                
+                if (playlistLines.length > 1) {
+                    // This is a playlist!
+                    const items = [];
+                    let playlistTitle = "Playlist";
+                    
+                    let index = 1;
+                    for (const line of playlistLines) {
+                        try {
+                            const entry = JSON.parse(line);
+                            if (entry._type === "playlist" && entry.title) {
+                                playlistTitle = entry.title;
+                                continue;
+                            }
+                            
+                            let itemUrl = entry.url || entry.webpage_url || `https://www.youtube.com/watch?v=${entry.id}`;
+                            const entryIndex = entry.playlist_index || index;
+                            
+                            // Prevent infinite loops where the item URL is exactly the parent URL (e.g. Twitter threads)
+                            // We append a custom query param so next time we know to target this exact item index
+                            if (itemUrl === url || itemUrl === entry.webpage_url) {
+                                const separator = itemUrl.includes('?') ? '&' : '?';
+                                itemUrl = `${itemUrl}${separator}snapdown_playlist_item=${entryIndex}`;
+                            }
+
+                            items.push({
+                                id: entry.id || entry.url || `playlist_item_${entryIndex}`,
+                                title: entry.title || `Item ${index}`,
+                                url: itemUrl,
+                                duration: entry.duration || null,
+                                thumbnail: entry.thumbnails?.[0]?.url || entry.thumbnail || null,
+                            });
+                            index++;
+                        } catch { }
+                    }
+
+                    if (items.length > 1) {
+                        return NextResponse.json({
+                            isPlaylist: true,
+                            playlistTitle,
+                            itemCount: items.length,
+                            items,
+                            mediaType: "video",
+                        });
+                    }
+                }
+            }
+        } catch {
+            // Not a playlist or yt-dlp doesn't support flat-playlist for this URL
+        }
+
+        // Check if we need to target a specific item index from our custom parameter
+        let targetItemArg = "";
+        try {
+            const parsedUrl = new URL(url);
+            const playlistItem = parsedUrl.searchParams.get("snapdown_playlist_item");
+            if (playlistItem) {
+                targetItemArg = `-I ${playlistItem}`;
+                // We should also remove the parameter from the actual URL sent to yt-dlp so it doesn't get confused
+                parsedUrl.searchParams.delete("snapdown_playlist_item");
+                url = parsedUrl.toString();
+            }
+        } catch { }
+
         // Try yt-dlp first (works for videos)
         try {
-            const { stdout } = await execAsync(`yt-dlp -j "${url}"`);
+            const { stdout } = await execAsync(`yt-dlp ${targetItemArg} -j "${url}"`);
             const lines = stdout.trim().split("\n");
+            // If we extracted multiple lines (e.g. still an array), take the first one since we used -I
             const metadata = JSON.parse(lines[0]);
+
+            // Parse available formats
+            const formats: { formatId: string; label: string; ext: string; resolution: string | null; filesize: number | null; note: string }[] = [];
+            
+            if (metadata.formats && Array.isArray(metadata.formats)) {
+                // Group formats into quality tiers
+                const seen = new Set<string>();
+                
+                for (const fmt of metadata.formats) {
+                    if (!fmt.format_id) continue;
+                    const hasVideo = fmt.vcodec && fmt.vcodec !== "none";
+                    const hasAudio = fmt.acodec && fmt.acodec !== "none";
+                    const height = fmt.height || 0;
+                    const ext = fmt.ext || "mp4";
+                    
+                    let label = "";
+                    let key = "";
+                    
+                    if (hasVideo && hasAudio) {
+                        label = height ? `${height}p (${ext})` : `Video+Audio (${ext})`;
+                        key = `combo-${height}-${ext}`;
+                    } else if (hasVideo) {
+                        label = height ? `${height}p video only (${ext})` : `Video only (${ext})`;
+                        key = `video-${height}-${ext}`;
+                    } else if (hasAudio) {
+                        const abr = fmt.abr ? `${Math.round(fmt.abr)}kbps` : "";
+                        label = `Audio only ${abr} (${ext})`;
+                        key = `audio-${fmt.abr || 0}-${ext}`;
+                    } else {
+                        continue;
+                    }
+                    
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    
+                    formats.push({
+                        formatId: fmt.format_id,
+                        label,
+                        ext,
+                        resolution: height ? `${height}p` : null,
+                        filesize: fmt.filesize || fmt.filesize_approx || null,
+                        note: fmt.format_note || "",
+                    });
+                }
+                
+                // Sort: combo formats first, then by resolution descending
+                formats.sort((a, b) => {
+                    const aCombo = a.label.includes("video only") || a.label.includes("Audio only") ? 1 : 0;
+                    const bCombo = b.label.includes("video only") || b.label.includes("Audio only") ? 1 : 0;
+                    if (aCombo !== bCombo) return aCombo - bCombo;
+                    const aRes = parseInt(a.resolution || "0");
+                    const bRes = parseInt(b.resolution || "0");
+                    return bRes - aRes;
+                });
+            }
 
             return NextResponse.json({
                 id: metadata.id,
@@ -31,6 +165,7 @@ export async function POST(req: Request) {
                 thumbnail: metadata.thumbnail,
                 viewCount: metadata.view_count,
                 mediaType: "video",
+                formats,
             });
         } catch (ytdlpError) {
             console.log("yt-dlp failed, trying gallery-dl for image extraction...");

@@ -7,6 +7,7 @@ import {
     Cloud,
     Moon,
     Sun,
+    History,
 } from "lucide-react";
 import Image from "next/image";
 import { useTheme } from "next-themes";
@@ -34,6 +35,11 @@ const items = [
         title: "Cloud Sync",
         url: "/sync",
         icon: Cloud,
+    },
+    {
+        title: "History",
+        url: "/history",
+        icon: History,
     },
     {
         title: "Settings",

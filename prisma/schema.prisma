@@ -20,6 +20,7 @@ model Video {
   mediaType         String   @default("video") // "video" or "image"
   previewUrl        String?
   sourceId          String?  // The ID from the platform (e.g. tweet ID or youtube ID)
+  thumbnailPath     String?  // Path to auto-generated thumbnail
   cloudKey          String?  // S3 object key (e.g. "uploads/123_video.mp4")
   cloudUrl          String?  // Full URL to the cloud-stored file
   cloudUploadedAt   DateTime? // When the file was uploaded to R2
@@ -40,3 +41,16 @@ model Label {
   createdAt DateTime @default(now())
 }
 
+model DownloadLog {
+  id             String    @id @default(uuid())
+  url            String
+  title          String
+  sourcePlatform String?
+  status         String    // "downloading", "completed", "error"
+  errorMessage   String?
+  fileSize       Int?
+  videoId        String?   // Link to Video if successful
+  duration       Float?    // Download duration in seconds
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
+}

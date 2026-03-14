@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { FolderOpen, Loader2, Download, Eye, Clock } from "lucide-react";
+import { FolderOpen, Loader2, Download, Eye, Clock, FileDown, Database } from "lucide-react";
 
 export default function SettingsPage() {
     const [settings, setSettings] = useState({
@@ -267,6 +267,58 @@ export default function SettingsPage() {
                             <p className="text-xs text-muted-foreground">How long preview and download links stay valid before expiring.</p>
                         </div>
                         <Button onClick={handleSaveCredentials} className="w-full sm:col-span-2">Save Credentials</Button>
+                    </CardContent>
+                </Card>
+
+                {/* Export & Backup */}
+                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
+                    <CardHeader>
+                        <CardTitle className="text-xl flex items-center gap-2">
+                            <FileDown className="w-5 h-5 text-primary" />
+                            Export & Backup
+                        </CardTitle>
+                        <CardDescription>Export your library metadata or backup the entire database.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <Button
+                                variant="outline"
+                                className="h-auto py-4 flex flex-col items-center gap-2"
+                                onClick={() => {
+                                    window.location.href = "/api/export?format=json";
+                                    toast.success("JSON export started");
+                                }}
+                            >
+                                <FileDown className="w-6 h-6 text-blue-500" />
+                                <span className="font-medium">Export JSON</span>
+                                <span className="text-[10px] text-muted-foreground">Structured metadata</span>
+                            </Button>
+                            <Button
+                                variant="outline"
+                                className="h-auto py-4 flex flex-col items-center gap-2"
+                                onClick={() => {
+                                    window.location.href = "/api/export?format=csv";
+                                    toast.success("CSV export started");
+                                }}
+                            >
+                                <FileDown className="w-6 h-6 text-emerald-500" />
+                                <span className="font-medium">Export CSV</span>
+                                <span className="text-[10px] text-muted-foreground">Spreadsheet format</span>
+                            </Button>
+                            <Button
+                                variant="outline"
+                                className="h-auto py-4 flex flex-col items-center gap-2"
+                                onClick={() => {
+                                    window.location.href = "/api/export?format=db";
+                                    toast.success("Database backup started");
+                                }}
+                            >
+                                <Database className="w-6 h-6 text-amber-500" />
+                                <span className="font-medium">Backup DB</span>
+                                <span className="text-[10px] text-muted-foreground">Raw SQLite file</span>
+                            </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">JSON and CSV export library metadata. Database backup includes raw SQLite for full restoration.</p>
                     </CardContent>
                 </Card>
             </div>

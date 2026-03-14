@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
-import { Copy, FolderOpen, Play, Cloud, CloudOff, DownloadCloud, Loader2, CheckCircle2, AlertCircle, Video as VideoIcon, Image as ImageIcon, Search, Pencil, Filter, ExternalLink, HelpCircle, XCircle } from "lucide-react";
+import { Copy, FolderOpen, Play, Cloud, CloudOff, DownloadCloud, Loader2, CheckCircle2, AlertCircle, Video as VideoIcon, Image as ImageIcon, Search, Pencil, Filter, ExternalLink, HelpCircle, XCircle, Maximize2 } from "lucide-react";
 import {
     Card,
     CardContent,
@@ -39,6 +39,7 @@ import {
 import { toast } from "sonner";
 import { Trash2, Tags, PlusCircle } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { MediaPlayerModal } from "@/components/media-player-modal";
 
 type Video = {
     id: string;
@@ -54,6 +55,7 @@ type Video = {
     cloudKey?: string | null;
     cloudUrl?: string | null;
     cloudUploadedAt?: string | null;
+    thumbnailPath?: string | null;
 };
 
 type QueueItem = {
@@ -67,6 +69,10 @@ type QueueItem = {
     jobId?: string;
     progress?: number;
     errorText?: string;
+    mediaType?: string;
+    imageUrl?: string;
+    formats?: { formatId: string; label: string; ext: string; resolution: string | null; filesize: number | null; note: string }[];
+    selectedFormat?: string;
 };
 
 export default function LibraryPage() {
@@ -91,6 +97,10 @@ export default function LibraryPage() {
     // Labels State
     const [globalLabels, setGlobalLabels] = useState<{ id: string; name: string; color: string | null }[]>([]);
     const [newLabelName, setNewLabelName] = useState("");
+
+    // Media Player Modal State
+    const [playerOpen, setPlayerOpen] = useState(false);
+    const [playerIndex, setPlayerIndex] = useState(0);
 
     const pollingRefs = React.useRef<{ [key: string]: NodeJS.Timeout }>({});
 
@@ -199,12 +209,42 @@ export default function LibraryPage() {
             const metadata = await res.json();
             if (!res.ok) throw new Error(metadata.error || "Metadata failed");
 
+            // Check if this is a playlist
+            if (metadata.isPlaylist && metadata.items?.length > 1) {
+                toast.success(`📋 Playlist detected: "${metadata.playlistTitle}" (${metadata.items.length} items)`);
+                
+                // Remove the original parsing item
+                setQueue(prev => prev.filter(q => q.id !== id));
+                
+                // Add individual items
+                const playlistItems: QueueItem[] = metadata.items.map((item: any) => ({
+                    id: Math.random().toString(36).substring(7),
+                    originalUrl: item.url,
+                    title: item.title,
+                    thumbnail: item.thumbnail,
+                    duration: item.duration,
+                    status: 'parsing' as const,
+                }));
+                
+                setQueue(prev => [...playlistItems, ...prev]);
+                
+                // Start downloading each item
+                for (const item of playlistItems) {
+                    parseAndDownload(item.id, item.originalUrl);
+                }
+                return;
+            }
+
             setQueue(prev => prev.map(q => q.id === id ? {
                 ...q,
                 title: metadata.title,
                 thumbnail: metadata.thumbnail,
                 sourcePlatform: metadata.sourcePlatform,
                 duration: metadata.duration ?? null,
+                mediaType: metadata.mediaType || "video",
+                imageUrl: metadata.imageUrl,
+                formats: metadata.formats || [],
+                selectedFormat: "",
                 status: 'pending'
             } : q));
 
@@ -218,6 +258,7 @@ export default function LibraryPage() {
                     sourcePlatform: metadata.sourcePlatform,
                     mediaType: metadata.mediaType || "video",
                     imageUrl: metadata.imageUrl,
+                    formatId: undefined, // default: best quality
                 }),
             });
             const dlData = await dlRes.json();
@@ -603,18 +644,39 @@ export default function LibraryPage() {
                     </div>
                 </CardDescription>
             </CardHeader>
-            <CardContent className="p-0 flex-1 flex items-center justify-center bg-black relative min-h-[140px] overflow-hidden">
-                {(video.mediaType === "image") ? (
+            <CardContent
+                className="p-0 flex-1 flex items-center justify-center bg-black relative min-h-[140px] overflow-hidden group"
+            >
+                {/* Expand Button for Media Player Modal */}
+                <Button
+                    variant="secondary"
+                    size="icon"
+                    className="absolute top-2 right-2 z-10 w-8 h-8 opacity-0 group-hover:opacity-100 transition-opacity rounded-full bg-background/80 backdrop-blur-sm border border-border/50 hover:bg-background"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        const idx = displayedVideos.findIndex(v => v.id === video.id);
+                        setPlayerIndex(idx >= 0 ? idx : 0);
+                        setPlayerOpen(true);
+                    }}
+                    title="Open in Media Player"
+                >
+                    <Maximize2 className="w-4 h-4 text-foreground/80" />
+                </Button>
+
+                {video.mediaType === "image" ? (
                     <img
                         src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
                         alt={video.title}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        loading="lazy"
                     />
                 ) : (
                     <video
                         src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
                         controls
-                        preload="metadata"
+                        preload="none"
+                        poster={video.thumbnailPath ? `/api/thumbnail/${video.id}` : undefined}
                         className="w-full h-full object-cover"
                     />
                 )}
@@ -745,6 +807,25 @@ export default function LibraryPage() {
                                         <p className="text-sm font-semibold truncate text-foreground/90">
                                             {item.title || item.originalUrl}
                                         </p>
+                                        {/* Format Selection Dropdown */}
+                                        {item.formats && item.formats.length > 0 && item.status !== 'downloading' && item.status !== 'completed' && (
+                                            <select
+                                                value={item.selectedFormat || ""}
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    setQueue(prev => prev.map(q => q.id === item.id ? { ...q, selectedFormat: val } : q));
+                                                }}
+                                                className="mt-1.5 flex h-7 w-full max-w-[240px] rounded-md border border-input bg-transparent px-2 py-1 text-[11px] shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                            >
+                                                <option value="">Best Quality (default)</option>
+                                                <option value="audio">🎵 Audio Only (MP3)</option>
+                                                {item.formats.slice(0, 8).map(fmt => (
+                                                    <option key={fmt.formatId} value={fmt.formatId}>
+                                                        {fmt.label}{fmt.filesize ? ` (~${(fmt.filesize / (1024*1024)).toFixed(0)}MB)` : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        )}
                                         <div className="flex items-center gap-3 mt-2">
                                             {item.status === 'parsing' && <><Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" /><span className="text-xs text-muted-foreground">Parsing metadata...</span></>}
                                             {item.status === 'pending' && <><Loader2 className="w-3.5 h-3.5 text-primary animate-spin" /><span className="text-xs text-muted-foreground">Initializing download...</span></>}
@@ -900,6 +981,34 @@ export default function LibraryPage() {
                     </>
                 )}
             </div>
+
+            {/* Media Player Modal */}
+            <MediaPlayerModal
+                open={playerOpen}
+                onOpenChange={setPlayerOpen}
+                videos={displayedVideos}
+                initialIndex={playerIndex}
+                onDelete={handleDelete}
+                onCloudUpload={handleCloudUpload}
+                onCloudRemove={handleCloudRemove}
+                onTitleUpdate={async (videoId, newTitle) => {
+                    try {
+                        const res = await fetch(`/api/library/action`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ action: "rename", videoId, newTitle }),
+                        });
+                        if (res.ok) {
+                            setVideos(prev =>
+                                prev.map(v => v.id === videoId ? { ...v, title: newTitle } : v)
+                            );
+                            toast.success("Title updated");
+                        }
+                    } catch {
+                        toast.error("Failed to update title");
+                    }
+                }}
+            />
         </div>
     );
 }
