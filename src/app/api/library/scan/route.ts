@@ -52,12 +52,29 @@ export async function POST(req: Request) {
         const videoFiles = await scanDirectory(folderPath);
         const imported: any[] = [];
 
-        // Pre-fetch all existing localPaths and filenames for fast dedup
+        // Pre-fetch all existing entries for dedup and pruning
         const allExisting = await prisma.video.findMany({
-            select: { localPath: true },
+            select: { id: true, localPath: true },
         });
-        const existingPaths = new Set(allExisting.map(v => v.localPath));
-        const existingFilenames = new Set(allExisting.map(v => path.basename(v.localPath)));
+
+        // Prune entries whose files no longer exist on disk
+        const pruneIds: string[] = [];
+        for (const entry of allExisting) {
+            try {
+                await fs.access(entry.localPath);
+            } catch {
+                // File doesn't exist anymore — mark for deletion
+                pruneIds.push(entry.id);
+            }
+        }
+        if (pruneIds.length > 0) {
+            await prisma.video.deleteMany({ where: { id: { in: pruneIds } } });
+            console.log(`Pruned ${pruneIds.length} stale library entries (files deleted from disk)`);
+        }
+
+        const remainingExisting = allExisting.filter(v => !pruneIds.includes(v.id));
+        const existingPaths = new Set(remainingExisting.map(v => v.localPath));
+        const existingFilenames = new Set(remainingExisting.map(v => path.basename(v.localPath)));
 
         for (const filePath of videoFiles) {
             const fileName = path.basename(filePath);

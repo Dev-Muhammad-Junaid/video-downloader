@@ -118,6 +118,17 @@ export default function LibraryPage() {
             fetchLibrary();
             fetchQueue();
             fetchLabels();
+
+            // Auto-backfill thumbnails for old videos that don't have one
+            fetch("/api/thumbnail/backfill", { method: "POST" })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.generated > 0) {
+                        console.log(`Backfilled ${data.generated} thumbnails`);
+                        fetchLibrary(); // refresh to show newly generated thumbnails
+                    }
+                })
+                .catch(console.error);
         };
         init();
 
@@ -675,7 +686,7 @@ export default function LibraryPage() {
                     <video
                         src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
                         controls
-                        preload="none"
+                        preload={video.thumbnailPath ? "none" : "metadata"}
                         poster={video.thumbnailPath ? `/api/thumbnail/${video.id}` : undefined}
                         className="w-full h-full object-cover"
                     />
