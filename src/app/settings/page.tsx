@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { FolderOpen, Loader2, Download, Eye, Clock, FileDown, Database } from "lucide-react";
+import { FolderOpen, Loader2, Download, Eye, Clock, FileDown, Database, BrainCircuit, Mic } from "lucide-react";
 
 export default function SettingsPage() {
     const [settings, setSettings] = useState({
@@ -18,18 +18,22 @@ export default function SettingsPage() {
         watchFolder: "",
         destinationFolder: "",
         urlExpiry: 604800,
+        openaiApiKey: "",
+        whisperLanguage: "",
     });
     const [pickingFolder, setPickingFolder] = useState<"watch" | "destination" | null>(null);
 
     useEffect(() => {
         const saved = localStorage.getItem("r2_credentials");
         const folder = localStorage.getItem("watch_folder") || "";
+        const openaiApiKey = localStorage.getItem("openai_api_key") || "";
+        const whisperLanguage = localStorage.getItem("whisper_language") || "";
 
         if (saved) {
             const parsed = JSON.parse(saved);
-            setSettings(s => ({ ...s, ...parsed, watchFolder: folder, urlExpiry: parsed.urlExpiry || 604800 }));
+            setSettings(s => ({ ...s, ...parsed, watchFolder: folder, urlExpiry: parsed.urlExpiry || 604800, openaiApiKey, whisperLanguage }));
         } else {
-            setSettings(s => ({ ...s, watchFolder: folder }));
+            setSettings(s => ({ ...s, watchFolder: folder, openaiApiKey, whisperLanguage }));
         }
 
         // Fetch the current download destination from the server
@@ -319,6 +323,54 @@ export default function SettingsPage() {
                             </Button>
                         </div>
                         <p className="text-xs text-muted-foreground">JSON and CSV export library metadata. Database backup includes raw SQLite for full restoration.</p>
+                    </CardContent>
+                </Card>
+
+                {/* AI Transcription Settings (WID-307) */}
+                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
+                    <CardHeader>
+                        <CardTitle className="text-xl flex items-center gap-2">
+                            <BrainCircuit className="w-5 h-5 text-primary" />
+                            AI Transcription
+                        </CardTitle>
+                        <CardDescription>
+                            Powered by OpenAI Whisper. Your API key is stored locally and never shared.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="openaiKey" className="flex items-center gap-2">
+                                <Mic className="w-3.5 h-3.5 text-muted-foreground" />
+                                OpenAI API Key
+                            </Label>
+                            <Input
+                                id="openaiKey"
+                                type="password"
+                                placeholder="sk-..."
+                                value={settings.openaiApiKey}
+                                onChange={(e) => setSettings({ ...settings, openaiApiKey: e.target.value })}
+                            />
+                            <p className="text-xs text-muted-foreground">Required for AI transcription. Get it at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">platform.openai.com</a>.</p>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="whisperLang">Language (optional)</Label>
+                            <Input
+                                id="whisperLang"
+                                placeholder="e.g. en, ar, es (leave blank for auto-detect)"
+                                value={settings.whisperLanguage}
+                                onChange={(e) => setSettings({ ...settings, whisperLanguage: e.target.value })}
+                            />
+                        </div>
+                        <Button
+                            onClick={() => {
+                                localStorage.setItem("openai_api_key", settings.openaiApiKey);
+                                localStorage.setItem("whisper_language", settings.whisperLanguage);
+                                toast.success("AI settings saved");
+                            }}
+                            className="w-full"
+                        >
+                            Save AI Settings
+                        </Button>
                     </CardContent>
                 </Card>
             </div>

@@ -1,0 +1,83 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { transcribeAndSave } from "@/lib/transcription";
+
+// GET /api/transcription/[id] — get transcript status / text for a video
+export async function GET(
+    _req: NextRequest,
+    { params }: { params: Promise<{ id: string }> }
+) {
+    const { id } = await params;
+
+    try {
+        const video = await prisma.video.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                transcriptStatus: true,
+                transcriptText: true,
+                transcriptPath: true,
+                mediaType: true,
+            },
+        });
+
+        if (!video) {
+            return NextResponse.json({ error: "Video not found" }, { status: 404 });
+        }
+
+        return NextResponse.json({
+            id: video.id,
+            status: video.transcriptStatus ?? "none",
+            text: video.transcriptText ?? null,
+            hasVtt: !!video.transcriptPath,
+        });
+    } catch (err: any) {
+        return NextResponse.json({ error: err.message }, { status: 500 });
+    }
+}
+
+// POST /api/transcription/[id] — trigger transcription for a video
+export async function POST(
+    req: NextRequest,
+    { params }: { params: Promise<{ id: string }> }
+) {
+    const { id } = await params;
+
+    try {
+        const body = await req.json().catch(() => ({}));
+        const apiKey: string = body.apiKey || process.env.OPENAI_API_KEY || "";
+        const language: string | undefined = body.language;
+
+        if (!apiKey) {
+            return NextResponse.json(
+                { error: "No OpenAI API key provided. Add it in Settings." },
+                { status: 400 }
+            );
+        }
+
+        // Check video exists and is a video (not image)
+        const video = await prisma.video.findUnique({
+            where: { id },
+            select: { id: true, mediaType: true, transcriptStatus: true, title: true },
+        });
+
+        if (!video) {
+            return NextResponse.json({ error: "Video not found" }, { status: 404 });
+        }
+        if (video.mediaType === "image") {
+            return NextResponse.json({ error: "Images cannot be transcribed" }, { status: 400 });
+        }
+        if (video.transcriptStatus === "processing") {
+            return NextResponse.json({ message: "Transcription already in progress" }, { status: 202 });
+        }
+
+        // Run in background — don't await, respond immediately
+        transcribeAndSave(id, apiKey, language).catch((err) => {
+            console.error(`[Transcription] Failed for ${id}:`, err.message);
+        });
+
+        return NextResponse.json({ message: "Transcription started", id });
+    } catch (err: any) {
+        return NextResponse.json({ error: err.message }, { status: 500 });
+    }
+}

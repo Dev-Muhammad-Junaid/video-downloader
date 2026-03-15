@@ -24,7 +24,12 @@ model Video {
   cloudKey          String?  // S3 object key (e.g. "uploads/123_video.mp4")
   cloudUrl          String?  // Full URL to the cloud-stored file
   cloudUploadedAt   DateTime? // When the file was uploaded to R2
-  
+
+  // Transcription (WID-307)
+  transcriptText    String?  // Full plain-text transcript for deep search (WID-308)
+  transcriptPath    String?  // Path to the .vtt subtitle file on disk
+  transcriptStatus  String?  // "pending" | "processing" | "completed" | "error"
+
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   
@@ -46,11 +51,15 @@ model DownloadLog {
   url            String
   title          String
   sourcePlatform String?
-  status         String    // "downloading", "completed", "error"
+  status         String    // "downloading" | "completed" | "error" | "processing"
   errorMessage   String?
   fileSize       Int?
   videoId        String?   // Link to Video if successful
-  duration       Float?    // Download duration in seconds
+  duration       Float?    // Download/transcription duration in seconds
   startedAt      DateTime  @default(now())
   completedAt    DateTime?
+
+  // Transcription tracking (WID-307)
+  type           String    @default("download")  // "download" | "transcription"
+  output         String?   // Transcript snippet (first 500 chars) or error output
 }

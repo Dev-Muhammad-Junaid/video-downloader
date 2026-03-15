@@ -1,41 +1,53 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-// GET — List download history
+// GET — List history with optional type filter
 export async function GET(req: Request) {
     try {
         const { searchParams } = new URL(req.url);
-        const limit = parseInt(searchParams.get("limit") || "100");
+        const limit = parseInt(searchParams.get("limit") || "200");
         const offset = parseInt(searchParams.get("offset") || "0");
+        const typeFilter = searchParams.get("type") || "all"; // "all" | "download" | "transcription"
+
+        const where = typeFilter !== "all"
+            ? { type: typeFilter }
+            : undefined;
 
         const [logs, total] = await Promise.all([
             prisma.downloadLog.findMany({
+                where,
                 orderBy: { startedAt: "desc" },
                 take: limit,
                 skip: offset,
             }),
-            prisma.downloadLog.count(),
+            prisma.downloadLog.count({ where }),
         ]);
 
-        // Aggregate stats
-        const stats = await prisma.downloadLog.aggregate({
+        // ── Aggregate stats (always over all entries) ──
+        const allStats = await prisma.downloadLog.aggregate({
             _count: true,
             _sum: { fileSize: true },
         });
-        const completedCount = await prisma.downloadLog.count({ where: { status: "completed" } });
-        const failedCount = await prisma.downloadLog.count({ where: { status: "error" } });
+        const [completedCount, failedCount, transcriptionCount, transcriptionErrors] = await Promise.all([
+            prisma.downloadLog.count({ where: { status: "completed" } }),
+            prisma.downloadLog.count({ where: { status: "error" } }),
+            prisma.downloadLog.count({ where: { type: "transcription" } }),
+            prisma.downloadLog.count({ where: { type: "transcription", status: "error" } }),
+        ]);
 
         return NextResponse.json({
             logs,
             total,
             stats: {
-                totalDownloads: stats._count,
-                totalSize: stats._sum.fileSize || 0,
+                totalDownloads: allStats._count,
+                totalSize: allStats._sum.fileSize || 0,
                 completed: completedCount,
                 failed: failedCount,
-                successRate: stats._count > 0 
-                    ? Math.round((completedCount / stats._count) * 100) 
+                successRate: allStats._count > 0
+                    ? Math.round((completedCount / allStats._count) * 100)
                     : 0,
+                transcriptions: transcriptionCount,
+                transcriptionErrors,
             },
         });
     } catch (error: any) {
@@ -44,10 +56,15 @@ export async function GET(req: Request) {
     }
 }
 
-// DELETE — Clear all history
-export async function DELETE() {
+// DELETE — Clear history (by type, or all)
+export async function DELETE(req: Request) {
     try {
-        await prisma.downloadLog.deleteMany();
+        const { searchParams } = new URL(req.url);
+        const typeFilter = searchParams.get("type") || "all";
+
+        const where = typeFilter !== "all" ? { type: typeFilter } : undefined;
+        await prisma.downloadLog.deleteMany({ where });
+
         return NextResponse.json({ success: true });
     } catch (error: any) {
         console.error("Failed to clear history:", error);

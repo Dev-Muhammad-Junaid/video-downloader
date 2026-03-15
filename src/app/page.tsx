@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
-import { Copy, FolderOpen, Play, Cloud, CloudOff, DownloadCloud, Loader2, CheckCircle2, AlertCircle, Video as VideoIcon, Image as ImageIcon, Search, Pencil, Filter, ExternalLink, HelpCircle, XCircle, Maximize2 } from "lucide-react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
+import { Copy, FolderOpen, Play, Cloud, CloudOff, DownloadCloud, Loader2, CheckCircle2, AlertCircle, Video as VideoIcon, Image as ImageIcon, Search, Pencil, Filter, ExternalLink, HelpCircle, XCircle, Maximize2, Mic, BrainCircuit, Sparkles } from "lucide-react";
 import {
     Card,
     CardContent,
@@ -56,6 +56,13 @@ type Video = {
     cloudUrl?: string | null;
     cloudUploadedAt?: string | null;
     thumbnailPath?: string | null;
+    // WID-307: Transcription fields
+    transcriptStatus?: string | null;
+    transcriptText?: string | null;
+    transcriptPath?: string | null;
+    // WID-308: Search snippet (populated when in deep search mode)
+    transcriptSnippet?: string | null;
+    matchedIn?: string[];
 };
 
 type QueueItem = {
@@ -102,6 +109,12 @@ export default function LibraryPage() {
     const [playerOpen, setPlayerOpen] = useState(false);
     const [playerIndex, setPlayerIndex] = useState(0);
 
+    // Deep Search State (WID-308)
+    const [deepSearchMode, setDeepSearchMode] = useState(false);
+    const [deepSearchResults, setDeepSearchResults] = useState<Video[] | null>(null);
+    const [deepSearchLoading, setDeepSearchLoading] = useState(false);
+    const [transcribingIds, setTranscribingIds] = useState<Set<string>>(new Set());
+
     const pollingRefs = React.useRef<{ [key: string]: NodeJS.Timeout }>({});
 
     useEffect(() => {
@@ -137,6 +150,82 @@ export default function LibraryPage() {
             Object.values(pollingRefs.current).forEach(clearInterval);
         };
     }, []);
+
+    // WID-308: Deep Search handler
+    const handleDeepSearch = useCallback(async (query: string) => {
+        if (!query.trim()) {
+            setDeepSearchResults(null);
+            return;
+        }
+        setDeepSearchLoading(true);
+        try {
+            const mode = deepSearchMode ? "deep" : "quick";
+            const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&mode=${mode}&platform=${platformFilter}&type=${mediaTypeFilter}`);
+            if (!res.ok) throw new Error("Search failed");
+            const data = await res.json();
+            setDeepSearchResults(data.results);
+        } catch (e) {
+            console.error("Deep search error:", e);
+            setDeepSearchResults(null);
+        } finally {
+            setDeepSearchLoading(false);
+        }
+    }, [deepSearchMode, platformFilter, mediaTypeFilter]);
+
+    // Debounce search
+    useEffect(() => {
+        if (!searchQuery.trim()) {
+            setDeepSearchResults(null);
+            return;
+        }
+        const timeout = setTimeout(() => handleDeepSearch(searchQuery), 350);
+        return () => clearTimeout(timeout);
+    }, [searchQuery, deepSearchMode, handleDeepSearch]);
+
+    // WID-307: Transcribe a single video
+    const handleTranscribe = async (videoId: string) => {
+        const apiKey = localStorage.getItem("openai_api_key") || "";
+        if (!apiKey) {
+            toast.error("Add your OpenAI API key in Settings → AI Transcription first.");
+            return;
+        }
+        setTranscribingIds(prev => new Set(prev).add(videoId));
+        try {
+            const language = localStorage.getItem("whisper_language") || undefined;
+            const res = await fetch(`/api/transcription/${videoId}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ apiKey, language }),
+            });
+            if (!res.ok) {
+                const d = await res.json();
+                throw new Error(d.error || "Transcription request failed");
+            }
+            toast.info("Transcription started — this may take a moment...");
+            // Poll until done
+            const poll = setInterval(async () => {
+                try {
+                    const statusRes = await fetch(`/api/transcription/${videoId}`);
+                    const statusData = await statusRes.json();
+                    if (statusData.status === "completed") {
+                        clearInterval(poll);
+                        setTranscribingIds(prev => { const s = new Set(prev); s.delete(videoId); return s; });
+                        toast.success("Transcription complete! You can now deep search this video.");
+                        // Update in-place
+                        setVideos(prev => prev.map(v => v.id === videoId ? { ...v, transcriptStatus: "completed", transcriptText: statusData.text } : v));
+                    } else if (statusData.status === "error") {
+                        clearInterval(poll);
+                        setTranscribingIds(prev => { const s = new Set(prev); s.delete(videoId); return s; });
+                        toast.error("Transcription failed for this video");
+                        setVideos(prev => prev.map(v => v.id === videoId ? { ...v, transcriptStatus: "error" } : v));
+                    }
+                } catch { /* ignore */ }
+            }, 3000);
+        } catch (err: any) {
+            setTranscribingIds(prev => { const s = new Set(prev); s.delete(videoId); return s; });
+            toast.error(err.message);
+        }
+    };
 
     const fetchQueue = async () => {
         try {
@@ -514,6 +603,11 @@ export default function LibraryPage() {
 
     // Compute derived filtered + sorted list
     const displayedVideos = useMemo(() => {
+        // If deep search is active and we have server-side results, use those
+        if (deepSearchResults !== null) {
+            return deepSearchResults;
+        }
+
         let result = [...videos];
 
         // Filter by platform
@@ -528,7 +622,7 @@ export default function LibraryPage() {
             result = result.filter(v => (v.mediaType || "video") === mediaTypeFilter);
         }
 
-        // Search query
+        // Search query (title-only in quick mode when not using server-side search)
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
             result = result.filter(v => v.title.toLowerCase().includes(q));
@@ -544,7 +638,7 @@ export default function LibraryPage() {
         });
 
         return result;
-    }, [videos, searchQuery, sortBy, platformFilter, mediaTypeFilter]);
+    }, [videos, searchQuery, sortBy, platformFilter, mediaTypeFilter, deepSearchResults]);
 
     // Get unique platforms for filter
     const platforms = useMemo(() => {
@@ -692,26 +786,79 @@ export default function LibraryPage() {
                     />
                 )}
             </CardContent>
-            <CardFooter className="p-3 border-t border-border/40 flex items-center justify-end bg-card/80 backdrop-blur z-10">
-                <div className="flex gap-1 flex-shrink-0 bg-background/50 rounded-lg p-0.5 border border-border/20">
-                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => copyToClipboard(video.localPath)} title="Copy Path">
-                        <Copy className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => handleOpenFolder(video.localPath)} title="View in Explorer">
-                        <FolderOpen className="h-3.5 w-3.5" />
-                    </Button>
-                    {video.cloudKey ? (
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-orange-500/10 hover:text-orange-500 shadow-sm" onClick={() => handleCloudRemove(video)} title="Remove from Cloud">
-                            <CloudOff className="h-3.5 w-3.5" />
+            <CardFooter className="p-3 border-t border-border/40 flex flex-col bg-card/80 backdrop-blur z-10">
+                {/* Transcript snippet in deep search mode */}
+                {video.transcriptSnippet && (
+                    <div className="w-full mb-2 px-1.5 py-1 bg-primary/5 border border-primary/15 rounded-md text-[10px] text-muted-foreground leading-relaxed">
+                        <span className="font-semibold text-primary text-[9px] uppercase tracking-wider mr-1">Transcript match:</span>
+                        {video.transcriptSnippet}
+                    </div>
+                )}
+                <div className="flex items-center justify-between w-full">
+                    {/* Transcript Status Badge / Transcribe Button */}
+                    <div className="flex items-center gap-1">
+                        {video.mediaType !== "image" && (
+                            <>
+                                {video.transcriptStatus === "completed" ? (
+                                    <Tooltip>
+                                        <TooltipTrigger>
+                                            <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-1.5 py-0.5 cursor-default">
+                                                <Mic className="w-2.5 h-2.5" />
+                                                Transcribed
+                                            </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Transcript available for deep search</TooltipContent>
+                                    </Tooltip>
+                                ) : video.transcriptStatus === "processing" || transcribingIds.has(video.id) ? (
+                                    <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-full px-1.5 py-0.5">
+                                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                        Transcribing...
+                                    </span>
+                                ) : video.transcriptStatus === "error" ? (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-5 text-[10px] px-1.5 text-destructive hover:bg-destructive/10 rounded-full border border-destructive/20"
+                                        onClick={() => handleTranscribe(video.id)}
+                                        title="Retry transcription"
+                                    >
+                                        <AlertCircle className="w-2.5 h-2.5 mr-0.5" /> Retry
+                                    </Button>
+                                ) : (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-5 text-[10px] px-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full border border-dashed border-border/50"
+                                        onClick={() => handleTranscribe(video.id)}
+                                        title="Generate AI transcript"
+                                    >
+                                        <Mic className="w-2.5 h-2.5 mr-0.5" /> Transcribe
+                                    </Button>
+                                )}
+                            </>
+                        )}
+                    </div>
+
+                    <div className="flex gap-1 flex-shrink-0 bg-background/50 rounded-lg p-0.5 border border-border/20">
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => copyToClipboard(video.localPath)} title="Copy Path">
+                            <Copy className="h-3.5 w-3.5" />
                         </Button>
-                    ) : (
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => handleCloudUpload(video)} title="Upload to Cloud">
-                            <Cloud className="h-3.5 w-3.5" />
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => handleOpenFolder(video.localPath)} title="View in Explorer">
+                            <FolderOpen className="h-3.5 w-3.5" />
                         </Button>
-                    )}
-                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-destructive/20 hover:text-destructive shadow-sm ml-1" onClick={() => handleDelete(video.id, video.title)} title="Delete Video">
-                        <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                        {video.cloudKey ? (
+                            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-orange-500/10 hover:text-orange-500 shadow-sm" onClick={() => handleCloudRemove(video)} title="Remove from Cloud">
+                                <CloudOff className="h-3.5 w-3.5" />
+                            </Button>
+                        ) : (
+                            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => handleCloudUpload(video)} title="Upload to Cloud">
+                                <Cloud className="h-3.5 w-3.5" />
+                            </Button>
+                        )}
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-destructive/20 hover:text-destructive shadow-sm ml-1" onClick={() => handleDelete(video.id, video.title)} title="Delete Video">
+                            <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                    </div>
                 </div>
             </CardFooter>
         </Card>
@@ -870,15 +1017,38 @@ export default function LibraryPage() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-                        <div className="relative flex-1 md:w-56">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full md:w-auto">
+                        {/* Deep Search Toggle (WID-308) */}
+                        <div className="relative flex-1 md:w-64">
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                             <Input
-                                placeholder="Search videos..."
-                                className="pl-9 bg-background/50 h-9 rounded-lg"
+                                placeholder={deepSearchMode ? "Deep search — titles, transcripts, labels..." : "Search videos..."}
+                                className={`pl-9 pr-24 bg-background/50 h-9 rounded-lg transition-all ${deepSearchMode ? "border-primary/40 ring-1 ring-primary/20" : ""}`}
                                 value={searchQuery}
                                 onChange={e => setSearchQuery(e.target.value)}
                             />
+                            {deepSearchLoading && (
+                                <Loader2 className="absolute right-[88px] top-2.5 h-4 w-4 text-primary animate-spin" />
+                            )}
+                            <Button
+                                variant={deepSearchMode ? "default" : "ghost"}
+                                size="sm"
+                                className={`absolute right-1 top-1 h-7 text-[11px] px-2 gap-1 rounded-md ${
+                                    deepSearchMode
+                                        ? "bg-primary text-primary-foreground shadow-sm"
+                                        : "text-muted-foreground hover:text-primary"
+                                }`}
+                                onClick={() => {
+                                    setDeepSearchMode(m => !m);
+                                    if (searchQuery) handleDeepSearch(searchQuery);
+                                }}
+                                title={deepSearchMode ? "Deep Search is ON — searching transcripts too" : "Enable Deep Search to search inside video transcripts"}
+                            >
+                                <BrainCircuit className="w-3 h-3" />
+                                {deepSearchMode ? "AI" : "AI"}
+                            </Button>
                         </div>
+                    </div>
 
                         <Select value={platformFilter} onValueChange={(val) => setPlatformFilter(val || "all")}>
                             <SelectTrigger className="w-[130px] h-9 bg-background/50 rounded-lg">
@@ -1019,6 +1189,7 @@ export default function LibraryPage() {
                         toast.error("Failed to update title");
                     }
                 }}
+                onTranscribe={(video) => handleTranscribe(video.id)}
             />
         </div>
     );

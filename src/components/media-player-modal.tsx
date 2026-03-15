@@ -25,6 +25,9 @@ import {
     HardDrive,
     Clock,
     Tag,
+    Mic,
+    Loader2,
+    FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -43,6 +46,10 @@ type Video = {
     cloudUrl?: string | null;
     cloudUploadedAt?: string | null;
     thumbnailPath?: string | null;
+    // WID-307: Transcription fields
+    transcriptStatus?: string | null;
+    transcriptText?: string | null;
+    transcriptPath?: string | null;
 };
 
 interface MediaPlayerModalProps {
@@ -54,6 +61,7 @@ interface MediaPlayerModalProps {
     onCloudUpload?: (video: Video) => void;
     onCloudRemove?: (video: Video) => void;
     onTitleUpdate?: (videoId: string, newTitle: string) => void;
+    onTranscribe?: (video: Video) => void;
 }
 
 export function MediaPlayerModal({
@@ -65,6 +73,7 @@ export function MediaPlayerModal({
     onCloudUpload,
     onCloudRemove,
     onTitleUpdate,
+    onTranscribe,
 }: MediaPlayerModalProps) {
     const [currentIndex, setCurrentIndex] = useState(initialIndex);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -285,8 +294,71 @@ export function MediaPlayerModal({
                             </div>
                         )}
 
+                        {/* Transcription (WID-307) */}
+                        {video.mediaType !== "image" && (
+                            <div className="p-4 border-b border-border bg-muted/20">
+                                <div className="flex items-center justify-between mb-2">
+                                    <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                                        <Mic className="w-3.5 h-3.5 text-violet-500" />
+                                        AI Transcription
+                                    </p>
+                                    {video.transcriptStatus && (
+                                        <Badge 
+                                            variant={video.transcriptStatus === "completed" ? "default" : video.transcriptStatus === "error" ? "destructive" : "secondary"}
+                                            className="text-[9px] px-1.5 py-0 capitalize"
+                                        >
+                                            {video.transcriptStatus}
+                                        </Badge>
+                                    )}
+                                </div>
+                                
+                                {video.transcriptStatus === "completed" && video.transcriptText ? (
+                                    <div className="mt-2 relative group">
+                                        <div className="text-[11px] leading-relaxed text-muted-foreground bg-background p-2 rounded border border-border/50 max-h-[150px] overflow-y-auto whitespace-pre-wrap font-sans italic selection:bg-violet-500/20">
+                                            {video.transcriptText}
+                                        </div>
+                                        <Button 
+                                            size="icon" 
+                                            variant="ghost" 
+                                            className="h-6 w-6 absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80"
+                                            onClick={() => copyToClipboard(video.transcriptText!)}
+                                        >
+                                            <Copy className="w-3 h-3" />
+                                        </Button>
+                                    </div>
+                                ) : video.transcriptStatus === "processing" ? (
+                                    <div className="flex items-center gap-2 py-4 justify-center">
+                                        <Loader2 className="w-4 h-4 animate-spin text-violet-500" />
+                                        <span className="text-xs text-muted-foreground">Transcribing...</span>
+                                    </div>
+                                ) : video.transcriptStatus === "error" ? (
+                                    <div className="p-3 bg-destructive/5 rounded border border-destructive/20 text-[10px] text-destructive flex items-center gap-2">
+                                        <X className="w-3 h-3 flex-shrink-0" />
+                                        Transcription failed. Try again.
+                                    </div>
+                                ) : (
+                                    <p className="text-[10px] text-muted-foreground italic py-1">No transcript available for this video yet.</p>
+                                )}
+                            </div>
+                        )}
+
                         {/* Actions */}
                         <div className="p-4 mt-auto space-y-2">
+                            {video.mediaType !== "image" && (!video.transcriptStatus || video.transcriptStatus === "error" || video.transcriptStatus === "processing") && (
+                                <Button
+                                    variant="outline"
+                                    className="w-full h-9 text-xs border-violet-500/30 hover:bg-violet-500/5 text-violet-600 dark:text-violet-400"
+                                    onClick={() => onTranscribe?.(video)}
+                                    disabled={video.transcriptStatus === "processing"}
+                                >
+                                    {video.transcriptStatus === "processing" ? (
+                                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                                    ) : (
+                                        <Mic className="w-3.5 h-3.5 mr-1.5" />
+                                    )}
+                                    {video.transcriptStatus === "processing" ? "Transcribing..." : "Transcribe Video"}
+                                </Button>
+                            )}
                             <div className="grid grid-cols-2 gap-2">
                                 <Button
                                     variant="outline"
