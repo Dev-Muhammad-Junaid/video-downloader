@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { FolderOpen, Loader2, Download, Eye, Clock, FileDown, Database, BrainCircuit, Mic } from "lucide-react";
+import { FolderOpen, Loader2, Download, Eye, Clock, FileDown, Database, BrainCircuit, Mic, Plus, Trash2, Edit2, Settings2, CloudSync, Tags, Check, X, ShieldCheck } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function SettingsPage() {
     const [settings, setSettings] = useState({
@@ -22,41 +24,71 @@ export default function SettingsPage() {
         whisperLanguage: "",
     });
     const [pickingFolder, setPickingFolder] = useState<"watch" | "destination" | null>(null);
+    const [profiles, setProfiles] = useState<any[]>([]);
+    const [labels, setLabels] = useState<any[]>([]);
+    const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false);
+    const [editingProfile, setEditingProfile] = useState<any>(null);
+    const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        const saved = localStorage.getItem("r2_credentials");
+        const savedCredentials = localStorage.getItem("r2_credentials");
         const folder = localStorage.getItem("watch_folder") || "";
         const openaiApiKey = localStorage.getItem("openai_api_key") || "";
         const whisperLanguage = localStorage.getItem("whisper_language") || "";
 
-        if (saved) {
-            const parsed = JSON.parse(saved);
+        if (savedCredentials) {
+            const parsed = JSON.parse(savedCredentials);
             setSettings(s => ({ ...s, ...parsed, watchFolder: folder, urlExpiry: parsed.urlExpiry || 604800, openaiApiKey, whisperLanguage }));
         } else {
             setSettings(s => ({ ...s, watchFolder: folder, openaiApiKey, whisperLanguage }));
         }
 
-        // Fetch the current download destination from the server
-        fetch("/api/settings/destination")
-            .then(res => res.json())
-            .then(data => {
-                if (data.path) {
-                    setSettings(s => ({ ...s, destinationFolder: data.path }));
-                }
-            })
-            .catch(console.error);
+        // Fetch everything from server
+        Promise.all([
+            fetch("/api/settings/destination").then(res => res.json()),
+            fetch("/api/profiles").then(res => res.json()),
+            fetch("/api/labels").then(res => res.json()),
+            fetch("/api/settings/r2").then(res => res.json()),
+        ]).then(([destData, profilesData, labelsData, r2Data]) => {
+            if (destData.path) setSettings(s => ({ ...s, destinationFolder: destData.path }));
+            if (Array.isArray(profilesData)) setProfiles(profilesData);
+            if (Array.isArray(labelsData)) setLabels(labelsData);
+            if (r2Data && r2Data.s3Endpoint) {
+                setSettings(s => ({ ...s, ...r2Data }));
+            }
+            setIsLoading(false);
+        }).catch(err => {
+            console.error(err);
+            setIsLoading(false);
+        });
     }, []);
 
-    const handleSaveCredentials = () => {
-        localStorage.setItem("r2_credentials", JSON.stringify({
+    const handleSaveCredentials = async () => {
+        const creds = {
             s3Endpoint: settings.s3Endpoint,
             s3Bucket: settings.s3Bucket,
             s3AccessKey: settings.s3AccessKey,
             s3SecretKey: settings.s3SecretKey,
             s3Region: settings.s3Region,
             urlExpiry: settings.urlExpiry,
-        }));
-        toast.success("Credentials saved");
+        };
+        localStorage.setItem("r2_credentials", JSON.stringify(creds));
+        
+        // Also save to server for auto-sync
+        try {
+            const res = await fetch("/api/settings/r2", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(creds),
+            });
+            if (res.ok) {
+                toast.success("Credentials saved to browser & server");
+            } else {
+                toast.warning("Saved to browser, but server-side persistence failed");
+            }
+        } catch {
+            toast.warning("Saved to browser, but server-side persistence failed");
+        }
     };
 
     const handleSaveWatchFolder = () => {
@@ -101,6 +133,62 @@ export default function SettingsPage() {
             toast.error("Failed to open folder picker");
         } finally {
             setPickingFolder(null);
+        }
+    };
+
+    const handleSaveProfile = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const method = editingProfile?.id ? "PATCH" : "POST";
+        const url = editingProfile?.id ? `/api/profiles/${editingProfile.id}` : "/api/profiles";
+        
+        try {
+            const res = await fetch(url, {
+                method,
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(editingProfile),
+            });
+            if (res.ok) {
+                const updated = await res.json();
+                if (method === "POST") setProfiles([...profiles, updated]);
+                else setProfiles(profiles.map(p => p.id === updated.id ? updated : p));
+                setIsProfileDialogOpen(false);
+                toast.success("Profile saved");
+            }
+        } catch {
+            toast.error("Failed to save profile");
+        }
+    };
+
+    const handleDeleteProfile = async (id: string) => {
+        if (!confirm("Are you sure?")) return;
+        try {
+            const res = await fetch(`/api/profiles/${id}`, { method: "DELETE" });
+            if (res.ok) {
+                setProfiles(profiles.filter(p => p.id !== id));
+                toast.success("Profile deleted");
+            } else {
+                const d = await res.json();
+                toast.error(d.error || "Failed to delete");
+            }
+        } catch {
+            toast.error("Delete failed");
+        }
+    };
+
+    const handleToggleLabelSync = async (label: any) => {
+        const newValue = !label.autoCloudSync;
+        try {
+            const res = await fetch(`/api/labels/${label.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ autoCloudSync: newValue }),
+            });
+            if (res.ok) {
+                setLabels(labels.map(l => l.id === label.id ? { ...l, autoCloudSync: newValue } : l));
+                toast.success(`Auto-sync ${newValue ? 'enabled' : 'disabled'} for ${label.name}`);
+            }
+        } catch {
+            toast.error("Failed to update label");
         }
     };
 
@@ -371,6 +459,165 @@ export default function SettingsPage() {
                         >
                             Save AI Settings
                         </Button>
+                    </CardContent>
+                </Card>
+
+                {/* Quality & Format Profiles (WID-306) */}
+                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg lg:col-span-2">
+                    <CardHeader className="flex flex-row items-center justify-between">
+                        <div>
+                            <CardTitle className="text-xl flex items-center gap-2">
+                                <Settings2 className="w-5 h-5 text-primary" />
+                                Quality & Format Profiles
+                            </CardTitle>
+                            <CardDescription>Define site-specific resolution and format rules.</CardDescription>
+                        </div>
+                        <Dialog open={isProfileDialogOpen} onOpenChange={setIsProfileDialogOpen}>
+                            <DialogTrigger render={
+                                <Button size="sm" className="gap-2" onClick={() => setEditingProfile({ name: "", sitePattern: "*", maxResolution: "best", preferredFormat: "mp4", autoCloudSync: false, priority: 0 })}>
+                                    <Plus className="w-4 h-4" /> Add Profile
+                                </Button>
+                            } />
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>{editingProfile?.id ? 'Edit Profile' : 'New Profile'}</DialogTitle>
+                                    <DialogDescription>Apply rules based on the video URL.</DialogDescription>
+                                </DialogHeader>
+                                <form onSubmit={handleSaveProfile} className="space-y-4 py-4">
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="prof-name">Profile Name</Label>
+                                        <Input id="prof-name" value={editingProfile?.name || ""} onChange={e => setEditingProfile({...editingProfile, name: e.target.value})} placeholder="e.g. YouTube 4K" required />
+                                    </div>
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="prof-site">Site Pattern (URL includes)</Label>
+                                        <Input id="prof-site" value={editingProfile?.sitePattern || ""} onChange={e => setEditingProfile({...editingProfile, sitePattern: e.target.value})} placeholder="youtube.com (or * for all)" />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid gap-2">
+                                            <Label>Max Resolution</Label>
+                                            <Select value={editingProfile?.maxResolution || "best"} onValueChange={v => setEditingProfile({...editingProfile, maxResolution: v})}>
+                                                <SelectTrigger>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="best">Best Available</SelectItem>
+                                                    <SelectItem value="2160">4K (2160p)</SelectItem>
+                                                    <SelectItem value="1440">2K (1440p)</SelectItem>
+                                                    <SelectItem value="1080">1080p</SelectItem>
+                                                    <SelectItem value="720">720p</SelectItem>
+                                                    <SelectItem value="480">480p</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="grid gap-2">
+                                            <Label>Format</Label>
+                                            <Select value={editingProfile?.preferredFormat || "mp4"} onValueChange={v => setEditingProfile({...editingProfile, preferredFormat: v})}>
+                                                <SelectTrigger>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="mp4">MP4 (Recommended)</SelectItem>
+                                                    <SelectItem value="mkv">MKV</SelectItem>
+                                                    <SelectItem value="webm">WebM</SelectItem>
+                                                    <SelectItem value="mp3">MP3 (Audio Only)</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center space-x-2 pt-2">
+                                        <input 
+                                            type="checkbox" 
+                                            id="prof-sync" 
+                                            checked={!!editingProfile?.autoCloudSync} 
+                                            onChange={e => setEditingProfile({...editingProfile, autoCloudSync: e.target.checked})}
+                                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                        />
+                                        <Label htmlFor="prof-sync" className="cursor-pointer">Auto-sync to Cloud after download</Label>
+                                    </div>
+                                    <DialogFooter>
+                                        <Button type="submit">Save Profile</Button>
+                                    </DialogFooter>
+                                </form>
+                            </DialogContent>
+                        </Dialog>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="rounded-lg border border-border/50 divide-y divide-border/50">
+                            {profiles.length === 0 ? (
+                                <div className="p-8 text-center text-muted-foreground text-sm">No profiles defined. The system will use defaults.</div>
+                            ) : (
+                                profiles.map((profile) => (
+                                    <div key={profile.id} className="p-4 flex items-center justify-between group">
+                                        <div className="space-y-1">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-medium">{profile.name}</span>
+                                                {profile.priority === -1 && <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">Default</span>}
+                                                {profile.autoCloudSync && <CloudSync className="w-3.5 h-3.5 text-blue-500" />}
+                                            </div>
+                                            <div className="text-xs text-muted-foreground flex gap-3">
+                                                <span>Pattern: <code className="bg-muted px-1 rounded">{profile.sitePattern}</code></span>
+                                                <span>Quality: {profile.maxResolution === 'best' ? 'Best' : profile.maxResolution + 'p'}</span>
+                                                <span>Format: {profile.preferredFormat?.toUpperCase()}</span>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingProfile(profile); setIsProfileDialogOpen(true); }}>
+                                                <Edit2 className="w-3.5 h-3.5" />
+                                            </Button>
+                                            {profile.priority !== -1 && (
+                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDeleteProfile(profile.id)}>
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </Button>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Auto Cloud-Sync by Label (WID-306) */}
+                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg lg:col-span-2">
+                    <CardHeader>
+                        <CardTitle className="text-xl flex items-center gap-2">
+                            <Tags className="w-5 h-5 text-primary" />
+                            Auto-sync by Category
+                        </CardTitle>
+                        <CardDescription>Automatically upload videos the cloud if they match these categories.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                            {labels.map(label => (
+                                <div 
+                                    key={label.id} 
+                                    className={`p-3 rounded-xl border transition-all flex flex-col gap-3 ${label.autoCloudSync ? 'bg-blue-50/50 border-blue-200 dark:bg-blue-900/10 dark:border-blue-800' : 'bg-background/40 border-border/50'}`}
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm font-medium">{label.name}</span>
+                                        <div 
+                                            className={`w-2 h-2 rounded-full ${label.color || 'bg-gray-400'}`} 
+                                            style={label.color?.startsWith('#') ? {backgroundColor: label.color} : {}}
+                                        />
+                                    </div>
+                                    <div className="flex items-center justify-between mt-auto">
+                                        <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                            {label.autoCloudSync ? <CloudSync className="w-3 h-3 text-blue-500" /> : <ShieldCheck className="w-3 h-3" />}
+                                            {label.autoCloudSync ? 'Auto-syncing' : 'Local only'}
+                                        </span>
+                                        <button
+                                            onClick={() => handleToggleLabelSync(label)}
+                                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${label.autoCloudSync ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-800'}`}
+                                        >
+                                            <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${label.autoCloudSync ? 'translate-x-5' : 'translate-x-1'}`} />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        {labels.length === 0 && (
+                            <div className="p-8 text-center text-muted-foreground text-sm border border-dashed rounded-lg">No labels found. They will appear here once you start downloading content.</div>
+                        )}
                     </CardContent>
                 </Card>
             </div>

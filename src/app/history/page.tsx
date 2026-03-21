@@ -30,6 +30,7 @@ import {
     FileText,
     AlertCircle,
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type ActivityLog = {
     id: string;
@@ -66,10 +67,10 @@ export default function HistoryPage() {
     const [activeTab, setActiveTab] = useState<TabType>("all");
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
-    const fetchHistory = useCallback(async (tab: TabType = activeTab) => {
+    const fetchHistory = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await fetch(`/api/history?limit=200&type=${tab}`);
+            const res = await fetch(`/api/history?limit=500&type=all`);
             const data = await res.json();
             setLogs(data.logs || []);
             setStats(data.stats || null);
@@ -78,20 +79,24 @@ export default function HistoryPage() {
         } finally {
             setLoading(false);
         }
-    }, [activeTab]);
+    }, []);
 
     useEffect(() => {
-        fetchHistory(activeTab);
-    }, [activeTab]);
+        fetchHistory();
+    }, [fetchHistory]);
+
+    const filteredLogs = logs.filter(log => {
+        if (activeTab === "all") return true;
+        return log.type === activeTab;
+    });
 
     const handleClearHistory = async () => {
         const label = activeTab === "all" ? "all activity" : `${activeTab} history`;
         if (!confirm(`Clear ${label}? This cannot be undone.`)) return;
         try {
             await fetch(`/api/history?type=${activeTab}`, { method: "DELETE" });
-            setLogs([]);
             toast.success("History cleared");
-            fetchHistory(activeTab);
+            fetchHistory();
         } catch {
             toast.error("Failed to clear history");
         }
@@ -119,7 +124,7 @@ export default function HistoryPage() {
                     }),
                 });
                 toast.success("Download started!");
-                setTimeout(() => fetchHistory(activeTab), 2000);
+                setTimeout(() => fetchHistory(), 2000);
             } else {
                 toast.error(preview.error || "Failed to fetch media info");
             }
@@ -148,7 +153,7 @@ export default function HistoryPage() {
                 throw new Error(d.error);
             }
             toast.success("Transcription re-queued. Refresh in a few moments to see the result.");
-            setTimeout(() => fetchHistory(activeTab), 5000);
+            setTimeout(() => fetchHistory(), 5000);
         } catch (err: any) {
             toast.error(err.message || "Retry failed");
         }
@@ -181,7 +186,7 @@ export default function HistoryPage() {
     ];
 
     return (
-        <div className="flex-1 p-8 space-y-6 max-w-[1200px] mx-auto">
+        <div className="flex-1 w-full p-8 space-y-6 max-w-[1200px] mx-auto">
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
@@ -194,10 +199,10 @@ export default function HistoryPage() {
                     </p>
                 </div>
                 <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => fetchHistory(activeTab)}>
+                    <Button variant="outline" size="sm" onClick={() => fetchHistory()}>
                         <RefreshCw className="w-4 h-4 mr-1" /> Refresh
                     </Button>
-                    {logs.length > 0 && (
+                    {filteredLogs.length > 0 && (
                         <Button
                             variant="outline"
                             size="sm"
@@ -212,7 +217,21 @@ export default function HistoryPage() {
             </div>
 
             {/* Stats Cards */}
-            {stats && stats.totalDownloads > 0 && (
+            {loading ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                        <Card key={i} className="bg-background/60 backdrop-blur-xl border-border/50">
+                            <CardContent className="p-4 flex items-center gap-3">
+                                <Skeleton className="w-9 h-9 rounded-lg bg-muted/30" />
+                                <div className="space-y-2 mt-1">
+                                    <Skeleton className="h-6 w-12 bg-muted/30" />
+                                    <Skeleton className="h-3 w-20 bg-muted/30" />
+                                </div>
+                            </CardContent>
+                        </Card>
+                    ))}
+                </div>
+            ) : stats && stats.totalDownloads > 0 ? (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <Card className="bg-background/60 backdrop-blur-xl border-border/50">
                         <CardContent className="p-4 flex items-center gap-3">
@@ -259,7 +278,7 @@ export default function HistoryPage() {
                         </CardContent>
                     </Card>
                 </div>
-            )}
+            ) : null}
 
             {/* Tab Switcher */}
             <div className="flex items-center gap-1 bg-muted/40 rounded-xl p-1 w-fit border border-border/40">
@@ -267,11 +286,10 @@ export default function HistoryPage() {
                     <button
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                            activeTab === tab.id
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab.id
                                 ? "bg-background text-foreground shadow-sm border border-border/40"
                                 : "text-muted-foreground hover:text-foreground"
-                        }`}
+                            }`}
                     >
                         {tab.icon}
                         {tab.label}
@@ -286,14 +304,26 @@ export default function HistoryPage() {
                         {activeTab === "transcription" ? <Mic className="w-4 h-4 text-violet-500" /> : <History className="w-4 h-4" />}
                         {activeTab === "all" ? "All Activity" : activeTab === "download" ? "Download Logs" : "Transcription Logs"}
                     </CardTitle>
-                    <CardDescription>{logs.length} entries</CardDescription>
+                    <CardDescription>{filteredLogs.length} entries</CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
                     {loading ? (
-                        <div className="py-16 flex items-center justify-center">
-                            <Loader2 className="w-8 h-8 animate-spin text-primary/40" />
+                        <div className="min-h-[400px] flex flex-col pt-2">
+                            {Array.from({ length: 10 }).map((_, i) => (
+                                <div key={i} className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 border-b border-border/40 hover:bg-muted/10">
+                                    <Skeleton className="h-10 w-10 shrink-0 rounded-lg bg-muted/30" />
+                                    <div className="flex-1 space-y-2 w-full">
+                                        <Skeleton className="h-4 w-[250px] bg-muted/30" />
+                                        <div className="flex gap-2">
+                                            <Skeleton className="h-3 w-16 bg-muted/30" />
+                                            <Skeleton className="h-3 w-20 bg-muted/30" />
+                                        </div>
+                                    </div>
+                                    <Skeleton className="h-8 w-[100px] rounded-full hidden sm:block bg-muted/30" />
+                                </div>
+                            ))}
                         </div>
-                    ) : logs.length === 0 ? (
+                    ) : filteredLogs.length === 0 ? (
                         <div className="py-16 text-center text-muted-foreground">
                             <History className="w-12 h-12 mx-auto mb-3 opacity-30" />
                             <p className="text-sm">No history yet</p>
@@ -305,7 +335,7 @@ export default function HistoryPage() {
                         </div>
                     ) : (
                         <div className="divide-y divide-border/50">
-                            {logs.map((log) => {
+                            {filteredLogs.map((log) => {
                                 const isTranscription = log.type === "transcription";
                                 const isExpanded = expandedIds.has(log.id);
                                 const hasOutput = !!log.output;
@@ -378,15 +408,14 @@ export default function HistoryPage() {
                                             {/* Status Badge */}
                                             <Badge
                                                 variant={log.status === "completed" ? "default" : log.status === "error" ? "destructive" : "secondary"}
-                                                className={`flex-shrink-0 text-[10px] ${
-                                                    log.status === "completed" && isTranscription
+                                                className={`flex-shrink-0 text-[10px] ${log.status === "completed" && isTranscription
                                                         ? "bg-violet-500/10 text-violet-600 border-violet-500/20 border"
                                                         : ""
-                                                }`}
+                                                    }`}
                                             >
                                                 {log.status === "completed" ? (isTranscription ? "Transcribed" : "Success")
                                                     : log.status === "error" ? "Failed"
-                                                    : "In Progress"}
+                                                        : "In Progress"}
                                             </Badge>
 
                                             {/* Actions */}
@@ -437,11 +466,10 @@ export default function HistoryPage() {
                                         {/* Expanded output panel */}
                                         {isExpanded && hasOutput && (
                                             <div className="px-4 pb-4 pt-0">
-                                                <div className={`rounded-lg p-3 border text-xs font-mono leading-relaxed whitespace-pre-wrap break-all max-h-40 overflow-y-auto ${
-                                                    log.status === "error"
+                                                <div className={`rounded-lg p-3 border text-xs font-mono leading-relaxed whitespace-pre-wrap break-all max-h-40 overflow-y-auto ${log.status === "error"
                                                         ? "bg-red-500/5 border-red-500/20 text-red-400"
                                                         : "bg-muted/40 border-border/40 text-muted-foreground"
-                                                }`}>
+                                                    }`}>
                                                     <div className="flex items-center gap-1.5 text-[10px] font-sans font-semibold uppercase tracking-wider mb-2 opacity-60">
                                                         {log.status === "error"
                                                             ? <><AlertCircle className="w-3 h-3" /> Error Output</>

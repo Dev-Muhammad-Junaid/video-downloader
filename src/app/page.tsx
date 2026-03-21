@@ -40,6 +40,7 @@ import { toast } from "sonner";
 import { Trash2, Tags, PlusCircle } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { MediaPlayerModal } from "@/components/media-player-modal";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type Video = {
     id: string;
@@ -174,7 +175,7 @@ export default function LibraryPage() {
 
     // Debounce search
     useEffect(() => {
-        if (!searchQuery.trim()) {
+        if (!searchQuery.trim() || !deepSearchMode) {
             setDeepSearchResults(null);
             return;
         }
@@ -295,10 +296,10 @@ export default function LibraryPage() {
         setQueue(prev => [...newItems, ...prev]);
         setUrlText("");
 
-        newItems.forEach(item => parseAndDownload(item.id, item.originalUrl));
+        newItems.forEach(item => parseLink(item.id, item.originalUrl));
     };
 
-    const parseAndDownload = async (id: string, url: string) => {
+    const parseLink = async (id: string, url: string) => {
         try {
             // 1. Parse Metadata
             const res = await fetch("/api/download/preview", {
@@ -312,10 +313,10 @@ export default function LibraryPage() {
             // Check if this is a playlist
             if (metadata.isPlaylist && metadata.items?.length > 1) {
                 toast.success(`📋 Playlist detected: "${metadata.playlistTitle}" (${metadata.items.length} items)`);
-                
+
                 // Remove the original parsing item
                 setQueue(prev => prev.filter(q => q.id !== id));
-                
+
                 // Add individual items
                 const playlistItems: QueueItem[] = metadata.items.map((item: any) => ({
                     id: Math.random().toString(36).substring(7),
@@ -325,12 +326,12 @@ export default function LibraryPage() {
                     duration: item.duration,
                     status: 'parsing' as const,
                 }));
-                
+
                 setQueue(prev => [...playlistItems, ...prev]);
-                
-                // Start downloading each item
+
+                // Start parsing each item
                 for (const item of playlistItems) {
-                    parseAndDownload(item.id, item.originalUrl);
+                    parseLink(item.id, item.originalUrl);
                 }
                 return;
             }
@@ -348,19 +349,35 @@ export default function LibraryPage() {
                 status: 'pending'
             } : q));
 
-            // 2. Start Download immediately
+        } catch (error: any) {
+            setQueue(prev => prev.map(q => q.id === id ? {
+                ...q,
+                status: 'error',
+                errorText: error.message
+            } : q));
+        }
+    };
+
+    const startDownloadJob = async (id: string) => {
+        const item = queue.find(q => q.id === id);
+        if (!item) return;
+
+        try {
+            setQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'pending' as const, errorText: undefined } : q));
+
             const dlRes = await fetch("/api/download", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    url: metadata.originalUrl,
-                    title: metadata.title,
-                    sourcePlatform: metadata.sourcePlatform,
-                    mediaType: metadata.mediaType || "video",
-                    imageUrl: metadata.imageUrl,
-                    formatId: undefined, // default: best quality
+                    url: item.originalUrl,
+                    title: item.title,
+                    sourcePlatform: item.sourcePlatform,
+                    mediaType: item.mediaType || "video",
+                    imageUrl: item.imageUrl,
+                    formatId: item.selectedFormat || undefined,
                 }),
             });
+
             const dlData = await dlRes.json();
             if (!dlRes.ok) throw new Error(dlData.error || "Download failed");
 
@@ -371,7 +388,6 @@ export default function LibraryPage() {
                 progress: 0
             } : q));
 
-            // 3. Poll
             pollProgress(id, dlData.jobId);
         } catch (error: any) {
             setQueue(prev => prev.map(q => q.id === id ? {
@@ -603,32 +619,33 @@ export default function LibraryPage() {
 
     // Compute derived filtered + sorted list
     const displayedVideos = useMemo(() => {
-        // If deep search is active and we have server-side results, use those
-        if (deepSearchResults !== null) {
-            return deepSearchResults;
+        let result = deepSearchResults !== null ? [...deepSearchResults] : [...videos];
+
+        // Apply local filtering only if we are not utilizing server-side results
+        if (deepSearchResults === null) {
+            // Filter by platform
+            if (platformFilter !== "all") {
+                result = result.filter(v =>
+                    (v.sourcePlatform || "Unknown").toLowerCase() === platformFilter.toLowerCase()
+                );
+            }
+
+            // Filter by media type
+            if (mediaTypeFilter !== "all") {
+                result = result.filter(v => (v.mediaType || "video") === mediaTypeFilter);
+            }
+
+            // Search query (title and labels in quick mode)
+            if (searchQuery.trim()) {
+                const q = searchQuery.toLowerCase();
+                result = result.filter(v =>
+                    v.title.toLowerCase().includes(q) ||
+                    v.labels?.some(l => l.name.toLowerCase().includes(q))
+                );
+            }
         }
 
-        let result = [...videos];
-
-        // Filter by platform
-        if (platformFilter !== "all") {
-            result = result.filter(v =>
-                (v.sourcePlatform || "Unknown").toLowerCase() === platformFilter.toLowerCase()
-            );
-        }
-
-        // Filter by media type
-        if (mediaTypeFilter !== "all") {
-            result = result.filter(v => (v.mediaType || "video") === mediaTypeFilter);
-        }
-
-        // Search query (title-only in quick mode when not using server-side search)
-        if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase();
-            result = result.filter(v => v.title.toLowerCase().includes(q));
-        }
-
-        // Sort
+        // Apply Sort globally to all lists
         result.sort((a, b) => {
             if (sortBy === "newest") return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
             if (sortBy === "oldest") return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
@@ -864,12 +881,8 @@ export default function LibraryPage() {
         </Card>
     );
 
-    if (loading) {
-        return <div className="p-8 flex items-center justify-center min-h-[50vh]"><Loader2 className="w-8 h-8 animate-spin text-primary/50" /></div>;
-    }
-
     return (
-        <div className="p-8 space-y-10 max-w-[1600px] mx-auto min-h-full">
+        <div className="p-8 w-full space-y-10 max-w-[1600px] mx-auto min-h-full">
 
             {/* Top Section: Dashboard Split View */}
             <div className="flex flex-col xl:flex-row gap-8 items-stretch pt-2">
@@ -979,14 +992,27 @@ export default function LibraryPage() {
                                                 <option value="audio">🎵 Audio Only (MP3)</option>
                                                 {item.formats.slice(0, 8).map(fmt => (
                                                     <option key={fmt.formatId} value={fmt.formatId}>
-                                                        {fmt.label}{fmt.filesize ? ` (~${(fmt.filesize / (1024*1024)).toFixed(0)}MB)` : ''}
+                                                        {fmt.label}{fmt.filesize ? ` (~${(fmt.filesize / (1024 * 1024)).toFixed(0)}MB)` : ''}
                                                     </option>
                                                 ))}
                                             </select>
                                         )}
                                         <div className="flex items-center gap-3 mt-2">
                                             {item.status === 'parsing' && <><Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" /><span className="text-xs text-muted-foreground">Parsing metadata...</span></>}
-                                            {item.status === 'pending' && <><Loader2 className="w-3.5 h-3.5 text-primary animate-spin" /><span className="text-xs text-muted-foreground">Initializing download...</span></>}
+                                            {item.status === 'pending' && (
+                                                <div className="flex items-center gap-2">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="default"
+                                                        className="h-7 px-3 text-[10px] gap-1.5 rounded-lg shadow-sm"
+                                                        onClick={() => startDownloadJob(item.id)}
+                                                    >
+                                                        <DownloadCloud className="w-3 h-3" />
+                                                        Download
+                                                    </Button>
+                                                    <span className="text-[10px] text-muted-foreground italic">← Select quality & start</span>
+                                                </div>
+                                            )}
                                             {item.status === 'downloading' && (
                                                 <div className="flex-1 flex items-center gap-3">
                                                     <Progress value={item.progress ?? null} className="h-1.5 flex-1 bg-muted/80" />
@@ -994,7 +1020,22 @@ export default function LibraryPage() {
                                                 </div>
                                             )}
                                             {item.status === 'completed' && <><CheckCircle2 className="w-4 h-4 text-green-500" /><span className="text-xs font-medium text-green-500">Completed & Saved</span></>}
-                                            {item.status === 'error' && <><AlertCircle className="w-4 h-4 text-destructive" /><span className="text-xs text-destructive truncate">{item.errorText}</span></>}
+                                            {item.status === 'error' && (
+                                                <div className="flex flex-col gap-1 w-full">
+                                                    <div className="flex items-center gap-2 text-destructive">
+                                                        <AlertCircle className="w-3.5 h-3.5" />
+                                                        <span className="text-xs font-medium truncate">{item.errorText}</span>
+                                                    </div>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-6 w-fit text-[10px] px-2 self-start"
+                                                        onClick={() => startDownloadJob(item.id)}
+                                                    >
+                                                        Try Again
+                                                    </Button>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -1018,37 +1059,36 @@ export default function LibraryPage() {
 
                     <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
                         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full md:w-auto">
-                        {/* Deep Search Toggle (WID-308) */}
-                        <div className="relative flex-1 md:w-64">
-                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                            <Input
-                                placeholder={deepSearchMode ? "Deep search — titles, transcripts, labels..." : "Search videos..."}
-                                className={`pl-9 pr-24 bg-background/50 h-9 rounded-lg transition-all ${deepSearchMode ? "border-primary/40 ring-1 ring-primary/20" : ""}`}
-                                value={searchQuery}
-                                onChange={e => setSearchQuery(e.target.value)}
-                            />
-                            {deepSearchLoading && (
-                                <Loader2 className="absolute right-[88px] top-2.5 h-4 w-4 text-primary animate-spin" />
-                            )}
-                            <Button
-                                variant={deepSearchMode ? "default" : "ghost"}
-                                size="sm"
-                                className={`absolute right-1 top-1 h-7 text-[11px] px-2 gap-1 rounded-md ${
-                                    deepSearchMode
-                                        ? "bg-primary text-primary-foreground shadow-sm"
-                                        : "text-muted-foreground hover:text-primary"
-                                }`}
-                                onClick={() => {
-                                    setDeepSearchMode(m => !m);
-                                    if (searchQuery) handleDeepSearch(searchQuery);
-                                }}
-                                title={deepSearchMode ? "Deep Search is ON — searching transcripts too" : "Enable Deep Search to search inside video transcripts"}
-                            >
-                                <BrainCircuit className="w-3 h-3" />
-                                {deepSearchMode ? "AI" : "AI"}
-                            </Button>
+                            {/* Deep Search Toggle (WID-308) */}
+                            <div className="relative flex-1 md:w-64">
+                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    placeholder={deepSearchMode ? "Deep search — titles, transcripts, labels..." : "Search videos..."}
+                                    className={`pl-9 pr-24 bg-background/50 h-9 rounded-lg transition-all ${deepSearchMode ? "border-primary/40 ring-1 ring-primary/20" : ""}`}
+                                    value={searchQuery}
+                                    onChange={e => setSearchQuery(e.target.value)}
+                                />
+                                {deepSearchLoading && (
+                                    <Loader2 className="absolute right-[88px] top-2.5 h-4 w-4 text-primary animate-spin" />
+                                )}
+                                <Button
+                                    variant={deepSearchMode ? "default" : "ghost"}
+                                    size="sm"
+                                    className={`absolute right-1 top-1 h-7 text-[11px] px-2 gap-1 rounded-md ${deepSearchMode
+                                            ? "bg-primary text-primary-foreground shadow-sm"
+                                            : "text-muted-foreground hover:text-primary"
+                                        }`}
+                                    onClick={() => {
+                                        setDeepSearchMode(m => !m);
+                                        if (searchQuery) handleDeepSearch(searchQuery);
+                                    }}
+                                    title={deepSearchMode ? "Deep Search is ON — searching transcripts too" : "Enable Deep Search to search inside video transcripts"}
+                                >
+                                    <BrainCircuit className="w-3 h-3" />
+                                    {deepSearchMode ? "AI" : "AI"}
+                                </Button>
+                            </div>
                         </div>
-                    </div>
 
                         <Select value={platformFilter} onValueChange={(val) => setPlatformFilter(val || "all")}>
                             <SelectTrigger className="w-[130px] h-9 bg-background/50 rounded-lg">
@@ -1115,12 +1155,24 @@ export default function LibraryPage() {
                     </div>
                 </div>
 
-                {videos.length === 0 ? (
-                    <div className="h-40 flex items-center justify-center text-muted-foreground border border-dashed rounded-2xl bg-muted/10">
+                {loading || deepSearchLoading ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 min-h-[400px]">
+                        {Array.from({ length: 8 }).map((_, i) => (
+                            <div key={i} className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-card/50 p-3 shadow-sm">
+                                <Skeleton className="h-[200px] w-full rounded-xl bg-muted/20" />
+                                <div className="space-y-2 mt-2">
+                                    <Skeleton className="h-5 w-3/4 bg-muted/20" />
+                                    <Skeleton className="h-4 w-1/2 bg-muted/20" />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : videos.length === 0 ? (
+                    <div className="min-h-[400px] flex items-center justify-center text-muted-foreground border border-dashed rounded-2xl bg-muted/10">
                         Library is empty. Download some videos above to get started.
                     </div>
                 ) : displayedVideos.length === 0 ? (
-                    <div className="h-40 flex flex-col items-center justify-center text-muted-foreground border border-dashed rounded-2xl bg-muted/10 gap-2">
+                    <div className="min-h-[400px] flex flex-col items-center justify-center text-muted-foreground border border-dashed rounded-2xl bg-muted/10 gap-2">
                         <Search className="w-8 h-8 opacity-20" />
                         <div>No matching videos found</div>
                     </div>

@@ -6,6 +6,9 @@ import https from "https";
 import http from "http";
 import { prisma } from "@/lib/prisma";
 import { generateThumbnail } from "@/lib/thumbnail";
+import { getMatchingProfile, getYtDlpFormat } from "./profiles";
+import { uploadToCloud } from "./cloud";
+import pLimit from "p-limit";
 
 export type DownloadStatus = "pending" | "downloading" | "processing" | "completed" | "error";
 
@@ -19,9 +22,18 @@ export interface DownloadJob {
     error?: string;
 }
 
-const globalForDownloads = global as unknown as { activeDownloads: Map<string, DownloadJob> };
+const globalForDownloads = global as unknown as { 
+    activeDownloads: Map<string, DownloadJob>;
+    cleanupIntervalStarted?: boolean;
+    downloadQueue?: ReturnType<typeof pLimit>;
+};
 export const activeDownloads = globalForDownloads.activeDownloads || new Map<string, DownloadJob>();
 if (process.env.NODE_ENV !== "production") globalForDownloads.activeDownloads = activeDownloads;
+
+// Queue to limit concurrent downloads
+const limit = globalForDownloads.downloadQueue || pLimit(3);
+if (process.env.NODE_ENV !== "production") globalForDownloads.downloadQueue = limit;
+
 
 // Ensure downloads directory exists — read configurable destination
 const settingsPath = path.join(process.cwd(), "download_destination");
@@ -112,29 +124,31 @@ function scoreTaxonomy(text: string): string[] {
         .map(c => c[0]);
 }
 
-function downloadFile(url: string, dest: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const file = fs.createWriteStream(dest);
-        const client = url.startsWith("https") ? https : http;
+async function downloadFile(url: string, dest: string): Promise<void> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout
 
-        client.get(url, (response) => {
-            // Handle redirects
-            if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-                file.close();
-                fs.unlinkSync(dest);
-                downloadFile(response.headers.location, dest).then(resolve).catch(reject);
-                return;
-            }
-            response.pipe(file);
-            file.on("finish", () => {
-                file.close();
-                resolve();
-            });
-        }).on("error", (err) => {
-            fs.unlink(dest, () => { });
-            reject(err);
+    try {
+        const response = await fetch(url, { signal: controller.signal, redirect: "follow" });
+        if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
+        if (!response.body) throw new Error('No body in response');
+
+        const fileStream = fs.createWriteStream(dest);
+        // @ts-ignore
+        const readable = require("stream").Readable.fromWeb(response.body);
+        
+        await new Promise<void>((resolve, reject) => {
+            readable.pipe(fileStream);
+            fileStream.on("finish", () => resolve());
+            fileStream.on("error", reject);
+            readable.on("error", reject);
         });
-    });
+    } catch (err) {
+        fs.unlink(dest, () => { });
+        throw err;
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
 export async function startDownload(url: string, title: string, sourcePlatform: string, mediaType: string = "video", imageUrl?: string, formatId?: string) {
@@ -154,16 +168,17 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
     const startTime = Date.now();
 
     if (mediaType === "image" && imageUrl) {
-        // Image download: directly fetch the image URL
-        const ext = path.extname(new URL(imageUrl).pathname) || ".jpg";
-        const fileName = `${safeTitle}_${id}${ext}`;
-        const outputPath = path.join(downloadsDir, fileName);
+        // Queue the image download process
+        limit(async () => {
+            const ext = path.extname(new URL(imageUrl).pathname) || ".jpg";
+            const fileName = `${safeTitle}_${id}${ext}`;
+            const outputPath = path.join(downloadsDir, fileName);
 
-        try {
-            // Create download log entry
-            const logEntry = await prisma.downloadLog.create({
-                data: { url, title, sourcePlatform, status: "downloading" },
-            });
+            try {
+                // Create download log entry
+                const logEntry = await prisma.downloadLog.create({
+                    data: { url, title, sourcePlatform, status: "downloading" },
+                });
 
             await downloadFile(imageUrl, outputPath);
 
@@ -245,46 +260,45 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
                 });
             } catch { }
         }
-
+        }); // End limit()
         return job;
     }
 
-    // Build yt-dlp args based on format selection
-    const isAudioOnly = formatId === "audio";
-    const fileName = isAudioOnly ? `${safeTitle}_${id}.mp3` : `${safeTitle}_${id}.mp4`;
-    const outputPath = path.join(downloadsDir, fileName);
+    // Queue the video download process
+    limit(async () => {
+        let logId = "";
+        try {
+            // Build yt-dlp args based on profile & format selection
+            const profile = await getMatchingProfile(url);
+            const { args: formatArgs, isAudio } = getYtDlpFormat(profile || { maxResolution: "best", preferredFormat: "mp4" }, formatId);
+            
+            const fileName = isAudio ? `${safeTitle}_${id}.mp3` : `${safeTitle}_${id}.mp4`;
+            const outputPath = path.join(downloadsDir, fileName);
 
-    // Create download log entry
-    let logId = "";
-    prisma.downloadLog.create({
-        data: { url, title, sourcePlatform, status: "downloading" },
-    }).then((log: any) => { logId = log.id; }).catch(console.error);
+            // Create download log entry
+            const log = await prisma.downloadLog.create({
+                data: { url, title, sourcePlatform, status: "downloading" },
+            });
+            logId = log.id;
 
-    const ytdlpArgs: string[] = [];
-    
-    // Check if we need to target a specific item index from our custom parameter
-    try {
-        const parsedUrl = new URL(url);
-        const playlistItem = parsedUrl.searchParams.get("snapdown_playlist_item");
-        if (playlistItem) {
-            ytdlpArgs.push("-I", playlistItem);
-            parsedUrl.searchParams.delete("snapdown_playlist_item");
-            url = parsedUrl.toString();
-        }
-    } catch { }
+        const ytdlpArgs: string[] = [];
+        
+        // Check if we need to target a specific item index from our custom parameter
+        try {
+            const parsedUrl = new URL(url);
+            const playlistItem = parsedUrl.searchParams.get("snapdown_playlist_item");
+            if (playlistItem) {
+                ytdlpArgs.push("-I", playlistItem);
+                parsedUrl.searchParams.delete("snapdown_playlist_item");
+                url = parsedUrl.toString();
+            }
+        } catch { }
 
-    if (isAudioOnly) {
-        ytdlpArgs.push("-x", "--audio-format", "mp3");
-    } else if (formatId) {
-        ytdlpArgs.push("-f", `${formatId}+bestaudio/best`);
-        ytdlpArgs.push("--merge-output-format", "mp4");
-    } else {
-        ytdlpArgs.push("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best");
-        ytdlpArgs.push("--merge-output-format", "mp4");
-    }
-    ytdlpArgs.push("-o", outputPath, "--write-info-json", "--newline", url);
+        ytdlpArgs.push(...formatArgs);
+        ytdlpArgs.push("-o", outputPath, "--write-info-json", "--newline", url);
 
-    const ytdlp = spawn("yt-dlp", ytdlpArgs);
+        console.log(`[Download] Starting yt-dlp with args:`, ytdlpArgs.join(" "));
+        const ytdlp = spawn("yt-dlp", ytdlpArgs);
 
     ytdlp.stdout.on("data", (data) => {
         const output = data.toString();
@@ -351,7 +365,8 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
                 if (isDuplicate) allTags.add("Duplicate");
 
                 // Read info JSON for taxonomy scoring
-                const infoJsonPath = outputPath.replace('.mp4', '.info.json');
+                const ext = isAudio ? ".mp3" : ".mp4";
+                const infoJsonPath = outputPath.replace(ext, '.info.json');
                 try {
                     if (fs.existsSync(infoJsonPath)) {
                         const infoContent = fs.readFileSync(infoJsonPath, 'utf8');
@@ -375,7 +390,10 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
                     };
                 }
 
-                const createdVideo = await prisma.video.create({ data: dbData });
+                const createdVideo = await prisma.video.create({ 
+                    data: dbData,
+                    include: { labels: true } 
+                });
 
                 // Update download log
                 if (logId) {
@@ -388,6 +406,14 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
                             duration: (Date.now() - startTime) / 1000,
                             completedAt: new Date(),
                         },
+                    });
+                }
+
+                // Check for Auto Cloud Sync (WID-306)
+                const shouldAutoSync = profile?.autoCloudSync || (createdVideo.labels as any[]).some(l => l.autoCloudSync);
+                if (shouldAutoSync) {
+                    uploadToCloud(createdVideo.id).catch(err => {
+                        console.error(`[AutoSync] Error uploading ${createdVideo.id}:`, err);
                     });
                 }
 
@@ -421,6 +447,24 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
             }
         }
     });
+        } catch (err: any) {
+            console.error("Failed to start video download process:", err);
+            job.status = "error";
+            job.error = err.message || "Failed to start download process";
+            activeDownloads.set(id, job);
 
+            if (logId) {
+                prisma.downloadLog.update({
+                    where: { id: logId },
+                    data: {
+                        status: "error",
+                        errorMessage: err.message || "Failed to start download process",
+                        completedAt: new Date(),
+                    }
+                }).catch(console.error);
+            }
+        }
+    }); // End limit()
+    
     return job;
 }

@@ -28,6 +28,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 
 type CloudVideo = {
@@ -172,16 +173,8 @@ export default function CloudSyncPage() {
 
     const usagePercent = stats ? Math.min((stats.totalBytes / STORAGE_LIMIT_BYTES) * 100, 100) : 0;
 
-    if (loading) {
-        return (
-            <div className="p-8 flex items-center justify-center min-h-[60vh]">
-                <Loader2 className="w-8 h-8 animate-spin text-primary/50" />
-            </div>
-        );
-    }
-
     return (
-        <div className="p-8 space-y-8 max-w-[1600px] mx-auto min-h-full">
+        <div className="p-8 w-full space-y-8 max-w-[1600px] mx-auto min-h-full">
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
@@ -208,7 +201,22 @@ export default function CloudSyncPage() {
             </div>
 
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {loading ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                        <Card key={i} className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
+                            <CardHeader className="pb-2">
+                                <Skeleton className="h-4 w-24 bg-muted/30" />
+                            </CardHeader>
+                            <CardContent>
+                                <Skeleton className="h-8 w-16 bg-muted/30" />
+                                <Skeleton className="h-3 w-32 mt-2 bg-muted/30" />
+                            </CardContent>
+                        </Card>
+                    ))}
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {/* Total Files */}
                 <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg overflow-hidden relative group hover:border-sky-500/30 transition-all">
                     <div className="absolute inset-0 bg-gradient-to-br from-sky-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -283,9 +291,25 @@ export default function CloudSyncPage() {
                     </CardContent>
                 </Card>
             </div>
+            )}
 
             {/* Storage Usage Bar */}
-            <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
+            {loading ? (
+                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
+                    <CardContent className="pt-6">
+                        <div className="flex justify-between mb-4">
+                            <Skeleton className="h-4 w-32 bg-muted/30" />
+                            <Skeleton className="h-4 w-24 bg-muted/30" />
+                        </div>
+                        <Skeleton className="h-3 w-full bg-muted/30" />
+                        <div className="flex justify-between mt-2">
+                            <Skeleton className="h-3 w-16 bg-muted/30" />
+                            <Skeleton className="h-3 w-24 bg-muted/30" />
+                        </div>
+                    </CardContent>
+                </Card>
+            ) : (
+                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
                 <CardContent className="pt-6">
                     <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2 text-sm font-medium">
@@ -320,6 +344,7 @@ export default function CloudSyncPage() {
                     )}
                 </CardContent>
             </Card>
+            )}
 
             {/* Cloud Files List */}
             <div className="space-y-4">
@@ -334,7 +359,23 @@ export default function CloudSyncPage() {
                     </h2>
                 </div>
 
-                {cloudVideos.length === 0 ? (
+                {loading ? (
+                    <div className="space-y-2">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                            <div key={i} className="flex items-center gap-4 p-4 rounded-xl border border-border/50 bg-card/60 backdrop-blur-md shadow-sm">
+                                <Skeleton className="w-10 h-10 rounded-lg bg-muted/30" />
+                                <div className="flex-1 space-y-2">
+                                    <Skeleton className="h-4 w-[60%] sm:w-[300px] bg-muted/30" />
+                                    <Skeleton className="h-3 w-48 bg-muted/30" />
+                                </div>
+                                <div className="flex gap-2">
+                                    <Skeleton className="w-8 h-8 rounded-md bg-muted/30" />
+                                    <Skeleton className="w-8 h-8 rounded-md bg-muted/30" />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : cloudVideos.length === 0 ? (
                     <div className="h-48 flex flex-col gap-3 items-center justify-center text-muted-foreground border-2 border-dashed border-muted rounded-2xl bg-muted/10">
                         <Cloud className="w-10 h-10 opacity-20" />
                         <span className="text-sm opacity-60">No files uploaded to cloud yet</span>

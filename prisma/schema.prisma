@@ -37,13 +37,31 @@ model Video {
 }
 
 model Label {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  color     String?  // Optional hex or color literal
+  id            String   @id @default(uuid())
+  name          String   @unique
+  color         String?  // Optional hex or color literal
+  autoCloudSync Boolean  @default(false) // WID-306
   
   videos    Video[]  // Implicit m-to-n relation
   
   createdAt DateTime @default(now())
+}
+
+model DownloadProfile {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  sitePattern     String?  // e.g. "youtube.com", "twitter.com", "*"
+  
+  maxResolution   String?  @default("best") // "720p", "1080p", "1440p", "2160p", "best"
+  preferredFormat String?  @default("mp4")  // "mp4", "mkv", "webm", "mp3"
+  
+  autoCloudSync   Boolean  @default(false)
+  
+  isActive        Boolean  @default(true)
+  priority        Int      @default(0)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model DownloadLog {
