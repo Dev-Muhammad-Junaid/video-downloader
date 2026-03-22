@@ -146,7 +146,11 @@ export default function LibraryPage() {
         };
         init();
 
+        // WID-300: Global Queue Sync for Chrome Extension interactions
+        const globalPoll = setInterval(fetchQueue, 5000);
+
         return () => {
+            clearInterval(globalPoll);
             // Cleanup active polling on unmount
             Object.values(pollingRefs.current).forEach(clearInterval);
         };
@@ -269,7 +273,12 @@ export default function LibraryPage() {
                         errorText: j.error,
                     }));
 
-                    setQueue(activeJobs);
+                    setQueue(prev => {
+                        const localOnly = prev.filter(p => !p.jobId && (p.status === 'parsing' || p.status === 'pending'));
+                        const activeUrls = new Set(activeJobs.map((j: any) => j.originalUrl));
+                        const uniqueLocal = localOnly.filter(p => !activeUrls.has(p.originalUrl));
+                        return [...uniqueLocal, ...activeJobs];
+                    });
 
                     activeJobs.forEach(q => {
                         if (q.status !== 'completed' && q.status !== 'error' && q.jobId) {
