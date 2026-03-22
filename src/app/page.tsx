@@ -152,6 +152,31 @@ export default function LibraryPage() {
         };
     }, []);
 
+    // WID-300: Bookmarklet Auto-Ingestion
+    useEffect(() => {
+        const searchParams = new URLSearchParams(window.location.search);
+        const urlToParse = searchParams.get('url');
+        
+        if (urlToParse) {
+            const newItem: QueueItem = {
+                id: Math.random().toString(36).substring(7),
+                originalUrl: urlToParse,
+                status: 'parsing'
+            };
+            
+            setQueue(prev => [newItem, ...prev]);
+            
+            // Wait a tick for queue state to settle, then call parse
+            setTimeout(() => {
+                parseLink(newItem.id, newItem.originalUrl);
+            }, 50);
+
+            // Clean up the URL to prevent double ingestion on refresh
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     // WID-308: Deep Search handler
     const handleDeepSearch = useCallback(async (query: string) => {
         if (!query.trim()) {

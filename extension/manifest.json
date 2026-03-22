@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "SnapDown Sender",
+  "version": "1.0",
+  "description": "Send the current webpage URL to your SnapDown downloaded queue with one click.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "notifications"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Send to SnapDown",
+    "default_icon": {
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "128": "icons/icon128.png"
+  }
+}

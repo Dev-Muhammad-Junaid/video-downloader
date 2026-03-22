@@ -29,8 +29,10 @@ export default function SettingsPage() {
     const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false);
     const [editingProfile, setEditingProfile] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [baseUrl, setBaseUrl] = useState('');
 
     useEffect(() => {
+        setBaseUrl(window.location.origin);
         const savedCredentials = localStorage.getItem("r2_credentials");
         const folder = localStorage.getItem("watch_folder") || "";
         const openaiApiKey = localStorage.getItem("openai_api_key") || "";
@@ -618,6 +620,51 @@ export default function SettingsPage() {
                         {labels.length === 0 && (
                             <div className="p-8 text-center text-muted-foreground text-sm border border-dashed rounded-lg">No labels found. They will appear here once you start downloading content.</div>
                         )}
+                    </CardContent>
+                </Card>
+
+                {/* Browser Integration (WID-300) */}
+                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg lg:col-span-2">
+                    <CardHeader>
+                        <CardTitle className="text-xl flex items-center gap-2">
+                            <Plus className="w-5 h-5 text-primary" />
+                            Browser Integrations
+                        </CardTitle>
+                        <CardDescription>Send videos directly to SnapDown while browsing.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            
+                            {/* Bookmarklet */}
+                            <div className="space-y-4 p-4 rounded-xl bg-background/40 border border-border/50">
+                                <h3 className="font-semibold text-lg">1. Universal Bookmarklet</h3>
+                                <p className="text-sm text-muted-foreground">Works on Desktop & Mobile (Safari/Chrome). Drag this button into your browser's bookmarks bar. Click it when watching a video to send it here!</p>
+                                
+                                <div className="flex items-center justify-center p-6 border border-dashed border-border/50 rounded-lg bg-card/30">
+                                    <Button 
+                                        render={
+                                            <a href={`javascript:(function(){window.open('${baseUrl}/?url='+encodeURIComponent(window.location.href),'_blank');})();`} onClick={(e) => e.preventDefault()}>
+                                                ⬇️ Send to SnapDown
+                                            </a>
+                                        }
+                                        variant="default" 
+                                        className="cursor-move shadow-lg hover:scale-105 transition-transform"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Chrome Extension */}
+                            <div className="space-y-4 p-4 rounded-xl bg-background/40 border border-border/50">
+                                <h3 className="font-semibold text-lg">2. Chrome/Edge Extension</h3>
+                                <p className="text-sm text-muted-foreground">For desktop power users. Downloads without opening new tabs.</p>
+                                <ol className="text-sm text-muted-foreground list-decimal pl-5 space-y-2">
+                                    <li>Open your Chrome settings and go to <strong>chrome://extensions</strong></li>
+                                    <li>Enable <strong>Developer Mode</strong> in the top right.</li>
+                                    <li>Click <strong>Load unpacked</strong> and select the <code>extension/</code> folder inside this repository.</li>
+                                    <li>Click the extension icon on any video page!</li>
+                                </ol>
+                            </div>
+                        </div>
                     </CardContent>
                 </Card>
             </div>
