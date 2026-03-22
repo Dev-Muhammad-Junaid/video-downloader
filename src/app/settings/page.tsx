@@ -647,6 +647,7 @@ export default function SettingsPage() {
                                                 ⬇️ Send to SnapDown
                                             </a>
                                         }
+                                        nativeButton={false}
                                         variant="default" 
                                         className="cursor-move shadow-lg hover:scale-105 transition-transform"
                                     />
