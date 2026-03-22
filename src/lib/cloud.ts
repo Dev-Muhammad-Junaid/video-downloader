@@ -25,7 +25,18 @@ export async function uploadToCloud(videoId: string) {
     }
 
     const video = await prisma.video.findUnique({ where: { id: videoId } });
-    if (!video || !video.localPath || video.cloudKey) return null;
+    if (!video) {
+        console.warn(`[Cloud] uploadToCloud aborted: Video ${videoId} not found in DB`);
+        return null;
+    }
+    if (!video.localPath) {
+        console.warn(`[Cloud] uploadToCloud aborted: Video ${videoId} has no localPath`);
+        return null;
+    }
+    if (video.cloudKey) {
+        console.warn(`[Cloud] uploadToCloud aborted: Video ${videoId} already has cloudKey ${video.cloudKey}`);
+        return null;
+    }
 
     try {
         console.log(`[Cloud] Auto-syncing video: ${video.title} (${videoId})`);

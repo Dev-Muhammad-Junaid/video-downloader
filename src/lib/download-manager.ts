@@ -70,7 +70,7 @@ export function getJob(id: string) {
 }
 
 export function getAllJobs() {
-    return Array.from(activeDownloads.values());
+    return Array.from(activeDownloads.values()).reverse();
 }
 
 export function clearCompletedJobs() {
@@ -417,7 +417,9 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
 
                 // Check for Auto Cloud Sync (WID-306) or Extension Force (WID-315)
                 const shouldAutoSync = forceCloudSync || profile?.autoCloudSync || (createdVideo.labels as any[]).some(l => l.autoCloudSync);
+                console.log(`[WID-315 Debug] forceCloudSync: ${forceCloudSync}, shouldAutoSync: ${shouldAutoSync}`);
                 if (shouldAutoSync) {
+                    console.log(`[WID-315 Debug] Firing uploadToCloud(${createdVideo.id})`);
                     uploadToCloud(createdVideo.id).catch(err => {
                         console.error(`[AutoSync] Error uploading ${createdVideo.id}:`, err);
                     });
