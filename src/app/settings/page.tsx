@@ -641,15 +641,10 @@ export default function SettingsPage() {
                                 <p className="text-sm text-muted-foreground">Works on Desktop & Mobile (Safari/Chrome). Drag this button into your browser's bookmarks bar. Click it when watching a video to send it here!</p>
                                 
                                 <div className="flex items-center justify-center p-6 border border-dashed border-border/50 rounded-lg bg-card/30">
-                                    <Button 
-                                        render={
-                                            <a href={`javascript:(function(){window.open('${baseUrl}/?url='+encodeURIComponent(window.location.href),'_blank');})();`} onClick={(e) => e.preventDefault()}>
-                                                ⬇️ Send to SnapDown
-                                            </a>
-                                        }
-                                        nativeButton={false}
-                                        variant="default" 
-                                        className="cursor-move shadow-lg hover:scale-105 transition-transform"
+                                    <div 
+                                        dangerouslySetInnerHTML={{ 
+                                            __html: `<a href="javascript:(function(){window.open('${baseUrl}/?url='+encodeURIComponent(window.location.href),'_blank');})();" class="inline-flex shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground h-8 px-2.5 text-sm font-medium shadow-lg hover:scale-105 transition-transform cursor-move" onclick="event.preventDefault()">⬇️ Send to SnapDown</a>` 
+                                        }} 
                                     />
                                 </div>
                             </div>
