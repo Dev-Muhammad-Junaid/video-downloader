@@ -151,7 +151,7 @@ async function downloadFile(url: string, dest: string): Promise<void> {
     }
 }
 
-export async function startDownload(url: string, title: string, sourcePlatform: string, mediaType: string = "video", imageUrl?: string, formatId?: string) {
+export async function startDownload(url: string, title: string, sourcePlatform: string, mediaType: string = "video", imageUrl?: string, formatId?: string, forceCloudSync: boolean = false) {
     const id = Math.random().toString(36).substring(2, 15);
     const safeTitle = title.replace(/[^a-z0-9]/gi, "_").toLowerCase();
 
@@ -222,6 +222,12 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
             }
 
             const createdVideo = await prisma.video.create({ data: dbData });
+
+            if (forceCloudSync) {
+                uploadToCloud(createdVideo.id).catch(err => {
+                    console.error(`[AutoSync] Error uploading image ${createdVideo.id}:`, err);
+                });
+            }
 
             // Update download log
             await prisma.downloadLog.update({
@@ -409,8 +415,8 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
                     });
                 }
 
-                // Check for Auto Cloud Sync (WID-306)
-                const shouldAutoSync = profile?.autoCloudSync || (createdVideo.labels as any[]).some(l => l.autoCloudSync);
+                // Check for Auto Cloud Sync (WID-306) or Extension Force (WID-315)
+                const shouldAutoSync = forceCloudSync || profile?.autoCloudSync || (createdVideo.labels as any[]).some(l => l.autoCloudSync);
                 if (shouldAutoSync) {
                     uploadToCloud(createdVideo.id).catch(err => {
                         console.error(`[AutoSync] Error uploading ${createdVideo.id}:`, err);

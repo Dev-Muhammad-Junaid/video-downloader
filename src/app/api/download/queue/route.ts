@@ -42,6 +42,8 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "No URLs provided" }, { status: 400 });
         }
         
+        const cloudSync = body.cloudSync === true;
+        
         let successCount = 0;
         let errors = [];
 
@@ -70,7 +72,8 @@ export async function POST(req: Request) {
                             "unknown",
                             "video",
                             item.thumbnail,
-                            undefined
+                            undefined,
+                            cloudSync
                         );
                         successCount++;
                     }
@@ -81,7 +84,8 @@ export async function POST(req: Request) {
                         metadata.sourcePlatform || "unknown",
                         metadata.mediaType || "video",
                         metadata.thumbnail || metadata.imageUrl,
-                        undefined // Auto-selects best format by default
+                        undefined, // Auto-selects best format by default
+                        cloudSync
                     );
                     successCount++;
                 }
