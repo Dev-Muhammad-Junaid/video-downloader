@@ -1,4 +1,4 @@
-async function sendToSnapDown(videoUrl) {
+async function sendToSnapDown(videoUrl, tabId) {
   const { snapdownServerUrl = 'http://localhost:3000' } = await chrome.storage.local.get('snapdownServerUrl');
   
   // Format the endpoint URL
@@ -14,8 +14,8 @@ async function sendToSnapDown(videoUrl) {
     });
 
     if (response.ok) {
-      chrome.action.setBadgeText({ text: '✓' });
-      chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
+      chrome.action.setBadgeText({ text: '✓', tabId });
+      chrome.action.setBadgeBackgroundColor({ color: '#4CAF50', tabId });
 
       chrome.notifications.create({
         type: 'basic',
@@ -24,15 +24,15 @@ async function sendToSnapDown(videoUrl) {
         message: 'Successfully added to download queue!'
       });
     } else {
-      chrome.action.setBadgeText({ text: '!' });
-      chrome.action.setBadgeBackgroundColor({ color: '#F44336' });
+      chrome.action.setBadgeText({ text: '!', tabId });
+      chrome.action.setBadgeBackgroundColor({ color: '#F44336', tabId });
 
       const err = await response.json();
       throw new Error(err.error || 'Failed to add to queue from server.');
     }
   } catch (error) {
-    chrome.action.setBadgeText({ text: '!' });
-    chrome.action.setBadgeBackgroundColor({ color: '#F44336' });
+    chrome.action.setBadgeText({ text: '!', tabId });
+    chrome.action.setBadgeBackgroundColor({ color: '#F44336', tabId });
 
     chrome.notifications.create({
       type: 'basic',
@@ -43,7 +43,7 @@ async function sendToSnapDown(videoUrl) {
   } finally {
     // Clear the badge after 3 seconds
     setTimeout(() => {
-      chrome.action.setBadgeText({ text: '' });
+      chrome.action.setBadgeText({ text: '', tabId });
     }, 3000);
   }
 }
@@ -58,7 +58,7 @@ chrome.action.onClicked.addListener(async (tab) => {
       title: 'SnapDown',
       message: 'Sending to SnapDown...'
     });
-    await sendToSnapDown(tab.url);
+    await sendToSnapDown(tab.url, tab.id);
   } else {
     chrome.notifications.create({
       type: 'basic',
