@@ -5,6 +5,7 @@
     "s3AccessKey": "988f6757c09833363a336ca4c13c6c74",
     "s3SecretKey": "c7e4257046cc752c619ec022a8d8c58ab406096a079dedb4c3309d67442b7394",
     "s3Region": "auto",
-    "urlExpiry": 604800
+    "urlExpiry": 604800,
+    "storageLimit": 10
   }
 }

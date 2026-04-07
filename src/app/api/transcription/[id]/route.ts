@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { transcribeAndSave } from "@/lib/transcription";
+import { getServerSettings } from "@/lib/settings";
 
 // GET /api/transcription/[id] — get transcript status / text for a video
 export async function GET(
@@ -45,8 +46,9 @@ export async function POST(
 
     try {
         const body = await req.json().catch(() => ({}));
-        const apiKey: string = body.apiKey || process.env.OPENAI_API_KEY || "";
-        const language: string | undefined = body.language;
+        const settings = getServerSettings();
+        const apiKey: string = body.apiKey || settings.openaiApiKey || process.env.OPENAI_API_KEY || "";
+        const language: string | undefined = body.language || settings.whisperLanguage || undefined;
 
         if (!apiKey) {
             return NextResponse.json(

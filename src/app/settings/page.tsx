@@ -17,6 +17,7 @@ export default function SettingsPage() {
         s3AccessKey: "",
         s3SecretKey: "",
         s3Region: "auto",
+        storageLimit: 10,
         watchFolder: "",
         destinationFolder: "",
         urlExpiry: 604800,
@@ -33,31 +34,26 @@ export default function SettingsPage() {
 
     useEffect(() => {
         setBaseUrl(window.location.origin);
-        const savedCredentials = localStorage.getItem("r2_credentials");
-        const folder = localStorage.getItem("watch_folder") || "";
-        const openaiApiKey = localStorage.getItem("openai_api_key") || "";
-        const whisperLanguage = localStorage.getItem("whisper_language") || "";
 
-        if (savedCredentials) {
-            const parsed = JSON.parse(savedCredentials);
-            setSettings(s => ({ ...s, ...parsed, watchFolder: folder, urlExpiry: parsed.urlExpiry || 604800, openaiApiKey, whisperLanguage }));
-        } else {
-            setSettings(s => ({ ...s, watchFolder: folder, openaiApiKey, whisperLanguage }));
-        }
-
-        // Fetch everything from server
+        // Fetch everything from server APIs
         Promise.all([
             fetch("/api/settings/destination").then(res => res.json()),
             fetch("/api/profiles").then(res => res.json()),
             fetch("/api/labels").then(res => res.json()),
             fetch("/api/settings/r2").then(res => res.json()),
-        ]).then(([destData, profilesData, labelsData, r2Data]) => {
-            if (destData.path) setSettings(s => ({ ...s, destinationFolder: destData.path }));
+            fetch("/api/settings/ai").then(res => res.json()),
+            fetch("/api/settings/watch").then(res => res.json()),
+        ]).then(([destData, profilesData, labelsData, r2Data, aiData, watchData]) => {
+            setSettings(s => ({
+                ...s,
+                destinationFolder: destData.path || "",
+                ...(r2Data?.s3Endpoint ? r2Data : {}),
+                openaiApiKey: r2Data?.s3Endpoint ? (aiData.hasKey ? aiData.openaiApiKey : "") : "",
+                whisperLanguage: aiData.whisperLanguage || "",
+                watchFolder: watchData.watchFolder || "",
+            }));
             if (Array.isArray(profilesData)) setProfiles(profilesData);
             if (Array.isArray(labelsData)) setLabels(labelsData);
-            if (r2Data && r2Data.s3Endpoint) {
-                setSettings(s => ({ ...s, ...r2Data }));
-            }
             setIsLoading(false);
         }).catch(err => {
             console.error(err);
@@ -73,10 +69,9 @@ export default function SettingsPage() {
             s3SecretKey: settings.s3SecretKey,
             s3Region: settings.s3Region,
             urlExpiry: settings.urlExpiry,
+            storageLimit: settings.storageLimit,
         };
-        localStorage.setItem("r2_credentials", JSON.stringify(creds));
-        
-        // Also save to server for auto-sync
+
         try {
             const res = await fetch("/api/settings/r2", {
                 method: "POST",
@@ -84,18 +79,30 @@ export default function SettingsPage() {
                 body: JSON.stringify(creds),
             });
             if (res.ok) {
-                toast.success("Credentials saved to browser & server");
+                toast.success("R2 credentials saved");
             } else {
-                toast.warning("Saved to browser, but server-side persistence failed");
+                toast.error("Failed to save R2 credentials");
             }
         } catch {
-            toast.warning("Saved to browser, but server-side persistence failed");
+            toast.error("Failed to save R2 credentials");
         }
     };
 
-    const handleSaveWatchFolder = () => {
-        localStorage.setItem("watch_folder", settings.watchFolder);
-        toast.success("Watch folder saved");
+    const handleSaveWatchFolder = async () => {
+        try {
+            const res = await fetch("/api/settings/watch", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ watchFolder: settings.watchFolder }),
+            });
+            if (res.ok) {
+                toast.success("Watch folder saved");
+            } else {
+                toast.error("Failed to save watch folder");
+            }
+        } catch {
+            toast.error("Failed to save watch folder");
+        }
     };
 
     const handleSaveDestination = async () => {
@@ -360,6 +367,21 @@ export default function SettingsPage() {
                             </select>
                             <p className="text-xs text-muted-foreground">How long preview and download links stay valid before expiring.</p>
                         </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="storageLimit" className="flex items-center gap-2">
+                                <Database className="w-3.5 h-3.5 text-muted-foreground" />
+                                Storage Limit (GB)
+                            </Label>
+                            <Input
+                                id="storageLimit"
+                                type="number"
+                                min={1}
+                                value={settings.storageLimit}
+                                onChange={(e) => setSettings({ ...settings, storageLimit: Number(e.target.value) || 10 })}
+                                placeholder="10"
+                            />
+                            <p className="text-xs text-muted-foreground">R2 storage quota in GB (free tier: 10 GB). Used to display usage warnings.</p>
+                        </div>
                         <Button onClick={handleSaveCredentials} className="w-full sm:col-span-2">Save Credentials</Button>
                     </CardContent>
                 </Card>
@@ -452,10 +474,18 @@ export default function SettingsPage() {
                             />
                         </div>
                         <Button
-                            onClick={() => {
-                                localStorage.setItem("openai_api_key", settings.openaiApiKey);
-                                localStorage.setItem("whisper_language", settings.whisperLanguage);
-                                toast.success("AI settings saved");
+                            onClick={async () => {
+                                try {
+                                    const res = await fetch("/api/settings/ai", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ openaiApiKey: settings.openaiApiKey, whisperLanguage: settings.whisperLanguage }),
+                                    });
+                                    if (res.ok) toast.success("AI settings saved");
+                                    else toast.error("Failed to save AI settings");
+                                } catch {
+                                    toast.error("Failed to save AI settings");
+                                }
                             }}
                             className="w-full"
                         >

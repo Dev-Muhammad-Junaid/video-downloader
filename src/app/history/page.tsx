@@ -135,18 +135,12 @@ export default function HistoryPage() {
 
     const handleRetryTranscription = async (log: ActivityLog) => {
         if (!log.videoId) { toast.error("No video ID on this log entry"); return; }
-        const apiKey = localStorage.getItem("openai_api_key") || "";
-        if (!apiKey) {
-            toast.error("Add your OpenAI API key in Settings → AI Transcription first.");
-            return;
-        }
-        const language = localStorage.getItem("whisper_language") || undefined;
         toast.info(`Retrying transcription: ${log.title}`);
         try {
             const res = await fetch(`/api/transcription/${log.videoId}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ apiKey, language }),
+                body: JSON.stringify({}),
             });
             if (!res.ok) {
                 const d = await res.json();

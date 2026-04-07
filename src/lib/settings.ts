@@ -11,7 +11,11 @@ interface ServerSettings {
         s3Region: string;
         s3AccessKey: string;
         s3SecretKey: string;
+        storageLimit?: number; // in GB, default 10
     };
+    openaiApiKey?: string;
+    whisperLanguage?: string;
+    watchFolder?: string;
 }
 
 export function getServerSettings(): ServerSettings {

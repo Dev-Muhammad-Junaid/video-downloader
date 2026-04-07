@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import path from "path";
 import os from "os";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export async function POST(req: Request) {
     try {
@@ -15,25 +15,17 @@ export async function POST(req: Request) {
         }
 
         if (action === "open") {
-            let command = "";
             const platform = os.platform();
-
-            // We want to open the directory containing the file, and ideally select it
-            // macOS: open -R <path>
-            // Windows: explorer /select,"<path>"
-            // Linux: xdg-open <dir>
-
             const dir = path.dirname(targetPath);
 
             if (platform === "darwin") {
-                command = `open -R "${targetPath}"`;
+                await execFileAsync("open", ["-R", targetPath]);
             } else if (platform === "win32") {
-                command = `explorer /select,"${targetPath}"`;
+                await execFileAsync("explorer", ["/select,", targetPath]);
             } else {
-                command = `xdg-open "${dir}"`;
+                await execFileAsync("xdg-open", [dir]);
             }
 
-            await execAsync(command);
             return NextResponse.json({ success: true });
         }
 

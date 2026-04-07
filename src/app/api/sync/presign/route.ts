@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { prisma } from "@/lib/prisma";
+import { getServerSettings } from "@/lib/settings";
 
 function createS3Client(credentials: any) {
     return new S3Client({
@@ -14,13 +15,24 @@ function createS3Client(credentials: any) {
     });
 }
 
+function getCredentials(bodyCredentials?: any) {
+    const settings = getServerSettings();
+    const creds = settings.r2_credentials;
+    if (creds && creds.s3Endpoint && creds.s3Bucket && creds.s3AccessKey && creds.s3SecretKey) {
+        return creds;
+    }
+    return bodyCredentials;
+}
+
 // POST — generate a presigned URL for a cloud file
 export async function POST(req: Request) {
     try {
-        const { videoId, credentials, expiresIn: requestedExpiry } = await req.json();
+        const body = await req.json();
+        const { videoId, expiresIn: requestedExpiry } = body;
+        const credentials = getCredentials(body.credentials);
 
         if (!videoId || !credentials || !credentials.s3Endpoint || !credentials.s3Bucket) {
-            return NextResponse.json({ error: "Missing required data" }, { status: 400 });
+            return NextResponse.json({ error: "Missing required data. Configure R2 credentials in Settings." }, { status: 400 });
         }
 
         const video = await prisma.video.findUnique({ where: { id: videoId } });
