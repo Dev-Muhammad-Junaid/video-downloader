@@ -20,11 +20,12 @@ export interface DownloadJob {
     progress: number; // 0 to 100
     downloadPath?: string;
     error?: string;
+    completedAt?: number; // timestamp for auto-cleanup
 }
 
 const globalForDownloads = global as unknown as { 
     activeDownloads: Map<string, DownloadJob>;
-    cleanupIntervalStarted?: boolean;
+    cleanupIntervalId?: NodeJS.Timeout;
     downloadQueue?: ReturnType<typeof pLimit>;
 };
 export const activeDownloads = globalForDownloads.activeDownloads || new Map<string, DownloadJob>();
@@ -33,6 +34,23 @@ if (process.env.NODE_ENV !== "production") globalForDownloads.activeDownloads = 
 // Queue to limit concurrent downloads
 const limit = globalForDownloads.downloadQueue || pLimit(3);
 if (process.env.NODE_ENV !== "production") globalForDownloads.downloadQueue = limit;
+
+// Auto-cleanup: sweep completed/error jobs older than 10 minutes every 5 minutes
+const CLEANUP_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+if (globalForDownloads.cleanupIntervalId) {
+    clearInterval(globalForDownloads.cleanupIntervalId);
+}
+
+globalForDownloads.cleanupIntervalId = setInterval(() => {
+    const now = Date.now();
+    for (const [id, job] of activeDownloads) {
+        if ((job.status === "completed" || job.status === "error") && job.completedAt && (now - job.completedAt > CLEANUP_MAX_AGE_MS)) {
+            activeDownloads.delete(id);
+        }
+    }
+}, CLEANUP_INTERVAL_MS);
 
 
 // Ensure downloads directory exists — read configurable destination
@@ -152,6 +170,15 @@ async function downloadFile(url: string, dest: string): Promise<void> {
 }
 
 export async function startDownload(url: string, title: string, sourcePlatform: string, mediaType: string = "video", imageUrl?: string, formatId?: string, forceCloudSync: boolean = false) {
+    try {
+        const parsedUrl = new URL(url);
+        if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+            throw new Error("Invalid URL protocol");
+        }
+    } catch {
+        throw new Error("Invalid or unsafe URL provided");
+    }
+
     const id = Math.random().toString(36).substring(2, 15);
     const safeTitle = title.replace(/[^a-z0-9]/gi, "_").toLowerCase();
 
@@ -183,6 +210,7 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
             await downloadFile(imageUrl, outputPath);
 
             job.status = "completed";
+            job.completedAt = Date.now();
             job.progress = 100;
             job.downloadPath = outputPath;
             activeDownloads.set(id, job);
@@ -249,6 +277,7 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
             }).catch(console.error);
         } catch (err: any) {
             job.status = "error";
+            job.completedAt = Date.now();
             job.error = err.message || "Image download failed";
             activeDownloads.set(id, job);
             console.error("Image download failed:", err);
@@ -345,6 +374,7 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
     ytdlp.on("close", async (code) => {
         if (code === 0) {
             job.status = "completed";
+            job.completedAt = Date.now();
             job.progress = 100;
             job.downloadPath = outputPath;
             activeDownloads.set(id, job);
@@ -436,6 +466,7 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
             }
         } else {
             job.status = "error";
+            job.completedAt = Date.now();
             job.error = `Process exited with code ${code}`;
             activeDownloads.set(id, job);
 
@@ -458,6 +489,7 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
         } catch (err: any) {
             console.error("Failed to start video download process:", err);
             job.status = "error";
+            job.completedAt = Date.now();
             job.error = err.message || "Failed to start download process";
             activeDownloads.set(id, job);
 

@@ -19,7 +19,6 @@ import {
     Trash2,
     ExternalLink,
     Pencil,
-    Check,
     X,
     Calendar,
     HardDrive,
@@ -30,6 +29,7 @@ import {
     FileText,
 } from "lucide-react";
 import { toast } from "sonner";
+import { VideoEditorModal } from "./video-editor/video-editor-modal";
 
 type Video = {
     id: string;
@@ -62,6 +62,7 @@ interface MediaPlayerModalProps {
     onCloudRemove?: (video: Video) => void;
     onTitleUpdate?: (videoId: string, newTitle: string) => void;
     onTranscribe?: (video: Video) => void;
+    onRefreshLibrary?: () => void;
 }
 
 export function MediaPlayerModal({
@@ -74,14 +75,20 @@ export function MediaPlayerModal({
     onCloudRemove,
     onTitleUpdate,
     onTranscribe,
+    onRefreshLibrary,
 }: MediaPlayerModalProps) {
     const [currentIndex, setCurrentIndex] = useState(initialIndex);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [editTitle, setEditTitle] = useState("");
+    
+    // Edit Media Mode State
+    const [isEditingMedia, setIsEditingMedia] = useState(false);
+
     const videoRef = useRef<HTMLVideoElement>(null);
 
     useEffect(() => {
         setCurrentIndex(initialIndex);
+        setIsEditingMedia(false);
     }, [initialIndex]);
 
     const video = videos[currentIndex];
@@ -111,8 +118,9 @@ export function MediaPlayerModal({
     };
 
     const saveTitle = () => {
-        if (editTitle.trim() && editTitle !== video.title) {
-            onTitleUpdate?.(video.id, editTitle.trim());
+        const trimmed = editTitle.trim();
+        if (trimmed && trimmed !== video.title) {
+            onTitleUpdate?.(video.id, trimmed);
         }
         setIsEditingTitle(false);
     };
@@ -122,11 +130,11 @@ export function MediaPlayerModal({
         toast.success("Copied to clipboard");
     };
 
-    const handleOpenFolder = async (filePath: string) => {
+    const handleOpenFolder = async (targetPath: string) => {
         await fetch("/api/library/action", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "reveal", filePath }),
+            body: JSON.stringify({ action: "open", targetPath }),
         });
     };
 
@@ -200,28 +208,23 @@ export function MediaPlayerModal({
                         {/* Title */}
                         <div className="p-4 border-b border-border">
                             {isEditingTitle ? (
-                                <div className="flex gap-1.5">
+                                <div className="flex items-center gap-2">
                                     <Input
                                         value={editTitle}
                                         onChange={(e) => setEditTitle(e.target.value)}
-                                        className="h-8 text-sm"
+                                        className="h-8 text-sm flex-1"
                                         autoFocus
                                         onKeyDown={(e) => {
                                             if (e.key === "Enter") saveTitle();
                                             if (e.key === "Escape") setIsEditingTitle(false);
                                         }}
+                                        onBlur={saveTitle}
                                     />
-                                    <Button size="icon" variant="ghost" className="h-8 w-8 flex-shrink-0" onClick={saveTitle}>
-                                        <Check className="w-4 h-4 text-emerald-500" />
-                                    </Button>
-                                    <Button size="icon" variant="ghost" className="h-8 w-8 flex-shrink-0" onClick={() => setIsEditingTitle(false)}>
-                                        <X className="w-4 h-4" />
-                                    </Button>
                                 </div>
                             ) : (
-                                <div className="flex items-start gap-2">
+                                <div className="flex items-start gap-2 group/title">
                                     <h3 className="font-semibold text-sm flex-1 leading-snug break-words">{video.title}</h3>
-                                    <Button size="icon" variant="ghost" className="h-7 w-7 flex-shrink-0 opacity-50 hover:opacity-100" onClick={startEditTitle}>
+                                    <Button size="icon" variant="ghost" className="h-7 w-7 flex-shrink-0 opacity-0 group-hover/title:opacity-100 transition-opacity" onClick={startEditTitle}>
                                         <Pencil className="w-3.5 h-3.5" />
                                     </Button>
                                 </div>
@@ -359,6 +362,32 @@ export function MediaPlayerModal({
                                     {video.transcriptStatus === "processing" ? "Transcribing..." : "Transcribe Video"}
                                 </Button>
                             )}
+
+                            {(!video.mediaType || video.mediaType === "video") ? (
+                                <Button
+                                    variant="outline"
+                                    className="w-full h-9 text-xs"
+                                    onClick={() => setIsEditingMedia(true)}
+                                >
+                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Video
+                                </Button>
+                            ) : video.mediaType === "image" ? (
+                                <Button
+                                    variant="outline"
+                                    className="w-full h-9 text-xs opacity-50 cursor-not-allowed"
+                                    disabled
+                                >
+                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Image (Coming Soon)
+                                </Button>
+                            ) : (
+                                <Button
+                                    variant="outline"
+                                    className="w-full h-9 text-xs opacity-50 cursor-not-allowed"
+                                    disabled
+                                >
+                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Audio (Coming Soon)
+                                </Button>
+                            )}
                             <div className="grid grid-cols-2 gap-2">
                                 <Button
                                     variant="outline"
@@ -413,6 +442,14 @@ export function MediaPlayerModal({
                     </div>
                 </div>
             </DialogContent>
+
+            {isEditingMedia && (
+                <VideoEditorModal 
+                    video={video} 
+                    onClose={() => setIsEditingMedia(false)}
+                    onRefreshLibrary={onRefreshLibrary}
+                />
+            )}
         </Dialog>
     );
 }

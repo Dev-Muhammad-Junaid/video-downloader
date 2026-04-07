@@ -60,8 +60,7 @@ type CloudStats = {
     }[];
 };
 
-const STORAGE_LIMIT_GB = 10; // R2 free tier default
-const STORAGE_LIMIT_BYTES = STORAGE_LIMIT_GB * 1024 * 1024 * 1024;
+
 
 function formatBytes(bytes: number): string {
     if (bytes === 0) return "0 B";
@@ -87,18 +86,15 @@ export default function CloudSyncPage() {
     const [loading, setLoading] = useState(true);
     const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
 
+    const [storageLimitGb, setStorageLimitGb] = useState(10);
+    const storageLimitBytes = storageLimitGb * 1024 * 1024 * 1024;
+
     const getPresignedUrl = async (videoId: string): Promise<string | null> => {
-        const saved = localStorage.getItem("r2_credentials");
-        if (!saved) {
-            toast.error("Please configure S3 credentials in Settings first");
-            return null;
-        }
         try {
-            const creds = JSON.parse(saved);
             const res = await fetch("/api/sync/presign", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ videoId, credentials: creds, expiresIn: creds.urlExpiry || 604800 }),
+                body: JSON.stringify({ videoId }),
             });
             const data = await res.json();
             if (res.ok && data.url) return data.url;
@@ -129,15 +125,13 @@ export default function CloudSyncPage() {
 
     useEffect(() => {
         fetchData();
+        // Fetch storage limit from server settings
+        fetch("/api/settings/r2").then(r => r.json()).then(data => {
+            if (data.storageLimit) setStorageLimitGb(data.storageLimit);
+        }).catch(() => {});
     }, []);
 
     const handleRemoveFromCloud = async (video: CloudVideo) => {
-        const saved = localStorage.getItem("r2_credentials");
-        if (!saved) {
-            toast.error("Please configure S3 credentials in Settings first");
-            return;
-        }
-
         if (!confirm(`Remove "${video.title}" from cloud? The local file will not be affected.`)) return;
 
         setRemovingIds(prev => new Set(prev).add(video.id));
@@ -147,7 +141,7 @@ export default function CloudSyncPage() {
             const res = await fetch("/api/sync", {
                 method: "DELETE",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ videoId: video.id, credentials: JSON.parse(saved) }),
+                body: JSON.stringify({ videoId: video.id }),
             });
 
             const result = await res.json();
@@ -171,7 +165,7 @@ export default function CloudSyncPage() {
         }
     };
 
-    const usagePercent = stats ? Math.min((stats.totalBytes / STORAGE_LIMIT_BYTES) * 100, 100) : 0;
+    const usagePercent = stats ? Math.min((stats.totalBytes / storageLimitBytes) * 100, 100) : 0;
 
     return (
         <div className="p-8 w-full space-y-8 max-w-[1600px] mx-auto min-h-full">
@@ -246,7 +240,7 @@ export default function CloudSyncPage() {
                     <CardContent className="relative">
                         <div className="text-3xl font-bold tracking-tight">{formatBytes(stats?.totalBytes || 0)}</div>
                         <p className="text-xs text-muted-foreground mt-1">
-                            of {STORAGE_LIMIT_GB} GB limit
+                            of {storageLimitGb} GB limit
                         </p>
                     </CardContent>
                 </Card>
@@ -317,14 +311,14 @@ export default function CloudSyncPage() {
                             Storage Usage
                         </div>
                         <span className="text-sm text-muted-foreground">
-                            {formatBytes(stats?.totalBytes || 0)} / {STORAGE_LIMIT_GB} GB
+                            {formatBytes(stats?.totalBytes || 0)} / {storageLimitGb} GB
                         </span>
                     </div>
                     <Progress value={usagePercent} className="h-3" />
                     <div className="flex items-center justify-between mt-2">
                         <span className="text-xs text-muted-foreground">{usagePercent.toFixed(1)}% used</span>
                         <span className="text-xs text-muted-foreground">
-                            {formatBytes(STORAGE_LIMIT_BYTES - (stats?.totalBytes || 0))} remaining
+                            {formatBytes(storageLimitBytes - (stats?.totalBytes || 0))} remaining
                         </span>
                     </div>
 

@@ -95,8 +95,19 @@ export default function LibraryPage() {
     const [searchQuery, setSearchQuery] = useState("");
     const [sortBy, setSortBy] = useState<"newest" | "oldest" | "size-desc" | "size-asc">("newest");
     const [platformFilter, setPlatformFilter] = useState("all");
-    const [groupByDate, setGroupByDate] = useState(true);
-    const [mediaTypeFilter, setMediaTypeFilter] = useState<"all" | "video" | "image">("all");
+    const [groupByDate, setGroupByDate] = useState(() => {
+        if (typeof window !== "undefined") {
+            const saved = localStorage.getItem("ui_groupByDate");
+            return saved !== null ? saved === "true" : true;
+        }
+        return true;
+    });
+    const [mediaTypeFilter, setMediaTypeFilter] = useState<"all" | "video" | "image">(() => {
+        if (typeof window !== "undefined") {
+            return (localStorage.getItem("ui_mediaTypeFilter") as "all" | "video" | "image") || "all";
+        }
+        return "all";
+    });
 
     // Renaming state
     const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
@@ -120,15 +131,20 @@ export default function LibraryPage() {
 
     useEffect(() => {
         const init = async () => {
-            const watchPath = localStorage.getItem("watch_folder");
-            if (watchPath) {
-                // Background scan
-                fetch("/api/library/scan", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ folderPath: watchPath }),
-                }).then(() => fetchLibrary()).catch(console.error);
-            }
+            // Fetch watch folder from server settings
+            try {
+                const watchRes = await fetch("/api/settings/watch");
+                if (watchRes.ok) {
+                    const { watchFolder } = await watchRes.json();
+                    if (watchFolder) {
+                        fetch("/api/library/scan", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ folderPath: watchFolder }),
+                        }).then(() => fetchLibrary()).catch(console.error);
+                    }
+                }
+            } catch { /* ignore */ }
             fetchLibrary();
             fetchQueue();
             fetchLabels();
@@ -214,43 +230,48 @@ export default function LibraryPage() {
 
     // WID-307: Transcribe a single video
     const handleTranscribe = async (videoId: string) => {
-        const apiKey = localStorage.getItem("openai_api_key") || "";
-        if (!apiKey) {
-            toast.error("Add your OpenAI API key in Settings → AI Transcription first.");
-            return;
-        }
         setTranscribingIds(prev => new Set(prev).add(videoId));
         try {
-            const language = localStorage.getItem("whisper_language") || undefined;
             const res = await fetch(`/api/transcription/${videoId}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ apiKey, language }),
+                body: JSON.stringify({}),
             });
             if (!res.ok) {
                 const d = await res.json();
                 throw new Error(d.error || "Transcription request failed");
             }
             toast.info("Transcription started — this may take a moment...");
-            // Poll until done
+            // Poll until done — tracked in pollingRefs for cleanup
+            let pollCount = 0;
             const poll = setInterval(async () => {
+                pollCount++;
+                if (pollCount > 100) {
+                    clearInterval(poll);
+                    delete pollingRefs.current[`transcribe-${videoId}`];
+                    setTranscribingIds(prev => { const s = new Set(prev); s.delete(videoId); return s; });
+                    toast.error("Transcription polling timed out");
+                    return;
+                }
                 try {
                     const statusRes = await fetch(`/api/transcription/${videoId}`);
                     const statusData = await statusRes.json();
                     if (statusData.status === "completed") {
                         clearInterval(poll);
+                        delete pollingRefs.current[`transcribe-${videoId}`];
                         setTranscribingIds(prev => { const s = new Set(prev); s.delete(videoId); return s; });
                         toast.success("Transcription complete! You can now deep search this video.");
-                        // Update in-place
                         setVideos(prev => prev.map(v => v.id === videoId ? { ...v, transcriptStatus: "completed", transcriptText: statusData.text } : v));
                     } else if (statusData.status === "error") {
                         clearInterval(poll);
+                        delete pollingRefs.current[`transcribe-${videoId}`];
                         setTranscribingIds(prev => { const s = new Set(prev); s.delete(videoId); return s; });
                         toast.error("Transcription failed for this video");
                         setVideos(prev => prev.map(v => v.id === videoId ? { ...v, transcriptStatus: "error" } : v));
                     }
                 } catch { /* ignore */ }
             }, 3000);
+            pollingRefs.current[`transcribe-${videoId}`] = poll;
         } catch (err: any) {
             setTranscribingIds(prev => { const s = new Set(prev); s.delete(videoId); return s; });
             toast.error(err.message);
@@ -526,18 +547,12 @@ export default function LibraryPage() {
     };
 
     const handleCloudUpload = async (video: Video) => {
-        const saved = localStorage.getItem("r2_credentials");
-        if (!saved) {
-            toast.error("Please configure S3 credentials in Settings first");
-            return;
-        }
-
         const toastId = toast.loading(`Uploading ${video.title}...`);
         try {
             const res = await fetch("/api/sync", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ videoId: video.id, credentials: JSON.parse(saved) }),
+                body: JSON.stringify({ videoId: video.id }),
             });
 
             const result = await res.json();
@@ -554,12 +569,6 @@ export default function LibraryPage() {
     };
 
     const handleCloudRemove = async (video: Video) => {
-        const saved = localStorage.getItem("r2_credentials");
-        if (!saved) {
-            toast.error("Please configure S3 credentials in Settings first");
-            return;
-        }
-
         if (!confirm(`Remove "${video.title}" from cloud storage? The local file will not be affected.`)) return;
 
         const toastId = toast.loading(`Removing from cloud...`);
@@ -567,7 +576,7 @@ export default function LibraryPage() {
             const res = await fetch("/api/sync", {
                 method: "DELETE",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ videoId: video.id, credentials: JSON.parse(saved) }),
+                body: JSON.stringify({ videoId: video.id }),
             });
 
             const result = await res.json();
@@ -1049,7 +1058,7 @@ export default function LibraryPage() {
                                             )}
                                             {item.status === 'downloading' && (
                                                 <div className="flex-1 flex items-center gap-3">
-                                                    <Progress value={item.progress ?? null} className="h-1.5 flex-1 bg-muted/80" />
+                                                    <Progress value={item.progress ?? 0} className="h-1.5 flex-1 bg-muted/80" />
                                                     <span className="text-xs font-bold text-primary w-9">{Math.round(item.progress || 0)}%</span>
                                                 </div>
                                             )}
@@ -1155,7 +1164,7 @@ export default function LibraryPage() {
                                 variant={mediaTypeFilter === "all" ? "secondary" : "ghost"}
                                 size="sm"
                                 className="h-9 rounded-none border-none text-xs px-3"
-                                onClick={() => setMediaTypeFilter("all")}
+                                onClick={() => { const next = "all"; setMediaTypeFilter(next); localStorage.setItem("ui_mediaTypeFilter", next); }}
                             >
                                 All
                             </Button>
@@ -1163,7 +1172,7 @@ export default function LibraryPage() {
                                 variant={mediaTypeFilter === "video" ? "secondary" : "ghost"}
                                 size="sm"
                                 className="h-9 rounded-none border-none px-3"
-                                onClick={() => setMediaTypeFilter("video")}
+                                onClick={() => { const next = "video"; setMediaTypeFilter(next); localStorage.setItem("ui_mediaTypeFilter", next); }}
                                 title="Videos only"
                             >
                                 <VideoIcon className="w-4 h-4" />
@@ -1172,7 +1181,7 @@ export default function LibraryPage() {
                                 variant={mediaTypeFilter === "image" ? "secondary" : "ghost"}
                                 size="sm"
                                 className="h-9 rounded-none border-none px-3"
-                                onClick={() => setMediaTypeFilter("image")}
+                                onClick={() => { const next = "image"; setMediaTypeFilter(next); localStorage.setItem("ui_mediaTypeFilter", next); }}
                                 title="Images only"
                             >
                                 <ImageIcon className="w-4 h-4" />
@@ -1182,7 +1191,7 @@ export default function LibraryPage() {
                         <Button
                             variant={groupByDate ? "secondary" : "ghost"}
                             className="h-9 bg-background/50 border border-border/50 rounded-lg text-foreground/80 hover:bg-background/80"
-                            onClick={() => setGroupByDate(!groupByDate)}
+                            onClick={() => { setGroupByDate(!groupByDate); localStorage.setItem("ui_groupByDate", String(!groupByDate)); }}
                         >
                             Group by Date
                         </Button>
@@ -1258,18 +1267,22 @@ export default function LibraryPage() {
                 onDelete={handleDelete}
                 onCloudUpload={handleCloudUpload}
                 onCloudRemove={handleCloudRemove}
+                onRefreshLibrary={fetchLibrary}
                 onTitleUpdate={async (videoId, newTitle) => {
                     try {
-                        const res = await fetch(`/api/library/action`, {
-                            method: "POST",
+                        const res = await fetch(`/api/library/${videoId}`, {
+                            method: "PATCH",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ action: "rename", videoId, newTitle }),
+                            body: JSON.stringify({ title: newTitle }),
                         });
                         if (res.ok) {
                             setVideos(prev =>
                                 prev.map(v => v.id === videoId ? { ...v, title: newTitle } : v)
                             );
                             toast.success("Title updated");
+                        } else {
+                            const data = await res.json();
+                            toast.error(data.error || "Failed to update title");
                         }
                     } catch {
                         toast.error("Failed to update title");

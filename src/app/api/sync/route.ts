@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command, HeadBucketCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import fs from "fs";
 import path from "path";
 import { prisma } from "@/lib/prisma";
+import { getServerSettings } from "@/lib/settings";
 
 function createS3Client(credentials: any) {
     return new S3Client({
@@ -13,6 +14,16 @@ function createS3Client(credentials: any) {
             secretAccessKey: credentials.s3SecretKey,
         },
     });
+}
+
+function getCredentials(bodyCredentials?: any) {
+    // Prefer server-side settings, fall back to request body
+    const settings = getServerSettings();
+    const creds = settings.r2_credentials;
+    if (creds && creds.s3Endpoint && creds.s3Bucket && creds.s3AccessKey && creds.s3SecretKey) {
+        return creds;
+    }
+    return bodyCredentials;
 }
 
 // GET — list all cloud-uploaded videos
@@ -33,10 +44,12 @@ export async function GET() {
 // POST — upload a video to R2 and track in DB
 export async function POST(req: Request) {
     try {
-        const { videoId, credentials } = await req.json();
+        const body = await req.json();
+        const { videoId } = body;
+        const credentials = getCredentials(body.credentials);
 
         if (!videoId || !credentials || !credentials.s3Endpoint || !credentials.s3Bucket) {
-            return NextResponse.json({ error: "Missing required data" }, { status: 400 });
+            return NextResponse.json({ error: "Missing required data. Configure R2 credentials in Settings." }, { status: 400 });
         }
 
         const video = await prisma.video.findUnique({ where: { id: videoId } });
@@ -92,10 +105,12 @@ export async function POST(req: Request) {
 // DELETE — remove a video from cloud storage
 export async function DELETE(req: Request) {
     try {
-        const { videoId, credentials } = await req.json();
+        const body = await req.json();
+        const { videoId } = body;
+        const credentials = getCredentials(body.credentials);
 
         if (!videoId || !credentials || !credentials.s3Endpoint || !credentials.s3Bucket) {
-            return NextResponse.json({ error: "Missing required data" }, { status: 400 });
+            return NextResponse.json({ error: "Missing required data. Configure R2 credentials in Settings." }, { status: 400 });
         }
 
         const video = await prisma.video.findUnique({ where: { id: videoId } });
