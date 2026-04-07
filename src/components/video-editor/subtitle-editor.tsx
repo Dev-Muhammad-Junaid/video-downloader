@@ -1,0 +1,512 @@
+"use client";
+
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+    Search,
+    Copy,
+    Check,
+    ArrowLeftRight,
+    Clock,
+    ListTodo,
+    AlertTriangle,
+    X,
+    ChevronUp,
+    ChevronDown,
+} from "lucide-react";
+import {
+    Subtitle,
+    parseSrtTime,
+    displayTime,
+    shiftTime,
+    subtitlesToSrt,
+    findActiveSubtitle,
+    findNearestSubtitle,
+} from "./subtitle-types";
+import { motion, AnimatePresence } from "framer-motion";
+
+interface SubtitleEditorProps {
+    subtitles: Subtitle[];
+    onSubtitlesChange: (subtitles: Subtitle[]) => void;
+    currentTime: number;
+    videoRef: React.RefObject<HTMLVideoElement | null>;
+    onSeek: (time: number) => void;
+}
+
+export function SubtitleEditor({
+    subtitles,
+    onSubtitlesChange,
+    currentTime,
+    videoRef,
+    onSeek,
+}: SubtitleEditorProps) {
+    const [searchQuery, setSearchQuery] = useState("");
+    const [showReviewQueue, setShowReviewQueue] = useState(false);
+    const [showFindReplace, setShowFindReplace] = useState(false);
+    const [findText, setFindText] = useState("");
+    const [replaceText, setReplaceText] = useState("");
+    const [showTimingOffset, setShowTimingOffset] = useState(false);
+    const [copied, setCopied] = useState(false);
+    const [activeId, setActiveId] = useState<number | null>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+    // Stats
+    const totalWords = subtitles.reduce(
+        (acc, s) => acc + s.text.split(/\s+/).filter(Boolean).length,
+        0
+    );
+    const totalDurationSec =
+        subtitles.length > 0
+            ? parseSrtTime(subtitles[subtitles.length - 1].end) -
+              parseSrtTime(subtitles[0].start)
+            : 0;
+    const statsMins = Math.floor(totalDurationSec / 60);
+    const statsSecs = Math.floor(totalDurationSec % 60);
+    const needsReviewCount = subtitles.filter((s) => s.confidence < 0.8).length;
+
+    // Filter subtitles
+    const filteredSubtitles = subtitles.filter((s) => {
+        if (showReviewQueue && s.confidence >= 0.8) return false;
+        if (
+            searchQuery &&
+            !s.text.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+            return false;
+        return true;
+    });
+
+    // Find match count
+    const findMatchCount = findText
+        ? subtitles.reduce((count, s) => {
+              const regex = new RegExp(
+                  findText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+                  "gi"
+              );
+              return count + (s.text.match(regex)?.length ?? 0);
+          }, 0)
+        : 0;
+
+    // Track active subtitle from video playback
+    useEffect(() => {
+        const active = findActiveSubtitle(filteredSubtitles, currentTime);
+        if (active) {
+            if (active.id !== activeId) {
+                setActiveId(active.id);
+                const el = document.getElementById(`sub-${active.id}`);
+                if (el)
+                    el.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+        } else {
+            const nearest = findNearestSubtitle(filteredSubtitles, currentTime);
+            if (nearest && nearest.id !== activeId) {
+                setActiveId(nearest.id);
+                const el = document.getElementById(`sub-${nearest.id}`);
+                if (el)
+                    el.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+        }
+    }, [currentTime, filteredSubtitles, activeId]);
+
+    // Keyboard shortcuts
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            const tag = (e.target as HTMLElement)?.tagName;
+            if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+            switch (e.key) {
+                case "ArrowUp": {
+                    e.preventDefault();
+                    const idx = filteredSubtitles.findIndex(
+                        (s) => s.id === activeId
+                    );
+                    if (idx > 0) {
+                        const prev = filteredSubtitles[idx - 1];
+                        setActiveId(prev.id);
+                        onSeek(parseSrtTime(prev.start));
+                        document
+                            .getElementById(`sub-${prev.id}`)
+                            ?.scrollIntoView({
+                                behavior: "smooth",
+                                block: "center",
+                            });
+                    }
+                    break;
+                }
+                case "ArrowDown": {
+                    e.preventDefault();
+                    const idx = filteredSubtitles.findIndex(
+                        (s) => s.id === activeId
+                    );
+                    if (idx < filteredSubtitles.length - 1) {
+                        const next = filteredSubtitles[idx + 1];
+                        setActiveId(next.id);
+                        onSeek(parseSrtTime(next.start));
+                        document
+                            .getElementById(`sub-${next.id}`)
+                            ?.scrollIntoView({
+                                behavior: "smooth",
+                                block: "center",
+                            });
+                    }
+                    break;
+                }
+            }
+        };
+        document.addEventListener("keydown", handler);
+        return () => document.removeEventListener("keydown", handler);
+    }, [activeId, filteredSubtitles, onSeek]);
+
+    // Edit subtitle text
+    const handleTextChange = useCallback(
+        (id: number, newText: string) => {
+            const updated = subtitles.map((s) =>
+                s.id === id ? { ...s, text: newText } : s
+            );
+            onSubtitlesChange(updated);
+        },
+        [subtitles, onSubtitlesChange]
+    );
+
+    // Copy transcript
+    const handleCopyTranscript = async () => {
+        const text = filteredSubtitles.map((s) => s.text).join("\n");
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    // Find & Replace
+    const handleReplaceAll = () => {
+        if (!findText || findMatchCount === 0) return;
+        const escaped = findText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const regex = new RegExp(escaped, "gi");
+        const updated = subtitles.map((s) => ({
+            ...s,
+            text: s.text.replace(regex, replaceText),
+        }));
+        onSubtitlesChange(updated);
+        setFindText("");
+        setReplaceText("");
+    };
+
+    // Timing offset
+    const shiftAllTimings = (deltaMs: number) => {
+        const updated = subtitles.map((s) => ({
+            ...s,
+            start: shiftTime(s.start, deltaMs),
+            end: shiftTime(s.end, deltaMs),
+        }));
+        onSubtitlesChange(updated);
+    };
+
+    return (
+        <div className="flex flex-col h-full bg-neutral-950 border-l border-white/10">
+            {/* Toolbar */}
+            <div className="border-b border-white/10 bg-neutral-900/80 backdrop-blur-sm shrink-0">
+                <div className="h-12 flex items-center justify-between px-3 gap-2">
+                    <div className="flex items-center gap-1.5">
+                        <button
+                            onClick={() =>
+                                setShowReviewQueue(!showReviewQueue)
+                            }
+                            className={cn(
+                                "px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors",
+                                showReviewQueue
+                                    ? "bg-white text-black"
+                                    : "bg-white/10 text-white/70 hover:bg-white/15 hover:text-white"
+                            )}
+                        >
+                            <ListTodo className="w-3.5 h-3.5" />
+                            Review
+                            {needsReviewCount > 0 && (
+                                <span className="bg-red-500 text-white text-[9px] px-1 py-0 rounded-full min-w-[16px] text-center leading-[16px]">
+                                    {needsReviewCount}
+                                </span>
+                            )}
+                        </button>
+                        <span className="text-[10px] text-white/30 font-mono tabular-nums ml-1 hidden lg:inline">
+                            {subtitles.length} subs · {totalWords}w ·{" "}
+                            {statsMins}m {String(statsSecs).padStart(2, "0")}s
+                        </span>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                        {/* Timing offset */}
+                        <button
+                            onClick={() =>
+                                setShowTimingOffset(!showTimingOffset)
+                            }
+                            className={cn(
+                                "p-1.5 rounded-md transition-colors",
+                                showTimingOffset
+                                    ? "bg-white/15 text-white"
+                                    : "text-white/40 hover:text-white/70 hover:bg-white/10"
+                            )}
+                            title="Timing offset"
+                        >
+                            <Clock className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Find & Replace */}
+                        <button
+                            onClick={() =>
+                                setShowFindReplace(!showFindReplace)
+                            }
+                            className={cn(
+                                "p-1.5 rounded-md transition-colors",
+                                showFindReplace
+                                    ? "bg-white/15 text-white"
+                                    : "text-white/40 hover:text-white/70 hover:bg-white/10"
+                            )}
+                            title="Find & Replace"
+                        >
+                            <ArrowLeftRight className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Copy transcript */}
+                        <button
+                            onClick={handleCopyTranscript}
+                            className="p-1.5 rounded-md text-white/40 hover:text-white/70 hover:bg-white/10 transition-colors"
+                            title="Copy transcript"
+                        >
+                            {copied ? (
+                                <Check className="w-3.5 h-3.5 text-green-400" />
+                            ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                            )}
+                        </button>
+                    </div>
+                </div>
+
+                {/* Search bar */}
+                <div className="px-3 pb-2">
+                    <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
+                        <input
+                            type="text"
+                            placeholder="Search subtitles..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-8 pr-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder:text-white/25 outline-none focus:border-white/25 focus:bg-white/8 transition-all"
+                        />
+                        {searchQuery && (
+                            <button
+                                onClick={() => setSearchQuery("")}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60"
+                            >
+                                <X className="w-3 h-3" />
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* Timing Offset Panel */}
+                <AnimatePresence>
+                    {showTimingOffset && (
+                        <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden border-t border-white/10"
+                        >
+                            <div className="px-3 py-2.5 flex items-center gap-2 flex-wrap">
+                                <span className="text-[10px] text-white/40 font-medium uppercase tracking-wider">
+                                    Shift All:
+                                </span>
+                                {[-1000, -500, -100, 100, 500, 1000].map(
+                                    (ms) => (
+                                        <button
+                                            key={ms}
+                                            onClick={() => shiftAllTimings(ms)}
+                                            className="px-2 py-0.5 rounded text-[10px] font-mono bg-white/5 border border-white/10 text-white/60 hover:bg-white/10 hover:text-white transition-colors"
+                                        >
+                                            {ms > 0 ? `+${ms}` : ms}ms
+                                        </button>
+                                    )
+                                )}
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Find & Replace Panel */}
+                <AnimatePresence>
+                    {showFindReplace && (
+                        <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden border-t border-white/10"
+                        >
+                            <div className="px-3 py-2.5 space-y-2">
+                                <div className="flex gap-2 items-center">
+                                    <input
+                                        type="text"
+                                        placeholder="Find..."
+                                        value={findText}
+                                        onChange={(e) =>
+                                            setFindText(e.target.value)
+                                        }
+                                        className="flex-1 px-2.5 py-1 bg-white/5 border border-white/10 rounded text-xs text-white placeholder:text-white/25 outline-none focus:border-white/25 transition-all"
+                                    />
+                                    {findText && (
+                                        <span className="text-[10px] text-white/40 tabular-nums shrink-0">
+                                            {findMatchCount} found
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="flex gap-2 items-center">
+                                    <input
+                                        type="text"
+                                        placeholder="Replace with..."
+                                        value={replaceText}
+                                        onChange={(e) =>
+                                            setReplaceText(e.target.value)
+                                        }
+                                        className="flex-1 px-2.5 py-1 bg-white/5 border border-white/10 rounded text-xs text-white placeholder:text-white/25 outline-none focus:border-white/25 transition-all"
+                                    />
+                                    <button
+                                        onClick={handleReplaceAll}
+                                        disabled={
+                                            !findText || findMatchCount === 0
+                                        }
+                                        className="px-3 py-1 rounded text-xs font-medium bg-white text-black hover:bg-white/90 disabled:opacity-30 disabled:cursor-not-allowed transition-all shrink-0"
+                                    >
+                                        Replace All
+                                    </button>
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+
+            {/* Subtitle List */}
+            <div
+                ref={scrollContainerRef}
+                className="flex-1 overflow-y-auto overscroll-contain subtitle-scroll"
+            >
+                {filteredSubtitles.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center px-6 py-12">
+                        <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center mb-3">
+                            <ListTodo className="w-6 h-6 text-white/20" />
+                        </div>
+                        <p className="text-sm text-white/40 font-medium">
+                            {searchQuery
+                                ? "No subtitles match your search"
+                                : showReviewQueue
+                                  ? "No subtitles need review"
+                                  : "No subtitles available"}
+                        </p>
+                        <p className="text-xs text-white/20 mt-1">
+                            {!searchQuery && !showReviewQueue
+                                ? "Transcribe the video first to generate subtitles"
+                                : ""}
+                        </p>
+                    </div>
+                ) : (
+                    <div className="p-2 space-y-1">
+                        {filteredSubtitles.map((subtitle) => {
+                            const isActive = subtitle.id === activeId;
+                            const isLowConfidence =
+                                subtitle.confidence < 0.8;
+
+                            return (
+                                <div
+                                    key={subtitle.id}
+                                    id={`sub-${subtitle.id}`}
+                                    onClick={() => {
+                                        setActiveId(subtitle.id);
+                                        onSeek(
+                                            parseSrtTime(subtitle.start)
+                                        );
+                                    }}
+                                    className={cn(
+                                        "group rounded-lg p-2.5 cursor-pointer transition-all duration-200 border",
+                                        isActive
+                                            ? "bg-white/10 border-white/20 shadow-sm"
+                                            : "bg-transparent border-transparent hover:bg-white/5 hover:border-white/10"
+                                    )}
+                                >
+                                    {/* Time range */}
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <span className="text-[10px] font-mono text-white/40 tabular-nums">
+                                            {displayTime(subtitle.start)} →{" "}
+                                            {displayTime(subtitle.end)}
+                                        </span>
+                                        <div className="flex items-center gap-1.5">
+                                            {isLowConfidence && (
+                                                <span className="flex items-center gap-0.5 text-amber-400/80" title="Low confidence — review recommended">
+                                                    <AlertTriangle className="w-3 h-3" />
+                                                </span>
+                                            )}
+                                            <span className="text-[9px] text-white/20 font-mono">
+                                                #{subtitle.id}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Editable text */}
+                                    <textarea
+                                        value={subtitle.text}
+                                        onChange={(e) =>
+                                            handleTextChange(
+                                                subtitle.id,
+                                                e.target.value
+                                            )
+                                        }
+                                        onClick={(e) => e.stopPropagation()}
+                                        rows={Math.max(
+                                            1,
+                                            Math.ceil(
+                                                subtitle.text.length / 45
+                                            )
+                                        )}
+                                        className={cn(
+                                            "w-full bg-transparent text-xs leading-relaxed text-white/80 resize-none outline-none rounded px-1.5 py-1 -mx-1.5 transition-all",
+                                            isActive
+                                                ? "bg-white/5 focus:bg-white/8"
+                                                : "hover:bg-white/5 focus:bg-white/5"
+                                        )}
+                                    />
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {/* Keyboard shortcut hints */}
+            <div className="px-3 py-2 text-[9px] text-white/20 text-center border-t border-white/10 flex items-center justify-center gap-2 shrink-0 bg-neutral-900/60">
+                <span>
+                    <kbd className="bg-white/10 px-1 py-0.5 rounded font-mono text-[8px]">
+                        ↑↓
+                    </kbd>{" "}
+                    Nav
+                </span>
+                <span>
+                    <kbd className="bg-white/10 px-1 py-0.5 rounded font-mono text-[8px]">
+                        Space
+                    </kbd>{" "}
+                    Play
+                </span>
+                <span>
+                    <kbd className="bg-white/10 px-1 py-0.5 rounded font-mono text-[8px]">
+                        J
+                    </kbd>{" "}
+                    -5s
+                </span>
+                <span>
+                    <kbd className="bg-white/10 px-1 py-0.5 rounded font-mono text-[8px]">
+                        L
+                    </kbd>{" "}
+                    +5s
+                </span>
+            </div>
+        </div>
+    );
+}

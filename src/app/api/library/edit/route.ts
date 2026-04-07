@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { trimVideo, cropVideo } from "@/lib/media-editor";
+import { trimVideo, cropVideo, burnSubtitles } from "@/lib/media-editor";
 
 export async function POST(req: Request) {
     try {
@@ -24,8 +24,14 @@ export async function POST(req: Request) {
                 return NextResponse.json({ error: "Crop requires w, h, x, and y parameters" }, { status: 400 });
             }
             result = await cropVideo(videoId, w, h, x, y);
+        } else if (action === "burn-subtitles") {
+            const { srtContent, stylePreset } = params;
+            if (!srtContent) {
+                return NextResponse.json({ error: "burn-subtitles requires srtContent" }, { status: 400 });
+            }
+            result = await burnSubtitles(videoId, srtContent, stylePreset || "classic");
         } else {
-            return NextResponse.json({ error: "Invalid action. Must be 'trim' or 'crop'." }, { status: 400 });
+            return NextResponse.json({ error: "Invalid action. Must be 'trim', 'crop', or 'burn-subtitles'." }, { status: 400 });
         }
 
         return NextResponse.json({ success: true, video: result });
