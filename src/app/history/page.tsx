@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
+import { motion } from "framer-motion";
 import {
     Card,
     CardContent,
@@ -179,10 +180,24 @@ export default function HistoryPage() {
         { id: "transcription", label: "Transcriptions", icon: <Mic className="w-4 h-4" /> },
     ];
 
+    const stagger = {
+        hidden: {},
+        show: { transition: { staggerChildren: 0.06 } },
+    };
+    const fadeUp = {
+        hidden: { opacity: 0, y: 16 },
+        show: { opacity: 1, y: 0, transition: { type: "spring" as const, damping: 22, stiffness: 180 } },
+    };
+
     return (
-        <div className="flex-1 w-full p-8 space-y-6 max-w-[1200px] mx-auto">
+        <motion.div
+            variants={stagger}
+            initial="hidden"
+            animate="show"
+            className="flex-1 w-full p-8 space-y-6 max-w-[1200px] mx-auto"
+        >
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <motion.div variants={fadeUp} className="flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
                         <History className="w-7 h-7 text-primary" />
@@ -208,11 +223,11 @@ export default function HistoryPage() {
                         </Button>
                     )}
                 </div>
-            </div>
+            </motion.div>
 
             {/* Stats Cards */}
             {loading ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <motion.div variants={fadeUp} className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {Array.from({ length: 4 }).map((_, i) => (
                         <Card key={i} className="bg-background/60 backdrop-blur-xl border-border/50">
                             <CardContent className="p-4 flex items-center gap-3">
@@ -224,9 +239,9 @@ export default function HistoryPage() {
                             </CardContent>
                         </Card>
                     ))}
-                </div>
+                </motion.div>
             ) : stats && stats.totalDownloads > 0 ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <motion.div variants={fadeUp} className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <Card className="bg-background/60 backdrop-blur-xl border-border/50">
                         <CardContent className="p-4 flex items-center gap-3">
                             <div className="p-2 rounded-lg bg-primary/10">
@@ -271,11 +286,11 @@ export default function HistoryPage() {
                             </div>
                         </CardContent>
                     </Card>
-                </div>
+                </motion.div>
             ) : null}
 
             {/* Tab Switcher */}
-            <div className="flex items-center gap-1 bg-muted/40 rounded-xl p-1 w-fit border border-border/40">
+            <motion.div variants={fadeUp} className="flex items-center gap-1 bg-muted/40 rounded-xl p-1 w-fit border border-border/40">
                 {TAB_CONFIG.map((tab) => (
                     <button
                         key={tab.id}
@@ -289,9 +304,10 @@ export default function HistoryPage() {
                         {tab.label}
                     </button>
                 ))}
-            </div>
+            </motion.div>
 
             {/* Log Table */}
+            <motion.div variants={fadeUp}>
             <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
                 <CardHeader className="pb-3">
                     <CardTitle className="text-lg flex items-center gap-2">
@@ -483,6 +499,7 @@ export default function HistoryPage() {
                     )}
                 </CardContent>
             </Card>
-        </div>
+            </motion.div>
+        </motion.div>
     );
 }

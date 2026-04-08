@@ -14,6 +14,7 @@ import {
     Captions,
     Download,
     Mic,
+    RectangleHorizontal,
 } from "lucide-react";
 import { TimelineScrubber } from "./timeline-scrubber";
 import { toast } from "sonner";
@@ -71,6 +72,48 @@ export function VideoEditorModal({
     const [isTranscribing, setIsTranscribing] = useState(false);
 
     const [isExporting, setIsExporting] = useState(false);
+
+    // Aspect ratio presets for trim mode
+    type AspectRatio = "original" | "16:9" | "9:16" | "1:1" | "4:5";
+    const [aspectRatio, setAspectRatio] = useState<AspectRatio>("original");
+
+    const ASPECT_RATIOS: { id: AspectRatio; label: string; w: number; h: number }[] = [
+        { id: "original", label: "Original", w: 0, h: 0 },
+        { id: "16:9", label: "16:9", w: 16, h: 9 },
+        { id: "9:16", label: "9:16", w: 9, h: 16 },
+        { id: "1:1", label: "1:1", w: 1, h: 1 },
+        { id: "4:5", label: "4:5", w: 4, h: 5 },
+    ];
+
+    const applyAspectRatio = (ratio: AspectRatio) => {
+        setAspectRatio(ratio);
+        if (ratio === "original" || !videoRef.current) {
+            setCrop({ x: 10, y: 10, w: 80, h: 80 });
+            return;
+        }
+        const preset = ASPECT_RATIOS.find(a => a.id === ratio)!;
+        const nw = videoRef.current.videoWidth;
+        const nh = videoRef.current.videoHeight;
+        const targetRatio = preset.w / preset.h;
+        const videoRatio = nw / nh;
+
+        let cropW: number, cropH: number;
+        if (targetRatio > videoRatio) {
+            // Video is taller than target — crop height
+            cropW = 100;
+            cropH = (videoRatio / targetRatio) * 100;
+        } else {
+            // Video is wider than target — crop width
+            cropH = 100;
+            cropW = (targetRatio / videoRatio) * 100;
+        }
+        setCrop({
+            x: (100 - cropW) / 2,
+            y: (100 - cropH) / 2,
+            w: cropW,
+            h: cropH,
+        });
+    };
 
     useEffect(() => {
         // Prevent body scroll
@@ -269,6 +312,20 @@ export function VideoEditorModal({
         }
     };
 
+    // Helper to compute native crop pixels from the current crop % + aspect ratio
+    const getCropPixels = () => {
+        if (!videoRef.current) return null;
+        const nw = videoRef.current.videoWidth;
+        const nh = videoRef.current.videoHeight;
+        if (!nw || !nh) return null;
+        return {
+            x: Math.round((crop.x / 100) * nw),
+            y: Math.round((crop.y / 100) * nh),
+            w: Math.round((crop.w / 100) * nw),
+            h: Math.round((crop.h / 100) * nh),
+        };
+    };
+
     const handleApplyExport = async () => {
         setIsExporting(true);
         let actionLabel = "trimmed";
@@ -285,33 +342,30 @@ export function VideoEditorModal({
                 if (trimEnd - trimStart <= 0.1) {
                     throw new Error("Trim duration is too short.");
                 }
-                bodyPayload.action = "trim";
-                bodyPayload.params = {
-                    startTime: trimStart,
-                    endTime: trimEnd,
-                };
-            } else if (mode === "crop") {
-                if (!videoRef.current) throw new Error("Video element missing.");
-                const nw = videoRef.current.videoWidth;
-                const nh = videoRef.current.videoHeight;
-                if (!nw || !nh)
-                    throw new Error(
-                        "Could not detect native video resolution."
-                    );
 
-                // Map percentages to native pixels
-                const exactX = Math.round((crop.x / 100) * nw);
-                const exactY = Math.round((crop.y / 100) * nh);
-                const exactW = Math.round((crop.w / 100) * nw);
-                const exactH = Math.round((crop.h / 100) * nh);
+                // If user picked an aspect ratio, do a combined trim+crop
+                if (aspectRatio !== "original") {
+                    const cropPx = getCropPixels();
+                    if (!cropPx) throw new Error("Could not detect video resolution.");
+                    bodyPayload.action = "trim-crop";
+                    bodyPayload.params = {
+                        startTime: trimStart,
+                        endTime: trimEnd,
+                        ...cropPx,
+                    };
+                } else {
+                    bodyPayload.action = "trim";
+                    bodyPayload.params = {
+                        startTime: trimStart,
+                        endTime: trimEnd,
+                    };
+                }
+            } else if (mode === "crop") {
+                const cropPx = getCropPixels();
+                if (!cropPx) throw new Error("Could not detect video resolution.");
 
                 bodyPayload.action = "crop";
-                bodyPayload.params = {
-                    x: exactX,
-                    y: exactY,
-                    w: exactW,
-                    h: exactH,
-                };
+                bodyPayload.params = cropPx;
             } else if (mode === "subtitles") {
                 if (subtitles.length === 0) {
                     throw new Error(
@@ -399,6 +453,7 @@ export function VideoEditorModal({
                         variant="secondary"
                         size="sm"
                         onClick={() => {
+                            setAspectRatio("original");
                             if (mode === "trim") {
                                 setTrimStart(0);
                                 setTrimEnd(duration);
@@ -460,7 +515,7 @@ export function VideoEditorModal({
                                     onClick={togglePlay}
                                 />
                                 <AnimatePresence>
-                                    {mode === "crop" && (
+                                    {(mode === "crop" || aspectRatio !== "original") && (
                                         <CropOverlay
                                             crop={crop}
                                             onChange={setCrop}
@@ -568,71 +623,100 @@ export function VideoEditorModal({
             </div>
 
             {/* Timeline & Controls */}
-            <motion.div
-                layout
-                className="border-t border-white/10 bg-neutral-900/80 backdrop-blur-xl p-6 flex flex-col justify-center gap-4 relative z-[70] shrink-0"
-                animate={{
-                    height: mode === "trim" ? 192 : mode === "subtitles" ? 80 : 120,
-                }}
-            >
-                <div className="flex items-center justify-between w-full">
-                    <span
-                        ref={timeDisplayRef}
-                        className="text-xs text-neutral-400 font-mono"
-                    >
-                        00:00
+            <div className="border-t border-white/10 bg-neutral-900/90 backdrop-blur-xl shrink-0 relative z-[70]">
+
+                {/* === Unified Seek Bar === */}
+                <div className="px-5 pt-4 pb-1">
+                    {mode !== "trim" && duration > 0 && (
+                        <div className="group relative">
+                            <input
+                                type="range"
+                                min={0}
+                                max={duration}
+                                step={0.01}
+                                value={currentTime}
+                                onChange={(e) => handleSeek(parseFloat(e.target.value))}
+                                className="w-full h-1 appearance-none bg-transparent rounded-full cursor-pointer relative z-10
+                                    [&::-webkit-slider-thumb]:appearance-none
+                                    [&::-webkit-slider-thumb]:w-3
+                                    [&::-webkit-slider-thumb]:h-3
+                                    [&::-webkit-slider-thumb]:bg-white
+                                    [&::-webkit-slider-thumb]:rounded-full
+                                    [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(255,255,255,0.4)]
+                                    [&::-webkit-slider-thumb]:transition-all
+                                    [&::-webkit-slider-thumb]:duration-150
+                                    [&::-webkit-slider-thumb]:hover:scale-125
+                                    [&::-webkit-slider-thumb]:active:scale-110"
+                                style={{
+                                    background: `linear-gradient(to right, #fff ${(currentTime / duration) * 100}%, rgba(255,255,255,0.12) ${(currentTime / duration) * 100}%)`,
+                                }}
+                            />
+                        </div>
+                    )}
+                </div>
+
+                {/* === Compact Playback Bar === */}
+                <div className="px-5 pb-2 flex items-center gap-3">
+                    {/* Time Elapsed */}
+                    <span className="text-[11px] text-white/60 font-mono tabular-nums min-w-[40px]">
+                        {formatTime(currentTime)}
                     </span>
 
-                    <div className="flex items-center gap-6">
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="rounded-full hover:bg-white/10 transition-transform active:scale-95"
-                            onClick={() =>
-                                handleSeek(
-                                    Math.max(
-                                        0,
-                                        (videoRef.current?.currentTime || 0) - 5
-                                    )
-                                )
-                            }
+                    {/* Transport Controls */}
+                    <div className="flex items-center gap-1">
+                        <button
+                            className="w-7 h-7 flex items-center justify-center rounded-full text-white/50 hover:text-white hover:bg-white/10 transition-all active:scale-90"
+                            onClick={() => handleSeek(Math.max(0, (videoRef.current?.currentTime || 0) - 5))}
                         >
-                            <span className="text-xs font-bold">-5s</span>
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            className="w-12 h-12 rounded-full border-white/20 hover:bg-white/10 transition-transform active:scale-90"
+                            <span className="text-[10px] font-semibold">-5</span>
+                        </button>
+                        <button
+                            className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-all active:scale-90 mx-0.5"
                             onClick={togglePlay}
                         >
                             {isPlaying ? (
-                                <Pause className="w-5 h-5 text-white" />
+                                <Pause className="w-4 h-4" />
                             ) : (
-                                <Play className="w-5 h-5 text-white ml-1" />
+                                <Play className="w-4 h-4 ml-0.5" />
                             )}
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="rounded-full hover:bg-white/10 transition-transform active:scale-95"
-                            onClick={() =>
-                                handleSeek(
-                                    Math.min(
-                                        duration,
-                                        (videoRef.current?.currentTime || 0) + 5
-                                    )
-                                )
-                            }
+                        </button>
+                        <button
+                            className="w-7 h-7 flex items-center justify-center rounded-full text-white/50 hover:text-white hover:bg-white/10 transition-all active:scale-90"
+                            onClick={() => handleSeek(Math.min(duration, (videoRef.current?.currentTime || 0) + 5))}
                         >
-                            <span className="text-xs font-bold">+5s</span>
-                        </Button>
+                            <span className="text-[10px] font-semibold">+5</span>
+                        </button>
                     </div>
 
-                    <span className="text-xs text-neutral-400 font-mono">
-                        {new Date(duration * 1000).toISOString().substr(14, 5)}
+                    {/* Remaining Duration */}
+                    <span className="text-[11px] text-white/35 font-mono tabular-nums min-w-[48px]">
+                        -{formatTime(Math.max(0, duration - currentTime))}
                     </span>
+
+                    {/* Spacer */}
+                    <div className="flex-1" />
+
+                    {/* Aspect Ratio Presets — visible in ALL modes */}
+                    <div className="flex items-center gap-1">
+                        <RectangleHorizontal className="w-3 h-3 text-white/25 mr-0.5" />
+                        {ASPECT_RATIOS.map((ar) => (
+                            <button
+                                key={ar.id}
+                                onClick={() => applyAspectRatio(ar.id)}
+                                className={cn(
+                                    "px-2 py-0.5 text-[10px] font-medium rounded-md transition-all duration-200",
+                                    aspectRatio === ar.id
+                                        ? "bg-white text-black shadow-sm"
+                                        : "text-white/40 hover:text-white/80 hover:bg-white/8"
+                                )}
+                            >
+                                {ar.label}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
+                {/* === Trim Scrubber — only in trim mode === */}
                 <AnimatePresence>
                     {mode === "trim" && (
                         <motion.div
@@ -640,7 +724,7 @@ export function VideoEditorModal({
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
                             transition={{ duration: 0.2 }}
-                            className="mt-2"
+                            className="px-5 pb-4"
                         >
                             <TimelineScrubber
                                 duration={duration}
@@ -656,7 +740,14 @@ export function VideoEditorModal({
                         </motion.div>
                     )}
                 </AnimatePresence>
-            </motion.div>
+            </div>
         </motion.div>
     );
+}
+
+/** Format seconds to MM:SS */
+function formatTime(seconds: number): string {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
 }

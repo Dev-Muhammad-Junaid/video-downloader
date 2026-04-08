@@ -148,6 +148,72 @@ export async function cropVideo(
 }
 
 /**
+ * Combined trim + crop in a single FFmpeg pass.
+ * This trims the time range AND applies a crop filter simultaneously.
+ */
+export async function trimAndCrop(
+    videoId: string,
+    startTime: string,
+    endTime: string,
+    w: number,
+    h: number,
+    x: number,
+    y: number
+) {
+    const originalVideo = await prisma.video.findUnique({
+        where: { id: videoId }
+    });
+
+    if (!originalVideo) throw new Error("Video not found");
+    if (!fs.existsSync(originalVideo.localPath)) throw new Error("Original file missing on disk");
+
+    const parsedPath = path.parse(originalVideo.localPath);
+    const newId = Math.random().toString(36).substring(2, 15);
+    const newFileName = `${parsedPath.name}_trimcrop_${newId}${parsedPath.ext}`;
+    const newFilePath = path.join(parsedPath.dir, newFileName);
+
+    const filterArg = `crop=${w}:${h}:${x}:${y}`;
+    const args = [
+        "-y",
+        "-ss", startTime,
+        "-i", originalVideo.localPath,
+        "-to", endTime,
+        "-filter:v", filterArg,
+        "-c:a", "copy",
+        newFilePath
+    ];
+
+    console.log(`[FFmpeg TrimCrop] Running: ffmpeg ${args.join(" ")}`);
+    await runFfmpeg(args);
+
+    let fileSize = 0;
+    try {
+        const stats = fs.statSync(newFilePath);
+        fileSize = stats.size;
+    } catch (e) { }
+
+    const resultVideo = await prisma.video.create({
+        data: {
+            title: `${originalVideo.title} (Trimmed & Cropped)`,
+            originalUrl: originalVideo.originalUrl,
+            sourcePlatform: originalVideo.sourcePlatform,
+            localPath: newFilePath,
+            fileSize,
+            mediaType: originalVideo.mediaType,
+            duration: parseFloat(endTime) - parseFloat(startTime),
+        }
+    });
+
+    generateThumbnail(newFilePath, resultVideo.id, resultVideo.mediaType).then(async (thumbPath) => {
+        if (thumbPath) {
+            await prisma.video.update({ where: { id: resultVideo.id }, data: { thumbnailPath: thumbPath } });
+        }
+    }).catch(console.error);
+
+    return resultVideo;
+}
+
+/**
  * Build FFmpeg force_style string for a given subtitle style preset.
  * These map to ASS/SSA style overrides used by FFmpeg's subtitles filter.
  */
