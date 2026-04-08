@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo, useCallback } from "react";
+import { motion } from "framer-motion";
 import { Copy, FolderOpen, Play, Cloud, CloudOff, DownloadCloud, Loader2, CheckCircle2, AlertCircle, Video as VideoIcon, Image as ImageIcon, Search, Pencil, Filter, ExternalLink, HelpCircle, XCircle, Maximize2, Mic, BrainCircuit, Sparkles } from "lucide-react";
 import {
     Card,
@@ -931,7 +932,13 @@ export default function LibraryPage() {
             <div className="flex flex-col xl:flex-row gap-8 items-stretch pt-2">
 
                 {/* Left Panel: Bulk Input */}
-                <Card className="w-full xl:w-1/3 bg-background/60 backdrop-blur-2xl border-primary/10 shadow-xl overflow-hidden relative">
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ type: "spring" as const, damping: 22, stiffness: 180, delay: 0.05 }}
+                    className="w-full xl:w-1/3"
+                >
+                <Card className="bg-background/60 backdrop-blur-2xl border-primary/10 shadow-xl overflow-hidden relative h-full">
                     <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent opacity-50 pointer-events-none" />
                     <CardHeader className="relative">
                         <CardTitle className="flex items-center gap-2 text-2xl font-bold tracking-tight">
@@ -969,6 +976,7 @@ export default function LibraryPage() {
                         </Button>
                     </CardContent>
                 </Card>
+                </motion.div>
 
                 {/* Right Panel: Active Queue */}
                 <div className="w-full xl:w-2/3 flex flex-col gap-4">
@@ -1091,7 +1099,12 @@ export default function LibraryPage() {
             <div className="h-px bg-border/50 w-full" />
 
             {/* Bottom Section: Media Library */}
-            <div className="space-y-6 pt-4 animate-in fade-in duration-700">
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ type: "spring" as const, damping: 22, stiffness: 160, delay: 0.2 }}
+                className="space-y-6 pt-4"
+            >
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 px-1">
                     <div>
                         <h2 className="text-2xl font-bold tracking-tight">Saved Media</h2>
@@ -1256,7 +1269,7 @@ export default function LibraryPage() {
                         )}
                     </>
                 )}
-            </div>
+            </motion.div>
 
             {/* Media Player Modal */}
             <MediaPlayerModal

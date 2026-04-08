@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -201,12 +202,34 @@ export default function SettingsPage() {
         }
     };
 
+    const stagger = {
+        hidden: {},
+        show: { transition: { staggerChildren: 0.07 } },
+    };
+    const fadeUp = {
+        hidden: { opacity: 0, y: 18 },
+        show: { opacity: 1, y: 0, transition: { type: "spring" as const, damping: 24, stiffness: 180 } },
+    };
+
     return (
         <div className="flex-1 p-8 space-y-6">
-            <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
+            <motion.h1
+                initial={{ opacity: 0, x: -12 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ type: "spring", damping: 20, stiffness: 180 }}
+                className="text-3xl font-bold tracking-tight"
+            >
+                Settings
+            </motion.h1>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <motion.div
+                variants={stagger}
+                initial="hidden"
+                animate="show"
+                className="grid grid-cols-1 lg:grid-cols-2 gap-6"
+            >
                 {/* Destination Folder */}
+                <motion.div variants={fadeUp}>
                 <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
@@ -247,8 +270,10 @@ export default function SettingsPage() {
                         <Button onClick={handleSaveDestination} className="w-full">Save Destination</Button>
                     </CardContent>
                 </Card>
+                </motion.div>
 
                 {/* Watch Folder */}
+                <motion.div variants={fadeUp}>
                 <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
@@ -289,9 +314,11 @@ export default function SettingsPage() {
                         <Button onClick={handleSaveWatchFolder} className="w-full">Save Watch Folder</Button>
                     </CardContent>
                 </Card>
+                </motion.div>
 
                 {/* Cloudflare R2 Credentials */}
-                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg lg:col-span-2">
+                <motion.div variants={fadeUp} className="lg:col-span-2">
+                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
                     <CardHeader>
                         <CardTitle>Cloudflare R2 / S3 Credentials</CardTitle>
                         <CardDescription>
@@ -385,8 +412,10 @@ export default function SettingsPage() {
                         <Button onClick={handleSaveCredentials} className="w-full sm:col-span-2">Save Credentials</Button>
                     </CardContent>
                 </Card>
+                </motion.div>
 
                 {/* Export & Backup */}
+                <motion.div variants={fadeUp}>
                 <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
                     <CardHeader>
                         <CardTitle className="text-xl flex items-center gap-2">
@@ -437,8 +466,10 @@ export default function SettingsPage() {
                         <p className="text-xs text-muted-foreground">JSON and CSV export library metadata. Database backup includes raw SQLite for full restoration.</p>
                     </CardContent>
                 </Card>
+                </motion.div>
 
                 {/* AI Transcription Settings (WID-307) */}
+                <motion.div variants={fadeUp}>
                 <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
                     <CardHeader>
                         <CardTitle className="text-xl flex items-center gap-2">
@@ -493,9 +524,11 @@ export default function SettingsPage() {
                         </Button>
                     </CardContent>
                 </Card>
+                </motion.div>
 
                 {/* Quality & Format Profiles (WID-306) */}
-                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg lg:col-span-2">
+                <motion.div variants={fadeUp} className="lg:col-span-2">
+                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
                     <CardHeader className="flex flex-row items-center justify-between">
                         <div>
                             <CardTitle className="text-xl flex items-center gap-2">
@@ -608,9 +641,11 @@ export default function SettingsPage() {
                         </div>
                     </CardContent>
                 </Card>
+                </motion.div>
 
                 {/* Auto Cloud-Sync by Label (WID-306) */}
-                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg lg:col-span-2">
+                <motion.div variants={fadeUp} className="lg:col-span-2">
+                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
                     <CardHeader>
                         <CardTitle className="text-xl flex items-center gap-2">
                             <Tags className="w-5 h-5 text-primary" />
@@ -652,9 +687,11 @@ export default function SettingsPage() {
                         )}
                     </CardContent>
                 </Card>
+                </motion.div>
 
                 {/* Browser Integration (WID-300) */}
-                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg lg:col-span-2">
+                <motion.div variants={fadeUp} className="lg:col-span-2">
+                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
                     <CardHeader>
                         <CardTitle className="text-xl flex items-center gap-2">
                             <Plus className="w-5 h-5 text-primary" />
@@ -693,7 +730,8 @@ export default function SettingsPage() {
                         </div>
                     </CardContent>
                 </Card>
-            </div>
+                </motion.div>
+            </motion.div>
         </div>
     );
 }

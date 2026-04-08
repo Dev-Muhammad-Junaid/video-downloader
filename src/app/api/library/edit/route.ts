@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { trimVideo, cropVideo, burnSubtitles } from "@/lib/media-editor";
+import { trimVideo, cropVideo, trimAndCrop, burnSubtitles } from "@/lib/media-editor";
 
 export async function POST(req: Request) {
     try {
@@ -24,6 +24,13 @@ export async function POST(req: Request) {
                 return NextResponse.json({ error: "Crop requires w, h, x, and y parameters" }, { status: 400 });
             }
             result = await cropVideo(videoId, w, h, x, y);
+        } else if (action === "trim-crop") {
+            const { startTime, endTime, w, h, x, y } = params;
+            if (startTime === undefined || endTime === undefined ||
+                w === undefined || h === undefined || x === undefined || y === undefined) {
+                return NextResponse.json({ error: "trim-crop requires startTime, endTime, w, h, x, and y" }, { status: 400 });
+            }
+            result = await trimAndCrop(videoId, startTime, endTime, w, h, x, y);
         } else if (action === "burn-subtitles") {
             const { srtContent, stylePreset } = params;
             if (!srtContent) {
@@ -31,7 +38,7 @@ export async function POST(req: Request) {
             }
             result = await burnSubtitles(videoId, srtContent, stylePreset || "classic");
         } else {
-            return NextResponse.json({ error: "Invalid action. Must be 'trim', 'crop', or 'burn-subtitles'." }, { status: 400 });
+            return NextResponse.json({ error: "Invalid action. Must be 'trim', 'crop', 'trim-crop', or 'burn-subtitles'." }, { status: 400 });
         }
 
         return NextResponse.json({ success: true, video: result });
