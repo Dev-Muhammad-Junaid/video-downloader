@@ -215,31 +215,34 @@ export async function trimAndCrop(
 
 /**
  * Build FFmpeg force_style string for a given subtitle style preset.
- * These map to ASS/SSA style overrides used by FFmpeg's subtitles filter.
+ * fontFamily overrides the preset's default font when provided.
+ * Colors are in ASS ABGR format: &HAABBGGRR.
  */
-function getForceStyle(stylePreset: string): string {
+function getForceStyle(stylePreset: string, fontFamily?: string): string {
+    const font = fontFamily || "Arial";
     switch (stylePreset) {
         case "classic":
-            return "FontName=Arial,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BackColour=&H80000000,BorderStyle=4,Outline=0,Shadow=0,MarginV=40,Alignment=2";
+            return `FontName=${font},FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BackColour=&H80000000,BorderStyle=4,Outline=0,Shadow=0,MarginV=40,Alignment=2`;
         case "tiktok":
-            return "FontName=Impact,FontSize=28,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H00000000,Bold=1,BorderStyle=1,Outline=3,Shadow=2,MarginV=120,Alignment=2";
+            return `FontName=${font},FontSize=28,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H00000000,Bold=1,BorderStyle=1,Outline=3,Shadow=2,MarginV=120,Alignment=2`;
         case "box":
-            return "FontName=Arial,FontSize=22,PrimaryColour=&H00000000,OutlineColour=&H00FFFFFF,BackColour=&H00FFFFFF,BorderStyle=4,Outline=0,Shadow=0,MarginV=40,Alignment=2";
+            return `FontName=${font},FontSize=22,PrimaryColour=&H00000000,OutlineColour=&H00FFFFFF,BackColour=&H00FFFFFF,BorderStyle=4,Outline=0,Shadow=0,MarginV=40,Alignment=2`;
         case "cinematic":
-            return "FontName=Georgia,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H00000000,Italic=1,BorderStyle=1,Outline=0,Shadow=3,MarginV=40,Alignment=2,Spacing=2";
+            return `FontName=${font},FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H00000000,Italic=1,BorderStyle=1,Outline=0,Shadow=3,MarginV=40,Alignment=2,Spacing=2`;
         case "outline":
-            return "FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H00000000,Bold=1,BorderStyle=1,Outline=2,Shadow=1,MarginV=40,Alignment=2";
+            return `FontName=${font},FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H00000000,Bold=1,BorderStyle=1,Outline=2,Shadow=1,MarginV=40,Alignment=2`;
         case "bold-center":
-            return "FontName=Impact,FontSize=36,PrimaryColour=&H00FFFFFF,OutlineColour=&H60000000,BackColour=&H00000000,Bold=1,BorderStyle=1,Outline=3,Shadow=0,MarginV=10,Alignment=5";
+            return `FontName=${font},FontSize=36,PrimaryColour=&H00FFFFFF,OutlineColour=&H60000000,BackColour=&H00000000,Bold=1,BorderStyle=1,Outline=3,Shadow=0,MarginV=10,Alignment=5`;
         default:
-            return "FontName=Arial,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=4,Outline=0,Shadow=0,MarginV=40,Alignment=2";
+            return `FontName=${font},FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=4,Outline=0,Shadow=0,MarginV=40,Alignment=2`;
     }
 }
 
 export async function burnSubtitles(
     videoId: string,
     srtContent: string,
-    stylePreset: string = "classic"
+    stylePreset: string = "classic",
+    fontFamily?: string
 ) {
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
@@ -258,7 +261,7 @@ export async function burnSubtitles(
     fs.writeFileSync(tmpSrtPath, srtContent, "utf-8");
 
     try {
-        const forceStyle = getForceStyle(stylePreset);
+        const forceStyle = getForceStyle(stylePreset, fontFamily);
         // Escape special characters in the path for FFmpeg filter syntax
         const escapedSrtPath = tmpSrtPath
             .replace(/\\/g, "\\\\\\\\")

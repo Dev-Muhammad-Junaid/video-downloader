@@ -32,11 +32,11 @@ export async function POST(req: Request) {
             }
             result = await trimAndCrop(videoId, startTime, endTime, w, h, x, y);
         } else if (action === "burn-subtitles") {
-            const { srtContent, stylePreset } = params;
+            const { srtContent, stylePreset, fontFamily } = params;
             if (!srtContent) {
                 return NextResponse.json({ error: "burn-subtitles requires srtContent" }, { status: 400 });
             }
-            result = await burnSubtitles(videoId, srtContent, stylePreset || "classic");
+            result = await burnSubtitles(videoId, srtContent, stylePreset || "classic", fontFamily);
         } else {
             return NextResponse.json({ error: "Invalid action. Must be 'trim', 'crop', 'trim-crop', or 'burn-subtitles'." }, { status: 400 });
         }

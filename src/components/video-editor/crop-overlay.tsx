@@ -1,5 +1,7 @@
+"use client";
+
 import React, { useRef, useEffect } from "react";
-import { motion, useMotionValue, useMotionTemplate } from "framer-motion";
+import { motion, useMotionValue, useMotionTemplate, animate } from "framer-motion";
 
 export interface CropState {
     x: number; // percentage
@@ -12,30 +14,38 @@ interface CropOverlayProps {
     crop: CropState;
     onChange: (crop: CropState) => void;
     containerRef: React.RefObject<HTMLDivElement | null>;
+    /** When true the overlay is visual-only (used in trim mode for aspect ratio preview) */
+    readOnly?: boolean;
 }
 
-export function CropOverlay({ crop, onChange, containerRef }: CropOverlayProps) {
+const SPRING = { stiffness: 320, damping: 28 };
+
+export function CropOverlay({ crop, onChange, containerRef, readOnly = false }: CropOverlayProps) {
     const isDragging = useRef<string | null>(null);
 
-    // Motion values store the current percentage values
+    // Display values as motion values
     const mvX = useMotionValue(crop.x);
     const mvY = useMotionValue(crop.y);
     const mvW = useMotionValue(crop.w);
     const mvH = useMotionValue(crop.h);
 
-    // Sync from prop (e.g. if reset)
+    // When props change (e.g. from aspect ratio preset), spring-animate to the new values.
+    // During dragging we call .set() directly (immediate), so the spring only activates
+    // for programmatic changes from outside.
     useEffect(() => {
-        mvX.set(crop.x);
-        mvY.set(crop.y);
-        mvW.set(crop.w);
-        mvH.set(crop.h);
+        if (isDragging.current) return; // skip animation while dragging
+        animate(mvX, crop.x, { type: "spring", ...SPRING });
+        animate(mvY, crop.y, { type: "spring", ...SPRING });
+        animate(mvW, crop.w, { type: "spring", ...SPRING });
+        animate(mvH, crop.h, { type: "spring", ...SPRING });
     }, [crop.x, crop.y, crop.w, crop.h, mvX, mvY, mvW, mvH]);
 
     useEffect(() => {
+        if (readOnly) return; // no pointer events in read-only mode
+
         const handlePointerMove = (e: PointerEvent) => {
             if (!isDragging.current || !containerRef.current) return;
             const container = containerRef.current.getBoundingClientRect();
-            // Calculate delta in percentage
             const dx = (e.movementX / container.width) * 100;
             const dy = (e.movementY / container.height) * 100;
 
@@ -44,10 +54,7 @@ export function CropOverlay({ crop, onChange, containerRef }: CropOverlayProps) 
             const cw = mvW.get();
             const ch = mvH.get();
 
-            let newX = cx;
-            let newY = cy;
-            let newW = cw;
-            let newH = ch;
+            let newX = cx, newY = cy, newW = cw, newH = ch;
 
             if (isDragging.current === "box") {
                 newX = Math.max(0, Math.min(100 - cw, cx + dx));
@@ -70,6 +77,7 @@ export function CropOverlay({ crop, onChange, containerRef }: CropOverlayProps) 
                 newH = Math.max(5, Math.min(100 - cy, ch + dy));
             }
 
+            // Immediate set during drag — no spring delay
             mvX.set(newX);
             mvY.set(newY);
             mvW.set(newW);
@@ -79,53 +87,39 @@ export function CropOverlay({ crop, onChange, containerRef }: CropOverlayProps) 
         const handlePointerUp = () => {
             if (isDragging.current) {
                 isDragging.current = null;
-                // Commit to React state ONLY when done dragging
-                onChange({
-                    x: mvX.get(),
-                    y: mvY.get(),
-                    w: mvW.get(),
-                    h: mvH.get()
-                });
+                onChange({ x: mvX.get(), y: mvY.get(), w: mvW.get(), h: mvH.get() });
             }
         };
 
-        if (typeof window !== "undefined") {
-            window.addEventListener("pointermove", handlePointerMove);
-            window.addEventListener("pointerup", handlePointerUp);
-            window.addEventListener("pointerleave", handlePointerUp);
-        }
-
+        window.addEventListener("pointermove", handlePointerMove);
+        window.addEventListener("pointerup", handlePointerUp);
+        window.addEventListener("pointerleave", handlePointerUp);
         return () => {
-            if (typeof document !== "undefined") {
-                window.removeEventListener("pointermove", handlePointerMove);
-                window.removeEventListener("pointerup", handlePointerUp);
-                window.removeEventListener("pointerleave", handlePointerUp);
-            }
+            window.removeEventListener("pointermove", handlePointerMove);
+            window.removeEventListener("pointerup", handlePointerUp);
+            window.removeEventListener("pointerleave", handlePointerUp);
         };
-    }, [containerRef, mvX, mvY, mvW, mvH, onChange]);
+    }, [containerRef, mvX, mvY, mvW, mvH, onChange, readOnly]);
 
     const handlePointerDown = (type: string) => (e: React.PointerEvent) => {
+        if (readOnly) return;
         e.preventDefault();
         e.stopPropagation();
         isDragging.current = type;
-        // Optional: Retain pointer capture if desired by capturing on container
     };
 
-    // Construct hardware-accelerated style values using useMotionTemplate
-    const leftPct = useMotionTemplate`${mvX}%`;
-    const topPct = useMotionTemplate`${mvY}%`;
-    const wPct = useMotionTemplate`${mvW}%`;
-    const hPct = useMotionTemplate`${mvH}%`;
+    const leftPct    = useMotionTemplate`${mvX}%`;
+    const topPct     = useMotionTemplate`${mvY}%`;
+    const wPct       = useMotionTemplate`${mvW}%`;
+    const hPct       = useMotionTemplate`${mvH}%`;
 
-    // clipPath visually punches a hole for the crop box
-    // To cleanly calculate in CSS, we use `calc()`
     const clipPathStr = useMotionTemplate`polygon(
-        0% 0%, 100% 0%, 100% 100%, 0% 100%, 
-        0% 0%, 
-        ${mvX}% ${mvY}%, 
-        ${mvX}% calc(${mvY}% + ${mvH}%), 
-        calc(${mvX}% + ${mvW}%) calc(${mvY}% + ${mvH}%), 
-        calc(${mvX}% + ${mvW}%) ${mvY}%, 
+        0% 0%, 100% 0%, 100% 100%, 0% 100%,
+        0% 0%,
+        ${mvX}% ${mvY}%,
+        ${mvX}% calc(${mvY}% + ${mvH}%),
+        calc(${mvX}% + ${mvW}%) calc(${mvY}% + ${mvH}%),
+        calc(${mvX}% + ${mvW}%) ${mvY}%,
         ${mvX}% ${mvY}%
     )`;
 
@@ -135,28 +129,23 @@ export function CropOverlay({ crop, onChange, containerRef }: CropOverlayProps) 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
         >
             <div className="w-full h-full relative overflow-hidden">
-                {/* Darken outside */}
-                <motion.div 
-                    className="absolute inset-0 bg-black/50 overflow-hidden" 
+                {/* Darken everything outside the crop region */}
+                <motion.div
+                    className="absolute inset-0 bg-black/55 overflow-hidden"
                     style={{ clipPath: clipPathStr }}
                 />
 
-                {/* The Crop Box */}
+                {/* The crop region box */}
                 <motion.div
-                    className="absolute border-2 border-white pointer-events-auto cursor-move group/crop shadow-[0_0_20px_rgba(0,0,0,0.5)]"
-                    style={{
-                        left: leftPct,
-                        top: topPct,
-                        width: wPct,
-                        height: hPct,
-                    }}
+                    className={`absolute border-2 border-white shadow-[0_0_20px_rgba(0,0,0,0.5)] group/crop ${readOnly ? "cursor-default" : "pointer-events-auto cursor-move"}`}
+                    style={{ left: leftPct, top: topPct, width: wPct, height: hPct }}
                     onPointerDown={handlePointerDown("box")}
-                    layoutId="crop-bounds"
                 >
-                    {/* Grid lines inside */}
-                    <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-0 group-hover/crop:opacity-100 transition-opacity duration-300 pointer-events-none">
+                    {/* Rule-of-thirds grid lines */}
+                    <div className={`absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none transition-opacity duration-300 ${readOnly ? "opacity-30" : "opacity-0 group-hover/crop:opacity-100"}`}>
                         <div className="border-r border-b border-white/30" />
                         <div className="border-r border-b border-white/30" />
                         <div className="border-b border-white/30" />
@@ -165,14 +154,18 @@ export function CropOverlay({ crop, onChange, containerRef }: CropOverlayProps) 
                         <div className="border-b border-white/30" />
                         <div className="border-r border-white/30" />
                         <div className="border-r border-white/30" />
-                        <div className="" />
+                        <div />
                     </div>
 
-                    {/* Handles */}
-                    <div className="absolute -top-2 -left-2 w-4 h-4 bg-white rounded-full cursor-nwse-resize shadow-md" onPointerDown={handlePointerDown("nw")} />
-                    <div className="absolute -top-2 -right-2 w-4 h-4 bg-white rounded-full cursor-nesw-resize shadow-md" onPointerDown={handlePointerDown("ne")} />
-                    <div className="absolute -bottom-2 -left-2 w-4 h-4 bg-white rounded-full cursor-nesw-resize shadow-md" onPointerDown={handlePointerDown("sw")} />
-                    <div className="absolute -bottom-2 -right-2 w-4 h-4 bg-white rounded-full cursor-nwse-resize shadow-md" onPointerDown={handlePointerDown("se")} />
+                    {/* Resize handles — hidden in readOnly mode */}
+                    {!readOnly && (
+                        <>
+                            <div className="absolute -top-2 -left-2 w-4 h-4 bg-white rounded-full cursor-nwse-resize shadow-md" onPointerDown={handlePointerDown("nw")} />
+                            <div className="absolute -top-2 -right-2 w-4 h-4 bg-white rounded-full cursor-nesw-resize shadow-md" onPointerDown={handlePointerDown("ne")} />
+                            <div className="absolute -bottom-2 -left-2 w-4 h-4 bg-white rounded-full cursor-nesw-resize shadow-md" onPointerDown={handlePointerDown("sw")} />
+                            <div className="absolute -bottom-2 -right-2 w-4 h-4 bg-white rounded-full cursor-nwse-resize shadow-md" onPointerDown={handlePointerDown("se")} />
+                        </>
+                    )}
                 </motion.div>
             </div>
         </motion.div>
