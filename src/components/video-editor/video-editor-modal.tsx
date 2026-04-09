@@ -361,16 +361,36 @@ export function VideoEditorModal({
 
     const hasSubtitles = subtitles.length > 0;
 
-    // SnapStudio-style: numeric aspect ratio for the container constraint.
-    // null = "original" → video uses object-contain, no constraint.
-    const targetRatioNum = useMemo(() => {
-        if (aspectRatio === "original") return null;
+    // ai-subtitles (Nutlope) preview: fixed frame + object-contain so the picture
+    // scales/letterboxes inside as the aspect box morphs. "Original" uses 16:9 like their Auto.
+    const previewAspectRatio = useMemo(() => {
+        if (aspectRatio === "original") return 16 / 9;
         const p = ASPECT_RATIOS.find(a => a.id === aspectRatio);
-        return p && p.w ? p.w / p.h : null;
+        return p && p.w ? p.w / p.h : 16 / 9;
     }, [aspectRatio]);
 
-    // CropOverlay is only shown in crop mode (drag-to-crop).
-    // In trim mode the container shape itself is the preview.
+    // Tailwind max-w-* in px (16px rem) — animated via Framer Motion so width cap eases with the frame
+    const previewMaxWidthPx = useMemo(() => {
+        switch (aspectRatio) {
+            case "9:16":
+                return 320; // max-w-xs
+            case "4:5":
+                return 448; // max-w-md
+            case "1:1":
+                return 576; // max-w-xl
+            case "original":
+            case "16:9":
+            default:
+                return 896; // max-w-4xl
+        }
+    }, [aspectRatio]);
+
+    /** Same ease curve we used for CSS aspect-ratio morph — now on Motion-driven layout props */
+    const aspectMorphTransition = {
+        duration: 0.48,
+        ease: [0.22, 1, 0.36, 1] as const,
+    };
+
     const showCropOverlay = mode === "crop";
 
     return (
@@ -379,26 +399,26 @@ export function VideoEditorModal({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 24, scale: 0.97 }}
             transition={{ type: "spring", damping: 26, stiffness: 220 }}
-            className="fixed inset-0 z-[60] bg-black text-white flex flex-col"
+            className="fixed inset-0 z-[60] bg-background text-foreground flex flex-col"
         >
             {/* ── Header ── */}
-            <div className="flex items-center justify-between p-4 border-b border-white/10 bg-black/50 backdrop-blur-md relative shrink-0">
+            <div className="flex items-center justify-between p-4 border-b border-border bg-background/80 backdrop-blur-md relative shrink-0">
                 <div className="flex items-center gap-4">
                     <Button
                         variant="ghost"
                         size="icon"
                         onClick={onClose}
-                        className="rounded-full hover:bg-white/10"
+                        className="rounded-full hover:bg-muted text-foreground"
                     >
-                        <X className="w-5 h-5 text-white" />
+                        <X className="w-5 h-5" />
                     </Button>
-                    <h2 className="text-lg font-medium tracking-tight text-white/90 truncate max-w-sm">
+                    <h2 className="text-lg font-medium tracking-tight text-foreground truncate max-w-sm">
                         Editing {video.title}
                     </h2>
                 </div>
 
                 {/* Mode segmented control with sliding pill */}
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/10 p-1 rounded-full flex gap-1 items-center backdrop-blur-xl">
+                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-muted p-1 rounded-full flex gap-1 items-center ring-1 ring-border/60">
                     {(["trim", "crop", "subtitles"] as const).map((m) => (
                         <button
                             key={m}
@@ -408,11 +428,11 @@ export function VideoEditorModal({
                             {mode === m && (
                                 <motion.div
                                     layoutId="mode-pill"
-                                    className="absolute inset-0 bg-white rounded-full shadow-lg"
+                                    className="absolute inset-0 bg-primary rounded-full shadow-md"
                                     transition={{ type: "spring", stiffness: 380, damping: 30 }}
                                 />
                             )}
-                            <span className={cn("relative z-10 transition-colors duration-200 flex items-center gap-2", mode === m ? "text-black" : "text-white/70 hover:text-white")}>
+                            <span className={cn("relative z-10 transition-colors duration-200 flex items-center gap-2", mode === m ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>
                                 {m === "trim" && <Scissors className="w-4 h-4" />}
                                 {m === "crop" && <CropIcon className="w-4 h-4" />}
                                 {m === "subtitles" && <Captions className="w-4 h-4" />}
@@ -458,39 +478,31 @@ export function VideoEditorModal({
             {/* ── Main Content ── */}
             <div className="flex-1 overflow-hidden flex">
                 {/* Video Stage */}
-                <div className="flex-1 overflow-hidden relative bg-neutral-950 flex flex-col min-w-0">
-                    {/* Video container — fills all available vertical space, then constrains by aspect ratio */}
+                <div className="flex-1 overflow-hidden relative bg-muted/40 dark:bg-muted/25 flex flex-col min-w-0">
+                    {/* Video container — always has a defined aspect-ratio; CSS transition morphs it smoothly */}
                     <div className="flex-1 min-h-0 flex items-center justify-center p-4 select-none relative overflow-hidden">
                         {video.localPath ? (
                             <motion.div
                                 ref={containerRef}
-                                layout="size"
-                                transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                                className="relative overflow-hidden rounded-md shadow-2xl bg-black"
-                                style={
-                                    targetRatioNum
-                                        ? {
-                                              // Constrain to target ratio: fill height, let width follow
-                                              aspectRatio: targetRatioNum,
-                                              height: "100%",
-                                              maxHeight: "100%",
-                                              maxWidth: "100%",
-                                          }
-                                        : {
-                                              // Fill all available space — video uses object-contain inside
-                                              width: "100%",
-                                              height: "100%",
-                                          }
-                                }
+                                initial={false}
+                                className="relative overflow-hidden rounded-md shadow-2xl bg-black flex items-center justify-center max-h-full"
+                                style={{ width: "100%" }}
+                                animate={{
+                                    aspectRatio: previewAspectRatio,
+                                    maxWidth: previewMaxWidthPx,
+                                }}
+                                transition={{
+                                    aspectRatio: aspectMorphTransition,
+                                    maxWidth: aspectMorphTransition,
+                                }}
                             >
                                 <video
                                     ref={videoRef}
                                     src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
                                     className={cn(
-                                        "rounded-md",
-                                        targetRatioNum
-                                            ? "w-full h-full object-cover" // fills the constrained frame exactly
-                                            : "w-full h-full object-contain" // letterboxes within the full container
+                                        "w-full h-full rounded-md",
+                                        // Crop UI is % of container — must match filled video; trim/subtitles match Nutlope contain
+                                        mode === "crop" ? "object-cover" : "object-contain"
                                     )}
                                     preload="metadata"
                                     onLoadedMetadata={handleLoadedMetadata}
@@ -519,7 +531,7 @@ export function VideoEditorModal({
                                             animate={{ opacity: 1, scale: 1, y: 0 }}
                                             exit={{ opacity: 0, scale: 0.8, y: -8 }}
                                             transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                                            className="absolute top-3 left-3 bg-black/70 backdrop-blur-sm border border-white/20 rounded-full px-2.5 py-1 text-xs font-bold text-white/90 flex items-center gap-1.5 pointer-events-none z-20"
+                                            className="absolute top-3 left-3 bg-background/85 backdrop-blur-sm border border-border rounded-full px-2.5 py-1 text-xs font-bold text-foreground flex items-center gap-1.5 pointer-events-none z-20 shadow-sm"
                                         >
                                             <RectangleHorizontal className="w-3 h-3 text-primary" />
                                             {aspectRatio}
@@ -527,7 +539,7 @@ export function VideoEditorModal({
                                     )}
                                 </AnimatePresence>
 
-                                {/* Subtitle Overlay — inside the constrained frame, so positioning is correct */}
+                                {/* Subtitle Overlay — inside the shaped frame, positioning always relative to output */}
                                 {mode === "subtitles" && (
                                     <SubtitleOverlay
                                         subtitles={subtitles}
@@ -540,7 +552,7 @@ export function VideoEditorModal({
                             </motion.div>
                         ) : (
                             <div className="flex items-center justify-center h-full">
-                                <p className="text-neutral-500">Media not available offline.</p>
+                                <p className="text-muted-foreground">Media not available offline.</p>
                             </div>
                         )}
                     </div>
@@ -585,29 +597,29 @@ export function VideoEditorModal({
                                     onSeek={handleSeek}
                                 />
                             ) : (
-                                <div className="flex flex-col items-center justify-center h-full bg-neutral-950 border-l border-white/10 px-8 text-center">
+                                <div className="flex flex-col items-center justify-center h-full bg-background border-l border-border px-8 text-center">
                                     <motion.div
                                         initial={{ scale: 0.8, opacity: 0 }}
                                         animate={{ scale: 1, opacity: 1 }}
                                         transition={{ type: "spring", stiffness: 300, damping: 25, delay: 0.2 }}
-                                        className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4"
+                                        className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4"
                                     >
-                                        <Captions className="w-8 h-8 text-white/20" />
+                                        <Captions className="w-8 h-8 text-muted-foreground/50" />
                                     </motion.div>
                                     <motion.div
                                         initial={{ y: 10, opacity: 0 }}
                                         animate={{ y: 0, opacity: 1 }}
                                         transition={{ delay: 0.3 }}
                                     >
-                                        <h3 className="text-sm font-medium text-white/70 mb-2">No Subtitles Yet</h3>
-                                        <p className="text-xs text-white/30 mb-6 max-w-[220px]">
+                                        <h3 className="text-sm font-medium text-foreground mb-2">No Subtitles Yet</h3>
+                                        <p className="text-xs text-muted-foreground mb-6 max-w-[220px]">
                                             Transcribe this video to generate subtitles you can edit and burn into the video.
                                         </p>
                                         <Button
                                             size="sm"
                                             onClick={handleTranscribe}
                                             disabled={isTranscribing}
-                                            className="bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-600/20"
+                                            className="bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-600/25 dark:shadow-violet-900/30"
                                         >
                                             {isTranscribing ? (
                                                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -625,7 +637,7 @@ export function VideoEditorModal({
             </div>
 
             {/* ── Timeline & Controls ── */}
-            <div className="border-t border-white/10 bg-neutral-900/90 backdrop-blur-xl shrink-0 relative z-[70]">
+            <div className="border-t border-border bg-card/95 backdrop-blur-xl shrink-0 relative z-[70]">
                 {/* Seek bar (crop + subtitle modes) */}
                 <div className="px-5 pt-4 pb-1">
                     {mode !== "trim" && duration > 0 && (
@@ -641,14 +653,14 @@ export function VideoEditorModal({
                                     [&::-webkit-slider-thumb]:appearance-none
                                     [&::-webkit-slider-thumb]:w-3
                                     [&::-webkit-slider-thumb]:h-3
-                                    [&::-webkit-slider-thumb]:bg-white
+                                    [&::-webkit-slider-thumb]:bg-foreground
                                     [&::-webkit-slider-thumb]:rounded-full
-                                    [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(255,255,255,0.4)]
+                                    [&::-webkit-slider-thumb]:shadow-sm
                                     [&::-webkit-slider-thumb]:transition-all
                                     [&::-webkit-slider-thumb]:duration-150
                                     [&::-webkit-slider-thumb]:hover:scale-125"
                                 style={{
-                                    background: `linear-gradient(to right, #fff ${(currentTime / duration) * 100}%, rgba(255,255,255,0.12) ${(currentTime / duration) * 100}%)`,
+                                    background: `linear-gradient(to right, var(--foreground) ${(currentTime / duration) * 100}%, color-mix(in oklch, var(--foreground) 14%, transparent) ${(currentTime / duration) * 100}%)`,
                                 }}
                             />
                         </div>
@@ -657,13 +669,13 @@ export function VideoEditorModal({
 
                 {/* Compact Playback Bar */}
                 <div className="px-5 pb-2 flex items-center gap-3">
-                    <span ref={timeDisplayRef} className="text-[11px] text-white/60 font-mono tabular-nums min-w-[40px]">
+                    <span ref={timeDisplayRef} className="text-[11px] text-muted-foreground font-mono tabular-nums min-w-[40px]">
                         {formatTime(currentTime)}
                     </span>
 
                     <div className="flex items-center gap-1">
                         <button
-                            className="w-7 h-7 flex items-center justify-center rounded-full text-white/50 hover:text-white hover:bg-white/10 transition-all active:scale-90"
+                            className="w-7 h-7 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-all active:scale-90"
                             onClick={() => handleSeek(Math.max(0, (videoRef.current?.currentTime || 0) - 5))}
                         >
                             <span className="text-[10px] font-semibold">-5</span>
@@ -671,7 +683,7 @@ export function VideoEditorModal({
                         <motion.button
                             whileTap={{ scale: 0.88 }}
                             transition={{ type: "spring", stiffness: 500, damping: 20 }}
-                            className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-all mx-0.5"
+                            className="w-9 h-9 flex items-center justify-center rounded-full bg-muted hover:bg-muted/80 text-foreground transition-all mx-0.5 ring-1 ring-border/60"
                             onClick={togglePlay}
                         >
                             <AnimatePresence mode="wait" initial={false}>
@@ -693,22 +705,22 @@ export function VideoEditorModal({
                             </AnimatePresence>
                         </motion.button>
                         <button
-                            className="w-7 h-7 flex items-center justify-center rounded-full text-white/50 hover:text-white hover:bg-white/10 transition-all active:scale-90"
+                            className="w-7 h-7 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-all active:scale-90"
                             onClick={() => handleSeek(Math.min(duration, (videoRef.current?.currentTime || 0) + 5))}
                         >
                             <span className="text-[10px] font-semibold">+5</span>
                         </button>
                     </div>
 
-                    <span className="text-[11px] text-white/35 font-mono tabular-nums min-w-[48px]">
+                    <span className="text-[11px] text-muted-foreground/70 font-mono tabular-nums min-w-[48px]">
                         -{formatTime(Math.max(0, duration - currentTime))}
                     </span>
 
                     <div className="flex-1" />
 
                     {/* Aspect Ratio selector — animated sliding pill */}
-                    <div className="flex items-center gap-1 bg-white/5 rounded-lg p-0.5">
-                        <RectangleHorizontal className="w-3 h-3 text-white/25 ml-1.5 mr-0.5" />
+                    <div className="flex items-center gap-1 bg-muted/80 rounded-lg p-0.5 ring-1 ring-border/50">
+                        <RectangleHorizontal className="w-3 h-3 text-muted-foreground ml-1.5 mr-0.5" />
                         {ASPECT_RATIOS.map((ar) => (
                             <button
                                 key={ar.id}
@@ -718,13 +730,13 @@ export function VideoEditorModal({
                                 {aspectRatio === ar.id && (
                                     <motion.div
                                         layoutId="ar-pill"
-                                        className="absolute inset-0 bg-white rounded-md shadow-sm"
+                                        className="absolute inset-0 bg-primary rounded-md shadow-sm"
                                         transition={{ type: "spring", stiffness: 400, damping: 28 }}
                                     />
                                 )}
                                 <span className={cn(
                                     "relative z-10 text-[10px] font-medium transition-colors duration-150",
-                                    aspectRatio === ar.id ? "text-black" : "text-white/40 hover:text-white/80"
+                                    aspectRatio === ar.id ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground"
                                 )}>
                                     {ar.label}
                                 </span>

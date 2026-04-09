@@ -42,6 +42,14 @@ import { Trash2, Tags, PlusCircle } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { MediaPlayerModal } from "@/components/media-player-modal";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 
 type Video = {
     id: string;
@@ -113,6 +121,8 @@ export default function LibraryPage() {
     // Renaming state
     const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
     const [editTitle, setEditTitle] = useState("");
+
+    const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
 
     // Labels State
     const [globalLabels, setGlobalLabels] = useState<{ id: string; name: string; color: string | null }[]>([]);
@@ -593,8 +603,14 @@ export default function LibraryPage() {
         }
     };
 
-    const handleDelete = async (videoId: string, title: string) => {
-        if (!confirm(`Are you sure you want to completely delete "${title}"? This will remove the file from your computer.`)) return;
+    const openDeleteDialog = (videoId: string, title: string) => {
+        setDeleteTarget({ id: videoId, title });
+    };
+
+    const performDelete = async () => {
+        if (!deleteTarget) return;
+        const { id: videoId } = deleteTarget;
+        setDeleteTarget(null);
 
         const toastId = toast.loading("Deleting video...");
         try {
@@ -916,7 +932,7 @@ export default function LibraryPage() {
                                 <Cloud className="h-3.5 w-3.5" />
                             </Button>
                         )}
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-destructive/20 hover:text-destructive shadow-sm ml-1" onClick={() => handleDelete(video.id, video.title)} title="Delete Video">
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-destructive/20 hover:text-destructive shadow-sm ml-1" onClick={() => openDeleteDialog(video.id, video.title)} title="Delete Video">
                             <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                     </div>
@@ -1272,12 +1288,38 @@ export default function LibraryPage() {
             </motion.div>
 
             {/* Media Player Modal */}
+            <Dialog
+                open={deleteTarget !== null}
+                onOpenChange={(open) => {
+                    if (!open) setDeleteTarget(null);
+                }}
+            >
+                <DialogContent showCloseButton className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Delete video?</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to completely delete{" "}
+                            <span className="font-medium text-foreground">&quot;{deleteTarget?.title}&quot;</span>? This
+                            will remove the file from your computer. This cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end pt-2">
+                        <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+                            Cancel
+                        </Button>
+                        <Button variant="destructive" onClick={() => void performDelete()}>
+                            Delete
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
             <MediaPlayerModal
                 open={playerOpen}
                 onOpenChange={setPlayerOpen}
                 videos={displayedVideos}
                 initialIndex={playerIndex}
-                onDelete={handleDelete}
+                onDelete={openDeleteDialog}
                 onCloudUpload={handleCloudUpload}
                 onCloudRemove={handleCloudRemove}
                 onRefreshLibrary={fetchLibrary}

@@ -65,7 +65,7 @@ export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTri
     const endRegionWidth = useMotionTemplate`calc(1.5rem + ${rightWidth}% - (2rem * ${rightWidth}/100))`;
 
     return (
-        <div className="relative w-full h-24 bg-black/40 rounded-lg flex items-center px-6 overflow-hidden">
+        <div className="relative w-full h-24 bg-muted rounded-lg flex items-center px-6 overflow-hidden ring-1 ring-border/50">
             {/* Visual playhead tracking current time */}
             <motion.div 
                 className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10" 
@@ -89,11 +89,11 @@ export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTri
             {duration > 0 && (
                 <>
                     <motion.div 
-                        className="absolute top-0 bottom-0 left-0 bg-black/60 pointer-events-none"
+                        className="absolute top-0 bottom-0 left-0 bg-foreground/10 dark:bg-foreground/20 pointer-events-none"
                         style={{ width: startRegionWidth }}
                     />
                     <motion.div 
-                        className="absolute top-0 bottom-0 right-0 bg-black/60 pointer-events-none"
+                        className="absolute top-0 bottom-0 right-0 bg-foreground/10 dark:bg-foreground/20 pointer-events-none"
                         style={{ width: endRegionWidth }}
                     />
                 </>
