@@ -8,6 +8,8 @@
     "urlExpiry": 604800,
     "storageLimit": 10
   },
-  "openaiApiKey": "",
-  "whisperLanguage": ""
+  "openaiApiKey": "sk-...-v3\"",
+  "whisperLanguage": "",
+  "groqApiKey": "",
+  "transcriptionProvider": "groq"
 }

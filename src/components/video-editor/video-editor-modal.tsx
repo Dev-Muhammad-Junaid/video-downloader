@@ -80,6 +80,7 @@ export function VideoEditorModal({
     const [stylePreset, setStylePreset] = useState("classic");
     const [fontFamily, setFontFamily] = useState("Arial");
     const [isTranscribing, setIsTranscribing] = useState(false);
+    const [transcriptionProvider, setTranscriptionProvider] = useState<"openai" | "groq">("openai");
 
     const [isExporting, setIsExporting] = useState(false);
 
@@ -149,6 +150,17 @@ export function VideoEditorModal({
         };
         loadSubtitles();
     }, [video.transcriptStatus, video.transcriptPath]);
+
+    useEffect(() => {
+        fetch("/api/settings/ai")
+            .then((r) => r.json())
+            .then((data) => {
+                if (data?.provider === "openai" || data?.provider === "groq") {
+                    setTranscriptionProvider(data.provider);
+                }
+            })
+            .catch(() => {});
+    }, []);
 
     const handleLoadedMetadata = () => {
         if (videoRef.current) {
@@ -620,6 +632,7 @@ export function VideoEditorModal({
                                             onClick={handleTranscribe}
                                             disabled={isTranscribing}
                                             className="bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-600/25 dark:shadow-violet-900/30"
+                                            title={`Transcribe using ${transcriptionProvider === "groq" ? "Groq" : "OpenAI"}`}
                                         >
                                             {isTranscribing ? (
                                                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -628,6 +641,9 @@ export function VideoEditorModal({
                                             )}
                                             {isTranscribing ? "Transcribing..." : "Transcribe Video"}
                                         </Button>
+                                        <div className="mt-2 text-[10px] text-muted-foreground">
+                                            Provider: {transcriptionProvider === "groq" ? "Groq" : "OpenAI"}
+                                        </div>
                                     </motion.div>
                                 </div>
                             )}
