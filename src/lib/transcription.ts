@@ -92,6 +92,8 @@ export interface TranscriptionResult {
     logId?: string;
 }
 
+export type TranscriptionProvider = "openai" | "groq";
+
 /**
  * Main transcription function.
  * - Extracts audio from video
@@ -103,9 +105,13 @@ export async function transcribeVideo(
     videoId: string,
     localPath: string,
     apiKey: string,
-    language?: string
+    language?: string,
+    provider: TranscriptionProvider = "openai"
 ): Promise<TranscriptionResult> {
-    const openai = new OpenAI({ apiKey });
+    const openai = new OpenAI({
+        apiKey,
+        ...(provider === "groq" ? { baseURL: "https://api.groq.com/openai/v1" } : {}),
+    });
 
     let tempAudioPath: string | null = null;
 
@@ -117,7 +123,7 @@ export async function transcribeVideo(
         const audioFile = fs.createReadStream(tempAudioPath);
         const transcript = await openai.audio.transcriptions.create({
             file: audioFile,
-            model: "whisper-1",
+            model: provider === "groq" ? "whisper-large-v3-turbo" : "whisper-1",
             response_format: "verbose_json",
             timestamp_granularities: ["segment"],
             ...(language ? { language } : {}),
@@ -148,7 +154,12 @@ export async function transcribeVideo(
  * Convenience wrapper: transcribe and persist results to DB in one call.
  * Also creates a DownloadLog entry for the History page.
  */
-export async function transcribeAndSave(videoId: string, apiKey: string, language?: string): Promise<TranscriptionResult> {
+export async function transcribeAndSave(
+    videoId: string,
+    apiKey: string,
+    language?: string,
+    provider: TranscriptionProvider = "openai"
+): Promise<TranscriptionResult> {
     const startTime = Date.now();
 
     const video = await prisma.video.findUnique({ where: { id: videoId } });
@@ -174,7 +185,7 @@ export async function transcribeAndSave(videoId: string, apiKey: string, languag
     });
 
     try {
-        const result = await transcribeVideo(videoId, video.localPath, apiKey, language);
+        const result = await transcribeVideo(videoId, video.localPath, apiKey, language, provider);
 
         const elapsed = (Date.now() - startTime) / 1000;
 

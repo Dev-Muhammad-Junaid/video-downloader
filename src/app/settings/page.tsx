@@ -22,7 +22,9 @@ export default function SettingsPage() {
         watchFolder: "",
         destinationFolder: "",
         urlExpiry: 604800,
+        transcriptionProvider: "openai" as "openai" | "groq",
         openaiApiKey: "",
+        groqApiKey: "",
         whisperLanguage: "",
     });
     const [pickingFolder, setPickingFolder] = useState<"watch" | "destination" | null>(null);
@@ -49,7 +51,9 @@ export default function SettingsPage() {
                 ...s,
                 destinationFolder: destData.path || "",
                 ...(r2Data?.s3Endpoint ? r2Data : {}),
-                openaiApiKey: r2Data?.s3Endpoint ? (aiData.hasKey ? aiData.openaiApiKey : "") : "",
+                transcriptionProvider: aiData.provider || "openai",
+                openaiApiKey: aiData.hasOpenAiKey ? aiData.openaiApiKey : "",
+                groqApiKey: aiData.hasGroqKey ? aiData.groqApiKey : "",
                 whisperLanguage: aiData.whisperLanguage || "",
                 watchFolder: watchData.watchFolder || "",
             }));
@@ -477,10 +481,30 @@ export default function SettingsPage() {
                             AI Transcription
                         </CardTitle>
                         <CardDescription>
-                            Powered by OpenAI Whisper. Your API key is stored locally and never shared.
+                            Choose OpenAI or Groq for speech-to-text. API keys are stored locally and never shared.
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="transcriptionProvider">Provider</Label>
+                            <Select
+                                value={settings.transcriptionProvider}
+                                onValueChange={(value) =>
+                                    setSettings({
+                                        ...settings,
+                                        transcriptionProvider: value as "openai" | "groq",
+                                    })
+                                }
+                            >
+                                <SelectTrigger id="transcriptionProvider">
+                                    <SelectValue placeholder="Select provider" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="openai">OpenAI</SelectItem>
+                                    <SelectItem value="groq">Groq</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
                         <div className="space-y-2">
                             <Label htmlFor="openaiKey" className="flex items-center gap-2">
                                 <Mic className="w-3.5 h-3.5 text-muted-foreground" />
@@ -494,6 +518,20 @@ export default function SettingsPage() {
                                 onChange={(e) => setSettings({ ...settings, openaiApiKey: e.target.value })}
                             />
                             <p className="text-xs text-muted-foreground">Required for AI transcription. Get it at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">platform.openai.com</a>.</p>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="groqKey" className="flex items-center gap-2">
+                                <Mic className="w-3.5 h-3.5 text-muted-foreground" />
+                                Groq API Key
+                            </Label>
+                            <Input
+                                id="groqKey"
+                                type="password"
+                                placeholder="gsk_..."
+                                value={settings.groqApiKey}
+                                onChange={(e) => setSettings({ ...settings, groqApiKey: e.target.value })}
+                            />
+                            <p className="text-xs text-muted-foreground">Used when provider is set to Groq. Get it at <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">console.groq.com</a>.</p>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="whisperLang">Language (optional)</Label>
@@ -510,7 +548,12 @@ export default function SettingsPage() {
                                     const res = await fetch("/api/settings/ai", {
                                         method: "POST",
                                         headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ openaiApiKey: settings.openaiApiKey, whisperLanguage: settings.whisperLanguage }),
+                                        body: JSON.stringify({
+                                            provider: settings.transcriptionProvider,
+                                            openaiApiKey: settings.openaiApiKey,
+                                            groqApiKey: settings.groqApiKey,
+                                            whisperLanguage: settings.whisperLanguage,
+                                        }),
                                     });
                                     if (res.ok) toast.success("AI settings saved");
                                     else toast.error("Failed to save AI settings");

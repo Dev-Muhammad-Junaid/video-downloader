@@ -104,19 +104,9 @@ export default function LibraryPage() {
     const [searchQuery, setSearchQuery] = useState("");
     const [sortBy, setSortBy] = useState<"newest" | "oldest" | "size-desc" | "size-asc">("newest");
     const [platformFilter, setPlatformFilter] = useState("all");
-    const [groupByDate, setGroupByDate] = useState(() => {
-        if (typeof window !== "undefined") {
-            const saved = localStorage.getItem("ui_groupByDate");
-            return saved !== null ? saved === "true" : true;
-        }
-        return true;
-    });
-    const [mediaTypeFilter, setMediaTypeFilter] = useState<"all" | "video" | "image">(() => {
-        if (typeof window !== "undefined") {
-            return (localStorage.getItem("ui_mediaTypeFilter") as "all" | "video" | "image") || "all";
-        }
-        return "all";
-    });
+    // Keep SSR and first client render identical; hydrate localStorage prefs after mount.
+    const [groupByDate, setGroupByDate] = useState(true);
+    const [mediaTypeFilter, setMediaTypeFilter] = useState<"all" | "video" | "image">("all");
 
     // Renaming state
     const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
@@ -137,8 +127,21 @@ export default function LibraryPage() {
     const [deepSearchResults, setDeepSearchResults] = useState<Video[] | null>(null);
     const [deepSearchLoading, setDeepSearchLoading] = useState(false);
     const [transcribingIds, setTranscribingIds] = useState<Set<string>>(new Set());
+    const [transcriptionProvider, setTranscriptionProvider] = useState<"openai" | "groq">("openai");
 
     const pollingRefs = React.useRef<{ [key: string]: NodeJS.Timeout }>({});
+
+    useEffect(() => {
+        const savedGroupByDate = localStorage.getItem("ui_groupByDate");
+        if (savedGroupByDate !== null) {
+            setGroupByDate(savedGroupByDate === "true");
+        }
+
+        const savedMediaType = localStorage.getItem("ui_mediaTypeFilter");
+        if (savedMediaType === "all" || savedMediaType === "video" || savedMediaType === "image") {
+            setMediaTypeFilter(savedMediaType);
+        }
+    }, []);
 
     useEffect(() => {
         const init = async () => {
@@ -159,6 +162,14 @@ export default function LibraryPage() {
             fetchLibrary();
             fetchQueue();
             fetchLabels();
+            fetch("/api/settings/ai")
+                .then((r) => r.json())
+                .then((data) => {
+                    if (data?.provider === "openai" || data?.provider === "groq") {
+                        setTranscriptionProvider(data.provider);
+                    }
+                })
+                .catch(() => {});
 
             // Auto-backfill thumbnails for old videos that don't have one
             fetch("/api/thumbnail/backfill", { method: "POST" })
@@ -626,6 +637,8 @@ export default function LibraryPage() {
         }
     };
 
+    const providerLabel = transcriptionProvider === "groq" ? "Groq" : "OpenAI";
+
     const attachLabel = async (videoId: string, labelId: string) => {
         try {
             const res = await fetch(`/api/library/${videoId}/labels`, {
@@ -907,11 +920,14 @@ export default function LibraryPage() {
                                         size="sm"
                                         className="h-5 text-[10px] px-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full border border-dashed border-border/50"
                                         onClick={() => handleTranscribe(video.id)}
-                                        title="Generate AI transcript"
+                                        title={`Generate AI transcript (${providerLabel})`}
                                     >
                                         <Mic className="w-2.5 h-2.5 mr-0.5" /> Transcribe
                                     </Button>
                                 )}
+                                <span className="inline-flex items-center rounded-full border border-border/60 bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                                    {providerLabel}
+                                </span>
                             </>
                         )}
                     </div>
