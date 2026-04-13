@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
+import { getFfmpegPath } from "@/lib/ffmpeg";
 
 // Thumbnails directory within the project
 const thumbnailsDir = path.join(process.cwd(), "thumbnails");
@@ -14,11 +15,15 @@ if (!fs.existsSync(thumbnailsDir)) {
  */
 export function generateVideoThumbnail(videoPath: string, videoId: string): Promise<string | null> {
     return new Promise((resolve) => {
-        const outputPath = path.join(thumbnailsDir, `${videoId}.webp`);
+        const webpPath = path.join(thumbnailsDir, `${videoId}.webp`);
+        const jpgPath = path.join(thumbnailsDir, `${videoId}.jpg`);
 
         // If thumbnail already exists, return it
-        if (fs.existsSync(outputPath)) {
-            return resolve(outputPath);
+        if (fs.existsSync(webpPath)) {
+            return resolve(webpPath);
+        }
+        if (fs.existsSync(jpgPath)) {
+            return resolve(jpgPath);
         }
 
         // Verify video file exists
@@ -27,7 +32,7 @@ export function generateVideoThumbnail(videoPath: string, videoId: string): Prom
             return resolve(null);
         }
 
-        const ffmpeg = spawn("ffmpeg", [
+        const ffmpeg = spawn(getFfmpegPath(), [
             "-y",           // Overwrite
             "-ss", "1",     // Seek to 1 second
             "-i", videoPath,
@@ -35,16 +40,42 @@ export function generateVideoThumbnail(videoPath: string, videoId: string): Prom
             "-vf", "scale=480:-1",
             "-f", "webp",
             "-quality", "80",
-            outputPath,
+            webpPath,
         ]);
 
+        let stderr = "";
+        ffmpeg.stderr.on("data", (data) => {
+            stderr += data.toString();
+        });
+
         ffmpeg.on("close", (code) => {
-            if (code === 0 && fs.existsSync(outputPath)) {
-                resolve(outputPath);
-            } else {
-                console.error(`ffmpeg thumbnail generation failed with code ${code}`);
-                resolve(null);
+            if (code === 0 && fs.existsSync(webpPath)) {
+                resolve(webpPath);
+                return;
             }
+
+            // Fallback for ffmpeg builds without libwebp support.
+            const ffmpegJpg = spawn(getFfmpegPath(), [
+                "-y",
+                "-ss", "1",
+                "-i", videoPath,
+                "-vframes", "1",
+                "-vf", "scale=480:-1",
+                "-q:v", "4",
+                jpgPath,
+            ]);
+            let jpgErr = "";
+            ffmpegJpg.stderr.on("data", (d) => {
+                jpgErr += d.toString();
+            });
+            ffmpegJpg.on("close", (jpgCode) => {
+                if (jpgCode === 0 && fs.existsSync(jpgPath)) {
+                    resolve(jpgPath);
+                } else {
+                    console.error(`ffmpeg thumbnail generation failed (webp=${code}, jpg=${jpgCode}): ${stderr.slice(-300)} ${jpgErr.slice(-300)}`);
+                    resolve(null);
+                }
+            });
         });
 
         ffmpeg.on("error", (err) => {
@@ -60,10 +91,14 @@ export function generateVideoThumbnail(videoPath: string, videoId: string): Prom
  */
 export function generateImageThumbnail(imagePath: string, videoId: string): Promise<string | null> {
     return new Promise((resolve) => {
-        const outputPath = path.join(thumbnailsDir, `${videoId}.webp`);
+        const webpPath = path.join(thumbnailsDir, `${videoId}.webp`);
+        const jpgPath = path.join(thumbnailsDir, `${videoId}.jpg`);
 
-        if (fs.existsSync(outputPath)) {
-            return resolve(outputPath);
+        if (fs.existsSync(webpPath)) {
+            return resolve(webpPath);
+        }
+        if (fs.existsSync(jpgPath)) {
+            return resolve(jpgPath);
         }
 
         if (!fs.existsSync(imagePath)) {
@@ -71,22 +106,45 @@ export function generateImageThumbnail(imagePath: string, videoId: string): Prom
             return resolve(null);
         }
 
-        const ffmpeg = spawn("ffmpeg", [
+        const ffmpeg = spawn(getFfmpegPath(), [
             "-y",
             "-i", imagePath,
             "-vf", "scale=480:-1",
             "-f", "webp",
             "-quality", "80",
-            outputPath,
+            webpPath,
         ]);
 
+        let stderr = "";
+        ffmpeg.stderr.on("data", (data) => {
+            stderr += data.toString();
+        });
+
         ffmpeg.on("close", (code) => {
-            if (code === 0 && fs.existsSync(outputPath)) {
-                resolve(outputPath);
-            } else {
-                console.error(`ffmpeg image thumbnail failed with code ${code}`);
-                resolve(null);
+            if (code === 0 && fs.existsSync(webpPath)) {
+                resolve(webpPath);
+                return;
             }
+
+            const ffmpegJpg = spawn(getFfmpegPath(), [
+                "-y",
+                "-i", imagePath,
+                "-vf", "scale=480:-1",
+                "-q:v", "4",
+                jpgPath,
+            ]);
+            let jpgErr = "";
+            ffmpegJpg.stderr.on("data", (d) => {
+                jpgErr += d.toString();
+            });
+            ffmpegJpg.on("close", (jpgCode) => {
+                if (jpgCode === 0 && fs.existsSync(jpgPath)) {
+                    resolve(jpgPath);
+                } else {
+                    console.error(`ffmpeg image thumbnail failed (webp=${code}, jpg=${jpgCode}): ${stderr.slice(-300)} ${jpgErr.slice(-300)}`);
+                    resolve(null);
+                }
+            });
         });
 
         ffmpeg.on("error", (err) => {

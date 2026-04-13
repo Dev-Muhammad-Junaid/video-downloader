@@ -48,6 +48,7 @@ export function SubtitleEditor({
     const [findText, setFindText] = useState("");
     const [replaceText, setReplaceText] = useState("");
     const [showTimingOffset, setShowTimingOffset] = useState(false);
+    const [timingOffsetMs, setTimingOffsetMs] = useState(0);
     const [copied, setCopied] = useState(false);
     const [activeId, setActiveId] = useState<number | null>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -199,6 +200,7 @@ export function SubtitleEditor({
             end: shiftTime(s.end, deltaMs),
         }));
         onSubtitlesChange(updated);
+        setTimingOffsetMs((prev) => prev + deltaMs);
     };
 
     return (
@@ -316,6 +318,9 @@ export function SubtitleEditor({
                                 <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
                                     Shift All:
                                 </span>
+                                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-background border border-border text-foreground">
+                                    Current: {timingOffsetMs > 0 ? `+${timingOffsetMs}` : timingOffsetMs}ms
+                                </span>
                                 {[-1000, -500, -100, 100, 500, 1000].map(
                                     (ms) => (
                                         <button
@@ -327,6 +332,15 @@ export function SubtitleEditor({
                                         </button>
                                     )
                                 )}
+                                <button
+                                    onClick={() => {
+                                        if (timingOffsetMs !== 0) shiftAllTimings(-timingOffsetMs);
+                                    }}
+                                    disabled={timingOffsetMs === 0}
+                                    className="px-2 py-0.5 rounded text-[10px] font-mono bg-primary/10 border border-primary/20 text-primary hover:bg-primary/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Reset
+                                </button>
                             </div>
                         </motion.div>
                     )}

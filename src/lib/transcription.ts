@@ -4,6 +4,7 @@ import fs from "fs";
 import os from "os";
 import OpenAI from "openai";
 import { prisma } from "@/lib/prisma";
+import { getFfmpegPath } from "@/lib/ffmpeg";
 
 // Directory to store generated subtitle files
 const transcriptsDir = path.join(process.cwd(), "transcripts");
@@ -22,7 +23,7 @@ export function getTranscriptsDir() {
 function extractAudio(videoPath: string): Promise<string> {
     return new Promise((resolve, reject) => {
         const tmpPath = path.join(os.tmpdir(), `snapdown_audio_${Date.now()}.mp3`);
-        const proc = spawn("ffmpeg", [
+        const proc = spawn(getFfmpegPath(), [
             "-i", videoPath,
             "-vn",                     // No video
             "-ar", "16000",            // 16kHz sample rate (Whisper's preferred rate)

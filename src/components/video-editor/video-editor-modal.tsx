@@ -134,12 +134,18 @@ export function VideoEditorModal({
     // Load subtitles from the video's existing transcript on mount
     useEffect(() => {
         const loadSubtitles = async () => {
-            if (video.transcriptStatus !== "completed" || !video.transcriptPath) return;
+            if (video.transcriptStatus !== "completed") return;
             try {
-                const res = await fetch(`/api/media?path=${encodeURIComponent(video.transcriptPath)}`);
+                // Prefer stable endpoint by video id so this works even when transcriptPath
+                // is missing in the current view model (e.g. deep search results).
+                let res = await fetch(`/api/transcription/${video.id}/vtt`);
+                if (!res.ok && video.transcriptPath) {
+                    // Back-compat fallback for older flows
+                    res = await fetch(`/api/media?path=${encodeURIComponent(video.transcriptPath)}`);
+                }
                 if (!res.ok) return;
                 const content = await res.text();
-                if (content.trim().startsWith("WEBVTT") || video.transcriptPath.endsWith(".vtt")) {
+                if (content.trim().startsWith("WEBVTT") || video.transcriptPath?.endsWith(".vtt")) {
                     setSubtitles(parseVtt(content));
                 } else {
                     setSubtitles(parseSrt(content));
@@ -359,7 +365,7 @@ export function VideoEditorModal({
                 body: JSON.stringify(bodyPayload),
             });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || "Failed to edit media");
+            if (!res.ok) throw new Error(data.details || data.error || "Failed to edit media");
 
             toast.success(`Media successfully ${actionLabel}!`, { id: toastId });
             onRefreshLibrary?.();
