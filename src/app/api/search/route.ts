@@ -15,6 +15,7 @@ export interface SearchResult {
     cloudKey: string | null;
     originalUrl: string | null;
     transcriptStatus: string | null;
+    transcriptPath: string | null;
     // Search-specific fields
     matchedIn: ("title" | "transcript" | "label" | "platform")[];
     transcriptSnippet: string | null; // Highlighted excerpt from transcript
@@ -121,6 +122,7 @@ export async function GET(req: NextRequest) {
                     cloudKey: video.cloudKey,
                     originalUrl: video.originalUrl,
                     transcriptStatus: video.transcriptStatus,
+                    transcriptPath: video.transcriptPath,
                     matchedIn,
                     transcriptSnippet,
                 });

@@ -1,13 +1,15 @@
 import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { prisma } from "@/lib/prisma";
 import { generateThumbnail } from "@/lib/thumbnail";
+import { ensureFfmpegFilterSupported, getFfmpegPath } from "@/lib/ffmpeg";
 
 // Helper to spawn ffmpeg and return a promise
 function runFfmpeg(args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
-        const ffmpeg = spawn("ffmpeg", args);
+        const ffmpeg = spawn(getFfmpegPath(), args);
         
         let errorOutput = "";
         ffmpeg.stderr.on("data", (data) => {
@@ -22,6 +24,13 @@ function runFfmpeg(args: string[]): Promise<void> {
             }
         });
     });
+}
+
+let subtitlesFilterSupported: boolean | null = null;
+function ensureSubtitleFilterSupport() {
+    if (subtitlesFilterSupported) return;
+    ensureFfmpegFilterSupported("subtitles", "subtitle burn-in export");
+    subtitlesFilterSupported = true;
 }
 
 export async function trimVideo(
@@ -238,12 +247,23 @@ function getForceStyle(stylePreset: string, fontFamily?: string): string {
     }
 }
 
+/**
+ * Escape force_style value for ffmpeg filter syntax.
+ * Keep commas intact (valid inside quoted ASS style strings),
+ * only escape backslashes and single quotes.
+ */
+function escapeFfFilterForceStyle(style: string): string {
+    return style.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
 export async function burnSubtitles(
     videoId: string,
     srtContent: string,
     stylePreset: string = "classic",
     fontFamily?: string
 ) {
+    ensureSubtitleFilterSupport();
+
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
     });
@@ -257,18 +277,21 @@ export async function burnSubtitles(
     const newFilePath = path.join(parsedPath.dir, newFileName);
 
     // Write temp SRT file (FFmpeg's subtitles filter needs a file path)
-    const tmpSrtPath = path.join(parsedPath.dir, `_tmp_subs_${newId}.srt`);
+    // Use system temp directory to avoid write-permission issues in source folders.
+    const tmpSrtPath = path.join(os.tmpdir(), `_tmp_subs_${newId}.srt`);
     fs.writeFileSync(tmpSrtPath, srtContent, "utf-8");
 
     try {
-        const forceStyle = getForceStyle(stylePreset, fontFamily);
+        const forceStyleRaw = getForceStyle(stylePreset, fontFamily);
+        const forceStyle = escapeFfFilterForceStyle(forceStyleRaw);
         // Escape special characters in the path for FFmpeg filter syntax
         const escapedSrtPath = tmpSrtPath
             .replace(/\\/g, "\\\\\\\\")
             .replace(/:/g, "\\:")
             .replace(/'/g, "\\'");
 
-        const filterArg = `subtitles='${escapedSrtPath}':force_style='${forceStyle}'`;
+        // Use explicit filename= form to avoid parser ambiguity on absolute paths.
+        const filterArg = `subtitles=filename='${escapedSrtPath}':force_style='${forceStyle}'`;
         const args = [
             "-y",
             "-i", originalVideo.localPath,

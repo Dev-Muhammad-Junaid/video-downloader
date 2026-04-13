@@ -9,6 +9,7 @@ import { generateThumbnail } from "@/lib/thumbnail";
 import { getMatchingProfile, getYtDlpFormat } from "./profiles";
 import { uploadToCloud } from "./cloud";
 import pLimit from "p-limit";
+import { getFfmpegPath } from "@/lib/ffmpeg";
 
 export type DownloadStatus = "pending" | "downloading" | "processing" | "completed" | "error";
 
@@ -330,6 +331,7 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
         } catch { }
 
         ytdlpArgs.push(...formatArgs);
+        ytdlpArgs.push("--ffmpeg-location", getFfmpegPath());
         ytdlpArgs.push("-o", outputPath, "--write-info-json", "--newline", url);
 
         console.log(`[Download] Starting yt-dlp with args:`, ytdlpArgs.join(" "));

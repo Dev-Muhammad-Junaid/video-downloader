@@ -31,6 +31,7 @@ export async function GET(
             status: video.transcriptStatus ?? "none",
             text: video.transcriptText ?? null,
             hasVtt: !!video.transcriptPath,
+            vttPath: video.transcriptPath ?? null,
         });
     } catch (err: any) {
         return NextResponse.json({ error: err.message }, { status: 500 });
