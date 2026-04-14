@@ -56,6 +56,7 @@ model DownloadProfile {
   preferredFormat String?  @default("mp4")  // "mp4", "mkv", "webm", "mp3"
   
   autoCloudSync   Boolean  @default(false)
+  requireManualFormat Boolean @default(false)
   
   isActive        Boolean  @default(true)
   priority        Int      @default(0)
@@ -80,4 +81,23 @@ model DownloadLog {
   // Transcription tracking (WID-307)
   type           String    @default("download")  // "download" | "transcription"
   output         String?   // Transcript snippet (first 500 chars) or error output
+}
+
+model DownloadQueueJob {
+  id               String   @id
+  url              String
+  title            String
+  sourcePlatform   String?
+  mediaType        String   @default("video")
+  imageUrl         String?
+  formatId         String?
+  qualityPreset    String?
+  duplicatePolicy  String   @default("keep-both") // "skip" | "replace" | "keep-both"
+  status           String   // "pending" | "queued" | "downloading" | "processing" | "paused" | "completed" | "error" | "cancelled"
+  progress         Float    @default(0)
+  downloadPath     String?
+  error            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  completedAt      DateTime?
 }

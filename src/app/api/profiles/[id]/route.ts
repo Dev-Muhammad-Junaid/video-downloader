@@ -15,6 +15,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
                 maxResolution: data.maxResolution,
                 preferredFormat: data.preferredFormat,
                 autoCloudSync: data.autoCloudSync,
+                requireManualFormat: data.requireManualFormat,
                 isActive: data.isActive,
                 priority: data.priority != null ? parseInt(data.priority) : undefined,
             }
@@ -32,12 +33,6 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     try {
         const { id } = await params;
         
-        // Don't allow deleting the default profile if it's named "Default Profile"
-        const check = await prisma.downloadProfile.findUnique({ where: { id } });
-        if (check?.name === "Default Profile") {
-            return NextResponse.json({ error: "Cannot delete the default profile" }, { status: 400 });
-        }
-
         await prisma.downloadProfile.delete({ where: { id } });
         return NextResponse.json({ success: true });
     } catch (error: any) {

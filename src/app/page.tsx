@@ -82,7 +82,7 @@ type QueueItem = {
     thumbnail?: string;
     sourcePlatform?: string;
     duration?: number;
-    status: 'parsing' | 'pending' | 'downloading' | 'completed' | 'error';
+    status: 'parsing' | 'pending' | 'queued' | 'downloading' | 'processing' | 'paused' | 'completed' | 'error' | 'cancelled';
     jobId?: string;
     progress?: number;
     errorText?: string;
@@ -90,6 +90,19 @@ type QueueItem = {
     imageUrl?: string;
     formats?: { formatId: string; label: string; ext: string; resolution: string | null; filesize: number | null; note: string }[];
     selectedFormat?: string;
+    needsReview?: boolean;
+    reviewReason?: string;
+};
+
+type DownloadProfile = {
+    id: string;
+    name: string;
+    sitePattern: string | null;
+    maxResolution: string | null;
+    preferredFormat: string | null;
+    priority: number;
+    isActive: boolean;
+    requireManualFormat?: boolean;
 };
 
 export default function LibraryPage() {
@@ -99,6 +112,10 @@ export default function LibraryPage() {
     // Bulk Downloader State
     const [urlText, setUrlText] = useState("");
     const [queue, setQueue] = useState<QueueItem[]>([]);
+    const [profiles, setProfiles] = useState<DownloadProfile[]>([]);
+    const [selectedQueueProfile, setSelectedQueueProfile] = useState<string>("default-auto");
+    const [duplicatePolicy, setDuplicatePolicy] = useState<"skip" | "replace" | "keep-both">("keep-both");
+    const [queueFilter, setQueueFilter] = useState<"all" | "active" | "failed">("all");
 
     // Filter & Sort State
     const [searchQuery, setSearchQuery] = useState("");
@@ -128,8 +145,73 @@ export default function LibraryPage() {
     const [deepSearchLoading, setDeepSearchLoading] = useState(false);
     const [transcribingIds, setTranscribingIds] = useState<Set<string>>(new Set());
     const [transcriptionProvider, setTranscriptionProvider] = useState<"openai" | "groq">("openai");
+    const [retryingQueueIds, setRetryingQueueIds] = useState<Set<string>>(new Set());
 
     const pollingRefs = React.useRef<{ [key: string]: NodeJS.Timeout }>({});
+
+    const matchProfileForUrl = useCallback((url: string) => {
+        for (const profile of profiles.filter((p) => p.isActive)) {
+            if (!profile.sitePattern || profile.sitePattern === "*") continue;
+            try {
+                const regex = new RegExp(profile.sitePattern.replace(/\*/g, ".*"), "i");
+                if (regex.test(url)) return profile;
+            } catch {
+                if (url.includes(profile.sitePattern)) return profile;
+            }
+        }
+        return profiles.find((p) => p.sitePattern === "*" || p.priority === -1);
+    }, [profiles]);
+
+    const pickFormatForProfile = useCallback((item: QueueItem, profile: DownloadProfile) => {
+        const formats = item.formats || [];
+        if (formats.length === 0) return { formatId: undefined, needsReview: false, reviewReason: "" };
+        if (profile.preferredFormat === "mp3") {
+            return { formatId: "audio", needsReview: false, reviewReason: "" };
+        }
+        const maxRes = parseInt((profile.maxResolution || "best").replace(/[^0-9]/g, ""), 10);
+        const ext = (profile.preferredFormat || "mp4").toLowerCase();
+        const candidates = formats.filter((f) => {
+            const resolution = f.resolution ? parseInt(f.resolution.replace("p", ""), 10) : 0;
+            const withinRes = Number.isNaN(maxRes) || !maxRes || resolution <= maxRes || resolution === 0;
+            const extOk = ext === "best" || !f.ext || f.ext.toLowerCase() === ext;
+            return withinRes && extOk;
+        });
+        if (candidates.length === 0) {
+            return { formatId: undefined, needsReview: true, reviewReason: `No preset matches "${profile.name}"` };
+        }
+        const sorted = [...candidates].sort((a, b) => {
+            const aRes = a.resolution ? parseInt(a.resolution, 10) : 0;
+            const bRes = b.resolution ? parseInt(b.resolution, 10) : 0;
+            return bRes - aRes;
+        });
+        return { formatId: sorted[0]?.formatId, needsReview: false, reviewReason: "" };
+    }, []);
+
+    const applyQueueProfileToItem = useCallback((item: QueueItem): QueueItem => {
+        if (item.status === "downloading" || item.status === "completed" || item.status === "error" || item.status === "cancelled") {
+            return item;
+        }
+        const profile = selectedQueueProfile === "default-auto"
+            ? matchProfileForUrl(item.originalUrl)
+            : profiles.find((p) => p.id === selectedQueueProfile);
+        if (!profile) {
+            return { ...item, needsReview: true, reviewReason: "No profile available" };
+        }
+        if (profile.requireManualFormat) {
+            return {
+                ...item,
+                needsReview: !item.selectedFormat,
+                reviewReason: !item.selectedFormat ? `Profile "${profile.name}" requires manual format selection` : undefined,
+            };
+        }
+        const picked = pickFormatForProfile(item, profile);
+        return {
+            ...item,
+            selectedFormat: picked.formatId ?? item.selectedFormat ?? "",
+            needsReview: picked.needsReview,
+            reviewReason: picked.reviewReason || undefined,
+        };
+    }, [matchProfileForUrl, pickFormatForProfile, profiles, selectedQueueProfile]);
 
     useEffect(() => {
         const savedGroupByDate = localStorage.getItem("ui_groupByDate");
@@ -162,6 +244,12 @@ export default function LibraryPage() {
             fetchLibrary();
             fetchQueue();
             fetchLabels();
+            fetch("/api/profiles")
+                .then((r) => r.json())
+                .then((data) => {
+                    if (Array.isArray(data)) setProfiles(data);
+                })
+                .catch(() => {});
             fetch("/api/settings/ai")
                 .then((r) => r.json())
                 .then((data) => {
@@ -193,6 +281,10 @@ export default function LibraryPage() {
             Object.values(pollingRefs.current).forEach(clearInterval);
         };
     }, []);
+
+    useEffect(() => {
+        setQueue((prev) => prev.map((item) => applyQueueProfileToItem(item)));
+    }, [selectedQueueProfile, applyQueueProfileToItem]);
 
     // WID-300: Bookmarklet Auto-Ingestion
     useEffect(() => {
@@ -311,20 +403,35 @@ export default function LibraryPage() {
                         jobId: j.id,
                         originalUrl: j.url,
                         title: j.title,
-                        status: j.status === 'processing' ? 'downloading' : j.status,
+                        status: j.status,
                         progress: j.progress,
+                        thumbnail: j.imageUrl,
                         errorText: j.error,
                     }));
 
                     setQueue(prev => {
                         const localOnly = prev.filter(p => !p.jobId && (p.status === 'parsing' || p.status === 'pending'));
-                        const activeUrls = new Set(activeJobs.map((j: any) => j.originalUrl));
-                        const uniqueLocal = localOnly.filter(p => !activeUrls.has(p.originalUrl));
-                        return [...uniqueLocal, ...activeJobs];
+                        const prevById = new Map(prev.filter(p => p.jobId).map(p => [p.jobId as string, p]));
+                        const merged = activeJobs.map(job => {
+                            const existing = prevById.get(job.jobId as string);
+                            if (!existing) return job;
+                            return {
+                                ...existing,
+                                ...job,
+                                thumbnail: existing.thumbnail || job.thumbnail,
+                                progress: (job.status === "downloading" || job.status === "processing" || job.status === "paused")
+                                    ? Math.max(existing.progress || 0, job.progress || 0)
+                                    : (job.progress ?? existing.progress),
+                                errorText: (job.status === "error" || job.status === "cancelled")
+                                    ? (job.errorText || existing.errorText)
+                                    : undefined,
+                            } satisfies QueueItem;
+                        });
+                        return [...localOnly, ...merged];
                     });
 
                     activeJobs.forEach(q => {
-                        if (q.status !== 'completed' && q.status !== 'error' && q.jobId) {
+                        if (q.status !== 'completed' && q.status !== 'error' && q.status !== 'cancelled' && q.jobId) {
                             pollProgress(q.id, q.jobId);
                         }
                     });
@@ -413,7 +520,7 @@ export default function LibraryPage() {
                 return;
             }
 
-            setQueue(prev => prev.map(q => q.id === id ? {
+            setQueue(prev => prev.map(q => q.id === id ? applyQueueProfileToItem({
                 ...q,
                 title: metadata.title,
                 thumbnail: metadata.thumbnail,
@@ -424,7 +531,7 @@ export default function LibraryPage() {
                 formats: metadata.formats || [],
                 selectedFormat: "",
                 status: 'pending'
-            } : q));
+            }) : q));
 
         } catch (error: any) {
             setQueue(prev => prev.map(q => q.id === id ? {
@@ -438,8 +545,16 @@ export default function LibraryPage() {
     const startDownloadJob = async (id: string) => {
         const item = queue.find(q => q.id === id);
         if (!item) return;
+        if (retryingQueueIds.has(id)) return;
+        if (item.needsReview && !item.selectedFormat) {
+            toast.error(item.reviewReason || "This item needs format review before download");
+            return;
+        }
+
+        const selectedProfile = selectedQueueProfile === "default-auto" ? undefined : selectedQueueProfile;
 
         try {
+            setRetryingQueueIds((prev) => new Set(prev).add(id));
             setQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'pending' as const, errorText: undefined } : q));
 
             const dlRes = await fetch("/api/download", {
@@ -451,7 +566,11 @@ export default function LibraryPage() {
                     sourcePlatform: item.sourcePlatform,
                     mediaType: item.mediaType || "video",
                     imageUrl: item.imageUrl,
+                    thumbnail: item.thumbnail,
                     formatId: item.selectedFormat || undefined,
+                    profileId: selectedProfile,
+                    duplicatePolicy,
+                    retryJobId: item.jobId || undefined,
                 }),
             });
 
@@ -472,6 +591,12 @@ export default function LibraryPage() {
                 status: 'error',
                 errorText: error.message
             } : q));
+        } finally {
+            setRetryingQueueIds((prev) => {
+                const next = new Set(prev);
+                next.delete(id);
+                return next;
+            });
         }
     };
 
@@ -501,9 +626,24 @@ export default function LibraryPage() {
                         status: 'error',
                         errorText: data.error || "Download failed"
                     } : q));
+                } else if (data.status === "paused") {
+                    setQueue(prev => prev.map(q => q.id === itemId ? {
+                        ...q,
+                        status: 'paused',
+                        progress: data.progress || q.progress || 0,
+                    } : q));
+                } else if (data.status === "cancelled") {
+                    clearInterval(interval);
+                    delete pollingRefs.current[jobId];
+                    setQueue(prev => prev.map(q => q.id === itemId ? {
+                        ...q,
+                        status: 'cancelled',
+                        errorText: data.error || "Cancelled by user",
+                    } : q));
                 } else {
                     setQueue(prev => prev.map(q => q.id === itemId ? {
                         ...q,
+                        status: (data.status || q.status),
                         progress: data.progress || 0
                     } : q));
                 }
@@ -729,6 +869,14 @@ export default function LibraryPage() {
 
         return result;
     }, [videos, searchQuery, sortBy, platformFilter, mediaTypeFilter, deepSearchResults]);
+
+    const filteredQueue = useMemo(() => {
+        if (queueFilter === "all") return queue;
+        if (queueFilter === "active") {
+            return queue.filter((q) => ["parsing", "pending", "queued", "downloading", "processing", "paused"].includes(q.status));
+        }
+        return queue.filter((q) => q.status === "error" || q.status === "cancelled" || (q.status === "completed" && !!q.errorText));
+    }, [queue, queueFilter]);
 
     // Get unique platforms for filter
     const platforms = useMemo(() => {
@@ -1037,15 +1185,86 @@ export default function LibraryPage() {
                             </Button>
                         )}
                     </div>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                        <select
+                            value={selectedQueueProfile}
+                            onChange={(e) => setSelectedQueueProfile(e.target.value)}
+                            className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                        >
+                            <option value="default-auto">Auto (Match URL profile)</option>
+                            {profiles.map((profile) => (
+                                <option key={profile.id} value={profile.id}>
+                                    Profile: {profile.name}
+                                </option>
+                            ))}
+                        </select>
+                        <select
+                            value={duplicatePolicy}
+                            onChange={(e) => setDuplicatePolicy(e.target.value as "skip" | "replace" | "keep-both")}
+                            className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                        >
+                            <option value="keep-both">Duplicates: Keep both</option>
+                            <option value="skip">Duplicates: Skip</option>
+                            <option value="replace">Duplicates: Replace old</option>
+                        </select>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 text-xs"
+                            onClick={async () => {
+                                try {
+                                    const res = await fetch("/api/download/queue", {
+                                        method: "PATCH",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ action: "retryFailed" }),
+                                    });
+                                    const data = await res.json();
+                                    if (!res.ok) throw new Error(data.error || "Retry failed");
+                                    toast.success(`Retried ${data.retried || 0} failed jobs`);
+                                    fetchQueue();
+                                } catch (error: any) {
+                                    toast.error(error.message || "Failed to retry failed jobs");
+                                }
+                            }}
+                        >
+                            Retry Failed
+                        </Button>
+                    </div>
+                    <div className="flex items-center border border-border/50 rounded-md overflow-hidden -mt-1">
+                        <Button
+                            variant={queueFilter === "all" ? "secondary" : "ghost"}
+                            size="sm"
+                            className="h-8 rounded-none text-xs px-3"
+                            onClick={() => setQueueFilter("all")}
+                        >
+                            All
+                        </Button>
+                        <Button
+                            variant={queueFilter === "active" ? "secondary" : "ghost"}
+                            size="sm"
+                            className="h-8 rounded-none text-xs px-3"
+                            onClick={() => setQueueFilter("active")}
+                        >
+                            Active
+                        </Button>
+                        <Button
+                            variant={queueFilter === "failed" ? "secondary" : "ghost"}
+                            size="sm"
+                            className="h-8 rounded-none text-xs px-3"
+                            onClick={() => setQueueFilter("failed")}
+                        >
+                            Failed
+                        </Button>
+                    </div>
 
                     <div className="flex-1 min-h-[220px] max-h-[300px] overflow-y-auto space-y-3 pr-2 scrollbar-thin">
-                        {queue.length === 0 ? (
+                        {filteredQueue.length === 0 ? (
                             <div className="h-full min-h-[220px] flex flex-col gap-3 items-center justify-center text-muted-foreground border-2 border-dashed border-muted rounded-2xl bg-muted/10">
                                 <DownloadCloud className="w-10 h-10 opacity-20" />
-                                <span className="text-sm opacity-60">No active downloads</span>
+                                <span className="text-sm opacity-60">No queue items for this filter</span>
                             </div>
                         ) : (
-                            queue.map(item => (
+                            filteredQueue.map(item => (
                                 <div key={item.id} className="relative flex items-center gap-4 p-4 rounded-xl border border-border/60 bg-card/60 backdrop-blur-md shadow-sm transition-all hover:bg-card/80 animate-in slide-in-from-right-4">
                                     {item.thumbnail ? (
                                         <div className="w-20 h-14 rounded-md overflow-hidden flex-shrink-0 relative bg-muted shadow-inner">
@@ -1057,19 +1276,48 @@ export default function LibraryPage() {
                                         </div>
                                     )}
 
-                                    <div className="flex-1 min-w-0 pr-4">
+                                    <div className="flex-1 min-w-0">
                                         <p className="text-sm font-semibold truncate text-foreground/90">
                                             {item.title || item.originalUrl}
                                         </p>
-                                        {/* Format Selection Dropdown */}
-                                        {item.formats && item.formats.length > 0 && item.status !== 'downloading' && item.status !== 'completed' && (
+                                        <div className="mt-1 flex items-center gap-2">
+                                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                                {item.status}
+                                            </Badge>
+                                            {item.errorText && (
+                                                <span className="text-[10px] text-muted-foreground truncate max-w-[280px]" title={item.errorText}>
+                                                    {item.errorText}
+                                                </span>
+                                            )}
+                                        </div>
+                                        {item.needsReview && (
+                                            <p className="mt-2 text-[10px] text-amber-500">{item.reviewReason || "Needs review"}</p>
+                                        )}
+                                        {item.status === "parsing" && (
+                                            <p className="mt-2 text-xs text-muted-foreground">Parsing metadata...</p>
+                                        )}
+                                        {item.status === "queued" && (
+                                            <p className="mt-2 text-xs text-muted-foreground">Queued, waiting for worker...</p>
+                                        )}
+                                        {(item.status === "downloading" || item.status === "paused" || item.status === "processing") && (
+                                            <div className="mt-3 flex items-center gap-3 max-w-[360px]">
+                                                <Progress value={item.status === "processing" ? 100 : (item.progress ?? 0)} className="h-1.5 flex-1 bg-muted/80" />
+                                                <span className="text-xs font-bold text-primary w-9">
+                                                    {item.status === "processing" ? "100%" : `${Math.round(item.progress || 0)}%`}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="w-[220px] flex flex-col items-end gap-2">
+                                        {item.formats && item.formats.length > 0 && !['queued', 'downloading', 'processing', 'paused', 'completed', 'cancelled'].includes(item.status) && (
                                             <select
                                                 value={item.selectedFormat || ""}
                                                 onChange={(e) => {
                                                     const val = e.target.value;
                                                     setQueue(prev => prev.map(q => q.id === item.id ? { ...q, selectedFormat: val } : q));
                                                 }}
-                                                className="mt-1.5 flex h-7 w-full max-w-[240px] rounded-md border border-input bg-transparent px-2 py-1 text-[11px] shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                className="h-7 w-full rounded-md border border-input bg-transparent px-2 py-1 text-[11px] shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                             >
                                                 <option value="">Best Quality (default)</option>
                                                 <option value="audio">🎵 Audio Only (MP3)</option>
@@ -1080,44 +1328,97 @@ export default function LibraryPage() {
                                                 ))}
                                             </select>
                                         )}
-                                        <div className="flex items-center gap-3 mt-2">
-                                            {item.status === 'parsing' && <><Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" /><span className="text-xs text-muted-foreground">Parsing metadata...</span></>}
+
+                                        <div className="flex flex-wrap justify-end gap-1.5">
                                             {item.status === 'pending' && (
-                                                <div className="flex items-center gap-2">
-                                                    <Button
-                                                        size="sm"
-                                                        variant="default"
-                                                        className="h-7 px-3 text-[10px] gap-1.5 rounded-lg shadow-sm"
-                                                        onClick={() => startDownloadJob(item.id)}
-                                                    >
-                                                        <DownloadCloud className="w-3 h-3" />
-                                                        Download
-                                                    </Button>
-                                                    <span className="text-[10px] text-muted-foreground italic">← Select quality & start</span>
-                                                </div>
+                                                <Button
+                                                    size="sm"
+                                                    variant="default"
+                                                    className="h-7 px-3 text-[10px] gap-1.5 rounded-lg shadow-sm"
+                                                    onClick={() => startDownloadJob(item.id)}
+                                                    disabled={retryingQueueIds.has(item.id)}
+                                                >
+                                                    <DownloadCloud className="w-3 h-3" />
+                                                    Download
+                                                </Button>
                                             )}
-                                            {item.status === 'downloading' && (
-                                                <div className="flex-1 flex items-center gap-3">
-                                                    <Progress value={item.progress ?? 0} className="h-1.5 flex-1 bg-muted/80" />
-                                                    <span className="text-xs font-bold text-primary w-9">{Math.round(item.progress || 0)}%</span>
-                                                </div>
-                                            )}
-                                            {item.status === 'completed' && <><CheckCircle2 className="w-4 h-4 text-green-500" /><span className="text-xs font-medium text-green-500">Completed & Saved</span></>}
-                                            {item.status === 'error' && (
-                                                <div className="flex flex-col gap-1 w-full">
-                                                    <div className="flex items-center gap-2 text-destructive">
-                                                        <AlertCircle className="w-3.5 h-3.5" />
-                                                        <span className="text-xs font-medium truncate">{item.errorText}</span>
-                                                    </div>
+                                            {item.status === 'downloading' && item.jobId && (
+                                                <>
                                                     <Button
                                                         variant="outline"
                                                         size="sm"
-                                                        className="h-6 w-fit text-[10px] px-2 self-start"
-                                                        onClick={() => startDownloadJob(item.id)}
+                                                        className="h-6 text-[10px] px-2"
+                                                        onClick={async () => {
+                                                            await fetch(`/api/download/${item.jobId}`, {
+                                                                method: "PATCH",
+                                                                headers: { "Content-Type": "application/json" },
+                                                                body: JSON.stringify({ action: "pause" }),
+                                                            });
+                                                            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "paused" } : q));
+                                                        }}
                                                     >
-                                                        Try Again
+                                                        Pause
                                                     </Button>
-                                                </div>
+                                                    <Button
+                                                        variant="destructive"
+                                                        size="sm"
+                                                        className="h-6 text-[10px] px-2"
+                                                        onClick={async () => {
+                                                            await fetch(`/api/download/${item.jobId}`, {
+                                                                method: "PATCH",
+                                                                headers: { "Content-Type": "application/json" },
+                                                                body: JSON.stringify({ action: "cancel" }),
+                                                            });
+                                                            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "cancelled", errorText: "Cancelled by user" } : q));
+                                                        }}
+                                                    >
+                                                        Cancel
+                                                    </Button>
+                                                </>
+                                            )}
+                                            {item.status === 'paused' && item.jobId && (
+                                                <>
+                                                    <Button
+                                                        size="sm"
+                                                        className="h-6 text-[10px] px-2"
+                                                        onClick={async () => {
+                                                            await fetch(`/api/download/${item.jobId}`, {
+                                                                method: "PATCH",
+                                                                headers: { "Content-Type": "application/json" },
+                                                                body: JSON.stringify({ action: "resume" }),
+                                                            });
+                                                            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "downloading" } : q));
+                                                        }}
+                                                    >
+                                                        Resume
+                                                    </Button>
+                                                    <Button
+                                                        variant="destructive"
+                                                        size="sm"
+                                                        className="h-6 text-[10px] px-2"
+                                                        onClick={async () => {
+                                                            await fetch(`/api/download/${item.jobId}`, {
+                                                                method: "PATCH",
+                                                                headers: { "Content-Type": "application/json" },
+                                                                body: JSON.stringify({ action: "cancel" }),
+                                                            });
+                                                            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "cancelled", errorText: "Cancelled by user" } : q));
+                                                        }}
+                                                    >
+                                                        Cancel
+                                                    </Button>
+                                                </>
+                                            )}
+                                            {(item.status === 'error' || item.status === 'cancelled') && (
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-6 text-[10px] px-2"
+                                                    onClick={() => startDownloadJob(item.id)}
+                                                    disabled={retryingQueueIds.has(item.id)}
+                                                >
+                                                    {retryingQueueIds.has(item.id) ? "Retrying..." : "Try Again"}
+                                                </Button>
                                             )}
                                         </div>
                                     </div>

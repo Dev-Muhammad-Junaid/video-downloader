@@ -3,13 +3,25 @@ import { startDownload } from "@/lib/download-manager";
 
 export async function POST(req: Request) {
     try {
-        const { url, title, sourcePlatform, mediaType, imageUrl, formatId } = await req.json();
+        const { url, title, sourcePlatform, mediaType, imageUrl, thumbnail, formatId, duplicatePolicy, profileId, retryJobId } = await req.json();
 
         if (!url || !title) {
             return NextResponse.json({ error: "URL and title are required" }, { status: 400 });
         }
 
-        const job = await startDownload(url, title, sourcePlatform || "unknown", mediaType || "video", imageUrl, formatId);
+        const job = await startDownload(
+            url,
+            title,
+            sourcePlatform || "unknown",
+            mediaType || "video",
+            imageUrl || thumbnail,
+            formatId,
+            false,
+            duplicatePolicy || "keep-both",
+            undefined,
+            profileId,
+            retryJobId,
+        );
 
         return NextResponse.json({ jobId: job.id, status: job.status });
     } catch (error: any) {

@@ -32,6 +32,7 @@ export async function POST(req: Request) {
                 maxResolution: data.maxResolution || "best",
                 preferredFormat: data.preferredFormat || "mp4",
                 autoCloudSync: !!data.autoCloudSync,
+                requireManualFormat: !!data.requireManualFormat,
                 isActive: data.isActive !== false,
                 priority: parseInt(data.priority || "0"),
             }
