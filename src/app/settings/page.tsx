@@ -582,7 +582,7 @@ export default function SettingsPage() {
                         </div>
                         <Dialog open={isProfileDialogOpen} onOpenChange={setIsProfileDialogOpen}>
                             <DialogTrigger render={
-                                <Button size="sm" className="gap-2" onClick={() => setEditingProfile({ name: "", sitePattern: "*", maxResolution: "best", preferredFormat: "mp4", autoCloudSync: false, priority: 0 })}>
+                                <Button size="sm" className="gap-2" onClick={() => setEditingProfile({ name: "", sitePattern: "*", maxResolution: "best", preferredFormat: "mp4", autoCloudSync: false, requireManualFormat: false, priority: 0 })}>
                                     <Plus className="w-4 h-4" /> Add Profile
                                 </Button>
                             } />
@@ -642,6 +642,16 @@ export default function SettingsPage() {
                                         />
                                         <Label htmlFor="prof-sync" className="cursor-pointer">Auto-sync to Cloud after download</Label>
                                     </div>
+                                    <div className="flex items-center space-x-2 pt-1">
+                                        <input
+                                            type="checkbox"
+                                            id="prof-manual"
+                                            checked={!!editingProfile?.requireManualFormat}
+                                            onChange={e => setEditingProfile({ ...editingProfile, requireManualFormat: e.target.checked })}
+                                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                        />
+                                        <Label htmlFor="prof-manual" className="cursor-pointer">Require manual per-URL format selection</Label>
+                                    </div>
                                     <DialogFooter>
                                         <Button type="submit">Save Profile</Button>
                                     </DialogFooter>
@@ -666,6 +676,7 @@ export default function SettingsPage() {
                                                 <span>Pattern: <code className="bg-muted px-1 rounded">{profile.sitePattern}</code></span>
                                                 <span>Quality: {profile.maxResolution === 'best' ? 'Best' : profile.maxResolution + 'p'}</span>
                                                 <span>Format: {profile.preferredFormat?.toUpperCase()}</span>
+                                                {profile.requireManualFormat && <span className="text-amber-500">Manual select</span>}
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

@@ -53,9 +53,7 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-        // Fetch all matching videos from SQLite (SQLite doesn't have full-text search natively
-        // without extensions, so we fetch and filter in JS for transcript matching)
-        const whereClause: any = {};
+        const whereClause: Record<string, unknown> = {};
 
         if (platform !== "all") {
             whereClause.sourcePlatform = { equals: platform, mode: "insensitive" };
@@ -64,12 +62,23 @@ export async function GET(req: NextRequest) {
             whereClause.mediaType = mediaType;
         }
 
+        const queryFilters = [
+            { title: { contains: query } },
+            { sourcePlatform: { contains: query } },
+            { labels: { some: { name: { contains: query } } } },
+            ...(mode === "deep" ? [{ transcriptText: { contains: query } }] : []),
+        ];
+
         const allVideos = await prisma.video.findMany({
-            where: whereClause,
+            where: {
+                ...(whereClause as object),
+                OR: queryFilters,
+            },
             include: {
                 labels: { select: { id: true, name: true, color: true } },
             },
             orderBy: { createdAt: "desc" },
+            take: mode === "deep" ? 500 : 250,
         });
 
         const queryLower = query.toLowerCase();

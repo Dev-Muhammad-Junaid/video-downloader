@@ -1,22 +1,58 @@
 import { prisma } from "./prisma";
 
 export async function ensureDefaultProfile() {
-    const defaultProfile = await prisma.downloadProfile.findUnique({
-        where: { name: "Default Profile" }
-    });
+    const count = await prisma.downloadProfile.count();
+    if (count > 0) return;
 
-    if (!defaultProfile) {
-        await prisma.downloadProfile.create({
-            data: {
-                name: "Default Profile",
+    await prisma.downloadProfile.createMany({
+        data: [
+            {
+                name: "Default Best",
                 sitePattern: "*",
                 maxResolution: "best",
                 preferredFormat: "mp4",
                 isActive: true,
-                priority: -1, // Lowest priority
-            }
-        });
-    }
+                priority: -1,
+                requireManualFormat: false,
+            },
+            {
+                name: "Balanced 1080p",
+                sitePattern: "*",
+                maxResolution: "1080",
+                preferredFormat: "mp4",
+                isActive: true,
+                priority: 0,
+                requireManualFormat: false,
+            },
+            {
+                name: "Data Saver 720p",
+                sitePattern: "*",
+                maxResolution: "720",
+                preferredFormat: "mp4",
+                isActive: true,
+                priority: 0,
+                requireManualFormat: false,
+            },
+            {
+                name: "Audio Only",
+                sitePattern: "*",
+                maxResolution: "best",
+                preferredFormat: "mp3",
+                isActive: true,
+                priority: 0,
+                requireManualFormat: false,
+            },
+            {
+                name: "Custom Manual",
+                sitePattern: "*",
+                maxResolution: "best",
+                preferredFormat: "mp4",
+                isActive: true,
+                priority: 0,
+                requireManualFormat: true,
+            },
+        ],
+    });
 }
 
 export async function getMatchingProfile(url: string) {

@@ -11,7 +11,9 @@ import { uploadToCloud } from "./cloud";
 import pLimit from "p-limit";
 import { getFfmpegPath } from "@/lib/ffmpeg";
 
-export type DownloadStatus = "pending" | "downloading" | "processing" | "completed" | "error";
+export type DownloadStatus = "pending" | "queued" | "downloading" | "processing" | "paused" | "completed" | "error" | "cancelled";
+export type DuplicatePolicy = "skip" | "replace" | "keep-both";
+export type QualityPreset = "best" | "balanced" | "data-saver" | "audio";
 
 export interface DownloadJob {
     id: string;
@@ -28,6 +30,8 @@ const globalForDownloads = global as unknown as {
     activeDownloads: Map<string, DownloadJob>;
     cleanupIntervalId?: NodeJS.Timeout;
     downloadQueue?: ReturnType<typeof pLimit>;
+    jobProcesses?: Map<string, ReturnType<typeof spawn>>;
+    jobAbortControllers?: Map<string, AbortController>;
 };
 export const activeDownloads = globalForDownloads.activeDownloads || new Map<string, DownloadJob>();
 if (process.env.NODE_ENV !== "production") globalForDownloads.activeDownloads = activeDownloads;
@@ -35,6 +39,12 @@ if (process.env.NODE_ENV !== "production") globalForDownloads.activeDownloads = 
 // Queue to limit concurrent downloads
 const limit = globalForDownloads.downloadQueue || pLimit(3);
 if (process.env.NODE_ENV !== "production") globalForDownloads.downloadQueue = limit;
+const jobProcesses = globalForDownloads.jobProcesses || new Map<string, ReturnType<typeof spawn>>();
+const jobAbortControllers = globalForDownloads.jobAbortControllers || new Map<string, AbortController>();
+if (process.env.NODE_ENV !== "production") {
+    globalForDownloads.jobProcesses = jobProcesses;
+    globalForDownloads.jobAbortControllers = jobAbortControllers;
+}
 
 // Auto-cleanup: sweep completed/error jobs older than 10 minutes every 5 minutes
 const CLEANUP_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
@@ -88,24 +98,155 @@ export function getJob(id: string) {
     return activeDownloads.get(id);
 }
 
-export function getAllJobs() {
-    return Array.from(activeDownloads.values()).reverse();
-}
-
-export function clearCompletedJobs() {
-    for (const [id, job] of activeDownloads) {
-        if (job.status === "completed" || job.status === "error") {
-            activeDownloads.delete(id);
-        }
+async function persistJob(job: DownloadJob, extra?: Partial<{
+    sourcePlatform: string;
+    mediaType: string;
+    imageUrl: string;
+    formatId: string;
+    qualityPreset: string;
+    duplicatePolicy: string;
+}>) {
+    try {
+        await prisma.downloadQueueJob.upsert({
+            where: { id: job.id },
+            create: {
+                id: job.id,
+                url: job.url,
+                title: job.title,
+                sourcePlatform: extra?.sourcePlatform ?? "unknown",
+                mediaType: extra?.mediaType ?? "video",
+                imageUrl: extra?.imageUrl,
+                formatId: extra?.formatId,
+                qualityPreset: extra?.qualityPreset,
+                duplicatePolicy: extra?.duplicatePolicy ?? "keep-both",
+                status: job.status,
+                progress: job.progress,
+                downloadPath: job.downloadPath,
+                error: job.error ?? null,
+                completedAt: job.completedAt ? new Date(job.completedAt) : null,
+            },
+            update: {
+                status: job.status,
+                progress: job.progress,
+                downloadPath: job.downloadPath,
+                error: job.error ?? null,
+                completedAt: job.completedAt ? new Date(job.completedAt) : null,
+                ...(extra?.sourcePlatform ? { sourcePlatform: extra.sourcePlatform } : {}),
+                ...(extra?.mediaType ? { mediaType: extra.mediaType } : {}),
+                ...(extra?.imageUrl ? { imageUrl: extra.imageUrl } : {}),
+                ...(extra?.formatId ? { formatId: extra.formatId } : {}),
+                ...(extra?.qualityPreset ? { qualityPreset: extra.qualityPreset } : {}),
+                ...(extra?.duplicatePolicy ? { duplicatePolicy: extra.duplicatePolicy } : {}),
+            },
+        });
+    } catch (error) {
+        console.error("[Queue] Failed persisting job", error);
     }
 }
 
-export function clearAllJobs() {
+export async function getAllJobs() {
+    const persisted = await prisma.downloadQueueJob.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 200,
+    });
+    return persisted.map((job) => ({
+        id: job.id,
+        url: job.url,
+        title: job.title,
+        status: job.status as DownloadStatus,
+        progress: job.progress,
+        imageUrl: job.imageUrl ?? undefined,
+        downloadPath: job.downloadPath ?? undefined,
+        error: job.error ?? undefined,
+        completedAt: job.completedAt ? job.completedAt.getTime() : undefined,
+    }));
+}
+
+export async function clearCompletedJobs() {
     for (const [id, job] of activeDownloads) {
-        // Only keep actively downloading jobs
-        if (job.status !== "downloading" && job.status !== "processing") {
+        if (job.status === "completed" || job.status === "error" || job.status === "cancelled") {
             activeDownloads.delete(id);
         }
+    }
+    await prisma.downloadQueueJob.deleteMany({
+        where: { status: { in: ["completed", "error", "cancelled"] } },
+    });
+}
+
+export async function clearAllJobs() {
+    for (const [id, job] of activeDownloads) {
+        if (job.status === "downloading" || job.status === "processing" || job.status === "queued" || job.status === "paused") {
+            await cancelJob(id);
+        }
+        activeDownloads.delete(id);
+    }
+    await prisma.downloadQueueJob.deleteMany();
+}
+
+export async function getJobById(id: string) {
+    const live = activeDownloads.get(id);
+    if (live) return live;
+    const persisted = await prisma.downloadQueueJob.findUnique({ where: { id } });
+    if (!persisted) return null;
+    return {
+        id: persisted.id,
+        url: persisted.url,
+        title: persisted.title,
+        status: persisted.status as DownloadStatus,
+        progress: persisted.progress,
+        downloadPath: persisted.downloadPath ?? undefined,
+        error: persisted.error ?? undefined,
+        completedAt: persisted.completedAt ? persisted.completedAt.getTime() : undefined,
+    } satisfies DownloadJob;
+}
+
+export async function pauseJob(id: string) {
+    const proc = jobProcesses.get(id);
+    const job = activeDownloads.get(id);
+    if (!proc || !job) throw new Error("Active job not found");
+    process.kill(proc.pid!, "SIGSTOP");
+    job.status = "paused";
+    activeDownloads.set(id, job);
+    await persistJob(job);
+}
+
+export async function resumeJob(id: string) {
+    const proc = jobProcesses.get(id);
+    const job = activeDownloads.get(id);
+    if (!proc || !job) throw new Error("Paused job not found");
+    process.kill(proc.pid!, "SIGCONT");
+    job.status = "downloading";
+    activeDownloads.set(id, job);
+    await persistJob(job);
+}
+
+export async function cancelJob(id: string) {
+    const proc = jobProcesses.get(id);
+    if (proc && proc.pid) {
+        process.kill(proc.pid, "SIGTERM");
+        jobProcesses.delete(id);
+    }
+    const controller = jobAbortControllers.get(id);
+    if (controller) {
+        controller.abort();
+        jobAbortControllers.delete(id);
+    }
+    const job = activeDownloads.get(id);
+    if (job) {
+        job.status = "cancelled";
+        job.error = "Cancelled by user";
+        job.completedAt = Date.now();
+        activeDownloads.set(id, job);
+        await persistJob(job);
+    } else {
+        await prisma.downloadQueueJob.updateMany({
+            where: { id },
+            data: {
+                status: "cancelled",
+                error: "Cancelled by user",
+                completedAt: new Date(),
+            },
+        });
     }
 }
 
@@ -143,8 +284,31 @@ function scoreTaxonomy(text: string): string[] {
         .map(c => c[0]);
 }
 
-async function downloadFile(url: string, dest: string): Promise<void> {
+async function applyDuplicatePolicy(originalUrl: string | undefined, policy: DuplicatePolicy) {
+    if (!originalUrl) return { duplicate: null as any, skipped: false };
+    const duplicate = await prisma.video.findFirst({ where: { originalUrl } });
+    if (!duplicate) return { duplicate: null as any, skipped: false };
+    if (policy === "skip") {
+        return { duplicate, skipped: true };
+    }
+    if (policy === "replace") {
+        try {
+            if (duplicate.localPath && fs.existsSync(duplicate.localPath)) {
+                fs.unlinkSync(duplicate.localPath);
+            }
+        } catch (error) {
+            console.warn("[Queue] Could not remove duplicate local file", error);
+        }
+        await prisma.video.delete({ where: { id: duplicate.id } });
+    }
+    return { duplicate, skipped: false };
+}
+
+async function downloadFile(url: string, dest: string, jobId?: string): Promise<void> {
     const controller = new AbortController();
+    if (jobId) {
+        jobAbortControllers.set(jobId, controller);
+    }
     const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout
 
     try {
@@ -166,11 +330,26 @@ async function downloadFile(url: string, dest: string): Promise<void> {
         fs.unlink(dest, () => { });
         throw err;
     } finally {
+        if (jobId) {
+            jobAbortControllers.delete(jobId);
+        }
         clearTimeout(timeout);
     }
 }
 
-export async function startDownload(url: string, title: string, sourcePlatform: string, mediaType: string = "video", imageUrl?: string, formatId?: string, forceCloudSync: boolean = false) {
+export async function startDownload(
+    url: string,
+    title: string,
+    sourcePlatform: string,
+    mediaType: string = "video",
+    imageUrl?: string,
+    formatId?: string,
+    forceCloudSync: boolean = false,
+    duplicatePolicy: DuplicatePolicy = "keep-both",
+    qualityPreset: QualityPreset = "best",
+    profileId?: string,
+    existingJobId?: string,
+) {
     try {
         const parsedUrl = new URL(url);
         if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
@@ -180,18 +359,44 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
         throw new Error("Invalid or unsafe URL provided");
     }
 
-    const id = Math.random().toString(36).substring(2, 15);
+    const id = existingJobId || Math.random().toString(36).substring(2, 15);
     const safeTitle = title.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+    const duplicateState = await applyDuplicatePolicy(url, duplicatePolicy);
+
+    const current = activeDownloads.get(id);
+    if (current && ["queued", "downloading", "processing", "paused"].includes(current.status)) {
+        throw new Error("This queue item is already active");
+    }
 
     const job: DownloadJob = {
         id,
         url,
         title,
-        status: "downloading",
+        status: "queued",
         progress: 0,
+        error: undefined,
+        completedAt: undefined,
     };
 
     activeDownloads.set(id, job);
+    await persistJob(job, {
+        sourcePlatform,
+        mediaType,
+        imageUrl,
+        formatId,
+        qualityPreset,
+        duplicatePolicy,
+        ...(profileId ? { qualityPreset: `profile:${profileId}` } : {}),
+    });
+
+    if (duplicateState.skipped) {
+        job.status = "completed";
+        job.error = "Skipped duplicate URL (policy: skip)";
+        job.completedAt = Date.now();
+        activeDownloads.set(id, job);
+        await persistJob(job);
+        return job;
+    }
 
     const startTime = Date.now();
 
@@ -204,17 +409,21 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
 
             try {
                 // Create download log entry
+                job.status = "downloading";
+                activeDownloads.set(id, job);
+                await persistJob(job);
                 const logEntry = await prisma.downloadLog.create({
                     data: { url, title, sourcePlatform, status: "downloading" },
                 });
 
-            await downloadFile(imageUrl, outputPath);
+            await downloadFile(imageUrl, outputPath, id);
 
             job.status = "completed";
             job.completedAt = Date.now();
             job.progress = 100;
             job.downloadPath = outputPath;
             activeDownloads.set(id, job);
+            await persistJob(job);
 
             let fileSize = 0;
             try {
@@ -223,9 +432,8 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
             } catch (e) { }
 
             // DB insert
-            const isDuplicate = url ? await prisma.video.findFirst({ where: { originalUrl: url } }) : null;
             const allTags = new Set<string>();
-            if (isDuplicate) allTags.add("Duplicate");
+            if (duplicateState.duplicate) allTags.add("Duplicate");
 
             // Score title for taxonomy
             const topCategories = scoreTaxonomy(title);
@@ -281,6 +489,7 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
             job.completedAt = Date.now();
             job.error = err.message || "Image download failed";
             activeDownloads.set(id, job);
+            await persistJob(job);
             console.error("Image download failed:", err);
 
             // Log failure
@@ -304,8 +513,12 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
     limit(async () => {
         let logId = "";
         try {
+            job.status = "downloading";
+            activeDownloads.set(id, job);
+            await persistJob(job);
             // Build yt-dlp args based on profile & format selection
-            const profile = await getMatchingProfile(url);
+            const selectedProfile = profileId ? await prisma.downloadProfile.findUnique({ where: { id: profileId } }) : null;
+            const profile = selectedProfile || await getMatchingProfile(url);
             const { args: formatArgs, isAudio } = getYtDlpFormat(profile || { maxResolution: "best", preferredFormat: "mp4" }, formatId);
             
             const fileName = isAudio ? `${safeTitle}_${id}.mp3` : `${safeTitle}_${id}.mp4`;
@@ -336,6 +549,7 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
 
         console.log(`[Download] Starting yt-dlp with args:`, ytdlpArgs.join(" "));
         const ytdlp = spawn("yt-dlp", ytdlpArgs);
+        jobProcesses.set(id, ytdlp);
 
     ytdlp.stdout.on("data", (data) => {
         const output = data.toString();
@@ -373,13 +587,20 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
         activeDownloads.set(id, job);
     });
 
-    ytdlp.on("close", async (code) => {
+    ytdlp.on("close", async (code, signal) => {
+        // If user cancelled the job, keep cancelled state and ignore process exit noise.
+        if (job.status === "cancelled") {
+            jobProcesses.delete(id);
+            return;
+        }
         if (code === 0) {
             job.status = "completed";
             job.completedAt = Date.now();
             job.progress = 100;
             job.downloadPath = outputPath;
             activeDownloads.set(id, job);
+            await persistJob(job);
+            jobProcesses.delete(id);
 
             let fileSize = 0;
             try {
@@ -388,8 +609,6 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
             } catch (e) { }
 
             try {
-                const isDuplicate = url ? await prisma.video.findFirst({ where: { originalUrl: url } }) : null;
-
                 const dbData: any = {
                     title,
                     originalUrl: url,
@@ -400,7 +619,7 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
                 };
 
                 const allTags = new Set<string>();
-                if (isDuplicate) allTags.add("Duplicate");
+                if (duplicateState.duplicate) allTags.add("Duplicate");
 
                 // Read info JSON for taxonomy scoring
                 const ext = isAudio ? ".mp3" : ".mp4";
@@ -469,8 +688,15 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
         } else {
             job.status = "error";
             job.completedAt = Date.now();
-            job.error = `Process exited with code ${code}`;
+            if (signal === "SIGTERM") {
+                job.status = "cancelled";
+                job.error = "Cancelled by user";
+            } else {
+                job.error = `Process exited with code ${code}`;
+            }
             activeDownloads.set(id, job);
+            await persistJob(job);
+            jobProcesses.delete(id);
 
             // Log failure
             if (logId) {
@@ -478,8 +704,8 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
                     await prisma.downloadLog.update({
                         where: { id: logId },
                         data: {
-                            status: "error",
-                            errorMessage: `Process exited with code ${code}`,
+                            status: job.status === "cancelled" ? "error" : "error",
+                            errorMessage: job.error || `Process exited with code ${code}`,
                             duration: (Date.now() - startTime) / 1000,
                             completedAt: new Date(),
                         },
@@ -494,6 +720,8 @@ export async function startDownload(url: string, title: string, sourcePlatform: 
             job.completedAt = Date.now();
             job.error = err.message || "Failed to start download process";
             activeDownloads.set(id, job);
+            await persistJob(job);
+            jobProcesses.delete(id);
 
             if (logId) {
                 prisma.downloadLog.update({

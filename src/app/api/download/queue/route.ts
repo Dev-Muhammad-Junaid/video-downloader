@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
-import { getAllJobs, clearCompletedJobs, clearAllJobs, startDownload } from "@/lib/download-manager";
+import {
+    getAllJobs,
+    clearCompletedJobs,
+    clearAllJobs,
+    startDownload,
+} from "@/lib/download-manager";
+import { prisma } from "@/lib/prisma";
 
 export async function GET() {
     try {
-        const jobs = getAllJobs();
+        const jobs = await getAllJobs();
         return NextResponse.json(jobs);
     } catch (error: any) {
         return NextResponse.json(
@@ -19,9 +25,9 @@ export async function DELETE(req: Request) {
         const mode = searchParams.get("mode") || "completed";
 
         if (mode === "all") {
-            clearAllJobs();
+            await clearAllJobs();
         } else {
-            clearCompletedJobs();
+            await clearCompletedJobs();
         }
 
         return NextResponse.json({ success: true });
@@ -43,6 +49,8 @@ export async function POST(req: Request) {
         }
         
         const cloudSync = body.cloudSync === true;
+        const duplicatePolicy = body.duplicatePolicy || "keep-both";
+        const profileId = body.profileId || undefined;
         
         let successCount = 0;
         let errors = [];
@@ -73,7 +81,10 @@ export async function POST(req: Request) {
                             "video",
                             item.thumbnail,
                             undefined,
-                            cloudSync
+                            cloudSync,
+                            duplicatePolicy,
+                            undefined,
+                            profileId
                         );
                         successCount++;
                     }
@@ -85,7 +96,10 @@ export async function POST(req: Request) {
                         metadata.mediaType || "video",
                         metadata.thumbnail || metadata.imageUrl,
                         undefined, // Auto-selects best format by default
-                        cloudSync
+                        cloudSync,
+                        duplicatePolicy,
+                        undefined,
+                        profileId
                     );
                     successCount++;
                 }
@@ -103,6 +117,43 @@ export async function POST(req: Request) {
     } catch (error: any) {
         return NextResponse.json(
             { error: "Failed to process queue request", details: error.message },
+            { status: 500 }
+        );
+    }
+}
+
+export async function PATCH(req: Request) {
+    try {
+        const body = await req.json();
+        if (body.action !== "retryFailed") {
+            return NextResponse.json({ error: "Unsupported queue action" }, { status: 400 });
+        }
+        const failedJobs = await prisma.downloadQueueJob.findMany({
+            where: { status: "error" },
+            orderBy: { updatedAt: "desc" },
+            take: 100,
+        });
+        let retried = 0;
+        for (const job of failedJobs) {
+            await startDownload(
+                job.url,
+                job.title,
+                job.sourcePlatform || "unknown",
+                job.mediaType || "video",
+                job.imageUrl || undefined,
+                job.formatId || undefined,
+                false,
+                (job.duplicatePolicy as "skip" | "replace" | "keep-both") || "keep-both",
+                undefined,
+                job.qualityPreset?.startsWith("profile:") ? job.qualityPreset.replace("profile:", "") : undefined,
+                job.id,
+            );
+            retried++;
+        }
+        return NextResponse.json({ success: true, retried });
+    } catch (error: any) {
+        return NextResponse.json(
+            { error: "Failed to retry failed queue items", details: error.message },
             { status: 500 }
         );
     }
