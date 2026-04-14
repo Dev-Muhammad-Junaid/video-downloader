@@ -418,6 +418,8 @@ export default function LibraryPage() {
                             return {
                                 ...existing,
                                 ...job,
+                                // Preserve client-side item id so active pollers keep updating the same queue row.
+                                id: existing.id,
                                 thumbnail: existing.thumbnail || job.thumbnail,
                                 progress: (job.status === "downloading" || job.status === "processing" || job.status === "paused")
                                     ? Math.max(existing.progress || 0, job.progress || 0)
@@ -1265,7 +1267,10 @@ export default function LibraryPage() {
                             </div>
                         ) : (
                             filteredQueue.map(item => (
-                                <div key={item.id} className="relative flex items-center gap-4 p-4 rounded-xl border border-border/60 bg-card/60 backdrop-blur-md shadow-sm transition-all hover:bg-card/80 animate-in slide-in-from-right-4">
+                                <div
+                                    key={item.id}
+                                    className="relative flex items-center gap-4 p-4 rounded-xl border border-border/60 bg-card/60 backdrop-blur-md shadow-sm transition-all hover:bg-card/80"
+                                >
                                     {item.thumbnail ? (
                                         <div className="w-20 h-14 rounded-md overflow-hidden flex-shrink-0 relative bg-muted shadow-inner">
                                             <img src={item.thumbnail} className="object-cover w-full h-full" alt="thumb" />
@@ -1281,9 +1286,16 @@ export default function LibraryPage() {
                                             {item.title || item.originalUrl}
                                         </p>
                                         <div className="mt-1 flex items-center gap-2">
-                                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                                                {item.status}
-                                            </Badge>
+                                            <motion.div
+                                                key={`${item.id}-${item.status}`}
+                                                initial={{ opacity: 0, scale: 0.95 }}
+                                                animate={{ opacity: 1, scale: 1 }}
+                                                transition={{ duration: 0.18 }}
+                                            >
+                                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                                    {item.status}
+                                                </Badge>
+                                            </motion.div>
                                             {item.errorText && (
                                                 <span className="text-[10px] text-muted-foreground truncate max-w-[280px]" title={item.errorText}>
                                                     {item.errorText}
@@ -1302,9 +1314,15 @@ export default function LibraryPage() {
                                         {(item.status === "downloading" || item.status === "paused" || item.status === "processing") && (
                                             <div className="mt-3 flex items-center gap-3 max-w-[360px]">
                                                 <Progress value={item.status === "processing" ? 100 : (item.progress ?? 0)} className="h-1.5 flex-1 bg-muted/80" />
-                                                <span className="text-xs font-bold text-primary w-9">
+                                                <motion.span
+                                                    key={`${item.id}-${item.status}-${Math.round(item.progress || 0)}`}
+                                                    initial={{ opacity: 0.55, y: 2 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    transition={{ duration: 0.16 }}
+                                                    className="text-xs font-bold text-primary w-9"
+                                                >
                                                     {item.status === "processing" ? "100%" : `${Math.round(item.progress || 0)}%`}
-                                                </span>
+                                                </motion.span>
                                             </div>
                                         )}
                                     </div>
