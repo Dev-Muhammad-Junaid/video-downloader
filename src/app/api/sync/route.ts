@@ -68,10 +68,17 @@ export async function POST(req: Request) {
         const fileName = path.basename(video.localPath);
         const key = `uploads/${Date.now()}_${fileName}`;
 
-        // Determine content type
+        // Determine content type from extension
         const ext = path.extname(video.localPath).toLowerCase();
-        const isImage = [".jpg", ".jpeg", ".png", ".gif", ".webp"].includes(ext);
-        const contentType = isImage ? `image/${ext.replace(".", "")}` : "video/mp4";
+        const UPLOAD_MIME: Record<string, string> = {
+            ".mp4": "video/mp4", ".webm": "video/webm", ".mkv": "video/x-matroska",
+            ".mov": "video/quicktime", ".avi": "video/x-msvideo",
+            ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
+            ".ogg": "audio/ogg", ".opus": "audio/opus", ".flac": "audio/flac", ".wav": "audio/wav",
+            ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+            ".gif": "image/gif", ".webp": "image/webp",
+        };
+        const contentType = UPLOAD_MIME[ext] || "application/octet-stream";
 
         await s3Client.send(
             new PutObjectCommand({

@@ -4,6 +4,8 @@ import {
     clearCompletedJobs,
     clearAllJobs,
     startDownload,
+    resumeInterruptedJobs,
+    updateJobPositions,
 } from "@/lib/download-manager";
 import { prisma } from "@/lib/prisma";
 
@@ -49,7 +51,6 @@ export async function POST(req: Request) {
         }
         
         const cloudSync = body.cloudSync === true;
-        const duplicatePolicy = body.duplicatePolicy || "keep-both";
         const profileId = body.profileId || undefined;
         
         let successCount = 0;
@@ -57,7 +58,6 @@ export async function POST(req: Request) {
 
         for (const url of urls) {
             try {
-                // 1. Fetch metadata natively using the existing route logic
                 const origin = new URL(req.url).origin;
                 const previewRes = await fetch(`${origin}/api/download/preview`, {
                     method: 'POST',
@@ -82,7 +82,7 @@ export async function POST(req: Request) {
                             item.thumbnail,
                             undefined,
                             cloudSync,
-                            duplicatePolicy,
+                            "skip",
                             undefined,
                             profileId
                         );
@@ -95,9 +95,9 @@ export async function POST(req: Request) {
                         metadata.sourcePlatform || "unknown",
                         metadata.mediaType || "video",
                         metadata.thumbnail || metadata.imageUrl,
-                        undefined, // Auto-selects best format by default
+                        undefined,
                         cloudSync,
-                        duplicatePolicy,
+                        "skip",
                         undefined,
                         profileId
                     );
@@ -125,11 +125,22 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
     try {
         const body = await req.json();
+
+        if (body.action === "resumeInterrupted") {
+            const resumed = await resumeInterruptedJobs();
+            return NextResponse.json({ success: true, resumed });
+        }
+
+        if (body.action === "reorder" && Array.isArray(body.orderedIds)) {
+            await updateJobPositions(body.orderedIds);
+            return NextResponse.json({ success: true });
+        }
+
         if (body.action !== "retryFailed") {
             return NextResponse.json({ error: "Unsupported queue action" }, { status: 400 });
         }
         const failedJobs = await prisma.downloadQueueJob.findMany({
-            where: { status: "error" },
+            where: { status: { in: ["error", "cancelled"] } },
             orderBy: { updatedAt: "desc" },
             take: 100,
         });
@@ -143,10 +154,12 @@ export async function PATCH(req: Request) {
                 job.imageUrl || undefined,
                 job.formatId || undefined,
                 false,
-                (job.duplicatePolicy as "skip" | "replace" | "keep-both") || "keep-both",
+                "skip",
                 undefined,
                 job.qualityPreset?.startsWith("profile:") ? job.qualityPreset.replace("profile:", "") : undefined,
                 job.id,
+                job.thumbnailUrl || job.imageUrl || undefined,
+                job.duration ?? undefined,
             );
             retried++;
         }

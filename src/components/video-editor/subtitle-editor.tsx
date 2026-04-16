@@ -15,10 +15,12 @@ import {
     X,
     ChevronUp,
     ChevronDown,
+    Download,
 } from "lucide-react";
 import {
     Subtitle,
     parseSrtTime,
+    formatSrtTime,
     displayTime,
     shiftTime,
     subtitlesToSrt,
@@ -159,6 +161,29 @@ export function SubtitleEditor({
         return () => document.removeEventListener("keydown", handler);
     }, [activeId, filteredSubtitles, onSeek]);
 
+    // Edit per-cue timing
+    const handleTimeChange = useCallback(
+        (id: number, field: "start" | "end", value: string) => {
+            const updated = subtitles.map((s) =>
+                s.id === id ? { ...s, [field]: value } : s
+            );
+            onSubtitlesChange(updated);
+        },
+        [subtitles, onSubtitlesChange]
+    );
+
+    // Export subtitles as SRT file download
+    const handleExportSrt = useCallback(() => {
+        const srt = subtitlesToSrt(subtitles);
+        const blob = new Blob([srt], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "subtitles.srt";
+        a.click();
+        URL.revokeObjectURL(url);
+    }, [subtitles]);
+
     // Edit subtitle text
     const handleTextChange = useCallback(
         (id: number, newText: string) => {
@@ -278,6 +303,15 @@ export function SubtitleEditor({
                             ) : (
                                 <Copy className="w-3.5 h-3.5" />
                             )}
+                        </button>
+
+                        {/* Export SRT */}
+                        <button
+                            onClick={handleExportSrt}
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            title="Export as .srt file"
+                        >
+                            <Download className="w-3.5 h-3.5" />
                         </button>
                     </div>
                 </div>
@@ -446,12 +480,41 @@ export function SubtitleEditor({
                                             : "bg-transparent border-transparent hover:bg-muted/50 hover:border-border/60"
                                     )}
                                 >
-                                    {/* Time range */}
+                                    {/* Time range — click to edit */}
                                     <div className="flex items-center justify-between mb-1.5">
-                                        <span className="text-[10px] font-mono text-muted-foreground tabular-nums">
-                                            {displayTime(subtitle.start)} →{" "}
-                                            {displayTime(subtitle.end)}
-                                        </span>
+                                        <div className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground tabular-nums">
+                                            <input
+                                                type="text"
+                                                value={displayTime(subtitle.start)}
+                                                onChange={(e) => {
+                                                    const parts = e.target.value.split(":");
+                                                    if (parts.length === 2) {
+                                                        const m = parseInt(parts[0]) || 0;
+                                                        const s = parseInt(parts[1]) || 0;
+                                                        handleTimeChange(subtitle.id, "start", formatSrtTime(m * 60 + s));
+                                                    }
+                                                }}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="w-10 bg-transparent text-center outline-none border-b border-transparent hover:border-border focus:border-primary rounded-none transition-colors"
+                                                title="Edit start time (M:SS)"
+                                            />
+                                            <span>→</span>
+                                            <input
+                                                type="text"
+                                                value={displayTime(subtitle.end)}
+                                                onChange={(e) => {
+                                                    const parts = e.target.value.split(":");
+                                                    if (parts.length === 2) {
+                                                        const m = parseInt(parts[0]) || 0;
+                                                        const s = parseInt(parts[1]) || 0;
+                                                        handleTimeChange(subtitle.id, "end", formatSrtTime(m * 60 + s));
+                                                    }
+                                                }}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="w-10 bg-transparent text-center outline-none border-b border-transparent hover:border-border focus:border-primary rounded-none transition-colors"
+                                                title="Edit end time (M:SS)"
+                                            />
+                                        </div>
                                         <div className="flex items-center gap-1.5">
                                             {isLowConfidence && (
                                                 <span className="flex items-center gap-0.5 text-amber-400/80" title="Low confidence — review recommended">

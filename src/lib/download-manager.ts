@@ -12,7 +12,7 @@ import pLimit from "p-limit";
 import { getFfmpegPath } from "@/lib/ffmpeg";
 
 export type DownloadStatus = "pending" | "queued" | "downloading" | "processing" | "paused" | "completed" | "error" | "cancelled";
-export type DuplicatePolicy = "skip" | "replace" | "keep-both";
+
 export type QualityPreset = "best" | "balanced" | "data-saver" | "audio";
 
 export interface DownloadJob {
@@ -102,7 +102,10 @@ async function persistJob(job: DownloadJob, extra?: Partial<{
     sourcePlatform: string;
     mediaType: string;
     imageUrl: string;
+    thumbnailUrl: string;
+    duration: number;
     formatId: string;
+    formatLabel: string;
     qualityPreset: string;
     duplicatePolicy: string;
 }>) {
@@ -116,7 +119,10 @@ async function persistJob(job: DownloadJob, extra?: Partial<{
                 sourcePlatform: extra?.sourcePlatform ?? "unknown",
                 mediaType: extra?.mediaType ?? "video",
                 imageUrl: extra?.imageUrl,
+                thumbnailUrl: extra?.thumbnailUrl,
+                duration: extra?.duration,
                 formatId: extra?.formatId,
+                formatLabel: extra?.formatLabel,
                 qualityPreset: extra?.qualityPreset,
                 duplicatePolicy: extra?.duplicatePolicy ?? "keep-both",
                 status: job.status,
@@ -126,6 +132,7 @@ async function persistJob(job: DownloadJob, extra?: Partial<{
                 completedAt: job.completedAt ? new Date(job.completedAt) : null,
             },
             update: {
+                title: job.title,
                 status: job.status,
                 progress: job.progress,
                 downloadPath: job.downloadPath,
@@ -134,7 +141,10 @@ async function persistJob(job: DownloadJob, extra?: Partial<{
                 ...(extra?.sourcePlatform ? { sourcePlatform: extra.sourcePlatform } : {}),
                 ...(extra?.mediaType ? { mediaType: extra.mediaType } : {}),
                 ...(extra?.imageUrl ? { imageUrl: extra.imageUrl } : {}),
+                ...(extra?.thumbnailUrl ? { thumbnailUrl: extra.thumbnailUrl } : {}),
+                ...(extra?.duration !== undefined ? { duration: extra.duration } : {}),
                 ...(extra?.formatId ? { formatId: extra.formatId } : {}),
+                ...(extra?.formatLabel ? { formatLabel: extra.formatLabel } : {}),
                 ...(extra?.qualityPreset ? { qualityPreset: extra.qualityPreset } : {}),
                 ...(extra?.duplicatePolicy ? { duplicatePolicy: extra.duplicatePolicy } : {}),
             },
@@ -149,17 +159,24 @@ export async function getAllJobs() {
         orderBy: { createdAt: "desc" },
         take: 200,
     });
-    return persisted.map((job) => ({
-        id: job.id,
-        url: job.url,
-        title: job.title,
-        status: job.status as DownloadStatus,
-        progress: job.progress,
-        imageUrl: job.imageUrl ?? undefined,
-        downloadPath: job.downloadPath ?? undefined,
-        error: job.error ?? undefined,
-        completedAt: job.completedAt ? job.completedAt.getTime() : undefined,
-    }));
+    return persisted.map((job) => {
+        const live = activeDownloads.get(job.id);
+        return {
+            id: job.id,
+            url: job.url,
+            title: live?.title || job.title,
+            status: (live?.status || job.status) as DownloadStatus,
+            progress: live?.progress ?? job.progress,
+            imageUrl: job.imageUrl ?? undefined,
+            thumbnailUrl: job.thumbnailUrl ?? undefined,
+            duration: job.duration ?? undefined,
+            sourcePlatform: job.sourcePlatform ?? undefined,
+            formatLabel: job.formatLabel ?? undefined,
+            downloadPath: live?.downloadPath || job.downloadPath || undefined,
+            error: live?.error ?? job.error ?? undefined,
+            completedAt: live?.completedAt ?? (job.completedAt ? job.completedAt.getTime() : undefined),
+        };
+    });
 }
 
 export async function clearCompletedJobs() {
@@ -185,19 +202,22 @@ export async function clearAllJobs() {
 
 export async function getJobById(id: string) {
     const live = activeDownloads.get(id);
-    if (live) return live;
     const persisted = await prisma.downloadQueueJob.findUnique({ where: { id } });
-    if (!persisted) return null;
+    if (!live && !persisted) return null;
     return {
-        id: persisted.id,
-        url: persisted.url,
-        title: persisted.title,
-        status: persisted.status as DownloadStatus,
-        progress: persisted.progress,
-        downloadPath: persisted.downloadPath ?? undefined,
-        error: persisted.error ?? undefined,
-        completedAt: persisted.completedAt ? persisted.completedAt.getTime() : undefined,
-    } satisfies DownloadJob;
+        id: id,
+        url: live?.url || persisted?.url || "",
+        title: live?.title || persisted?.title || "",
+        status: (live?.status || persisted?.status || "error") as DownloadStatus,
+        progress: live?.progress ?? persisted?.progress ?? 0,
+        downloadPath: live?.downloadPath || persisted?.downloadPath || undefined,
+        error: live?.error ?? persisted?.error ?? undefined,
+        completedAt: live?.completedAt ?? (persisted?.completedAt ? persisted.completedAt.getTime() : undefined),
+        imageUrl: persisted?.imageUrl ?? undefined,
+        thumbnailUrl: persisted?.thumbnailUrl ?? undefined,
+        duration: persisted?.duration ?? undefined,
+        sourcePlatform: persisted?.sourcePlatform ?? undefined,
+    };
 }
 
 export async function pauseJob(id: string) {
@@ -250,6 +270,63 @@ export async function cancelJob(id: string) {
     }
 }
 
+export async function resumeInterruptedJobs() {
+    try {
+        const interrupted = await prisma.downloadQueueJob.findMany({
+            where: { status: { in: ["queued", "downloading", "processing"] } },
+            orderBy: { position: "asc" },
+        });
+        if (interrupted.length === 0) return 0;
+        console.log(`[Queue] Resuming ${interrupted.length} interrupted jobs from DB...`);
+        let resumed = 0;
+        for (const job of interrupted) {
+            const live = activeDownloads.get(job.id);
+            if (live && ["queued", "downloading", "processing"].includes(live.status)) continue;
+            try {
+                await startDownload(
+                    job.url,
+                    job.title,
+                    job.sourcePlatform || "unknown",
+                    job.mediaType || "video",
+                    job.imageUrl || undefined,
+                    job.formatId || undefined,
+                    false,
+                    "skip",
+                    undefined,
+                    job.qualityPreset?.startsWith("profile:") ? job.qualityPreset.replace("profile:", "") : undefined,
+                    job.id,
+                    job.thumbnailUrl || job.imageUrl || undefined,
+                    job.duration ?? undefined,
+                );
+                resumed++;
+            } catch (err) {
+                console.error(`[Queue] Failed to resume job ${job.id}:`, err);
+            }
+        }
+        return resumed;
+    } catch (err) {
+        console.error("[Queue] Failed to resume interrupted jobs:", err);
+        return 0;
+    }
+}
+
+export async function reorderJob(jobId: string, newPosition: number) {
+    await prisma.downloadQueueJob.update({
+        where: { id: jobId },
+        data: { position: newPosition },
+    });
+}
+
+export async function updateJobPositions(orderedIds: string[]) {
+    const updates = orderedIds.map((id, index) =>
+        prisma.downloadQueueJob.update({
+            where: { id },
+            data: { position: index },
+        })
+    );
+    await prisma.$transaction(updates);
+}
+
 // Generalized Taxonomy Dictionary
 const taxonomy: Record<string, string[]> = {
     "Politics": ["biden", "trump", "election", "government", "congress", "parliament", "senate", "president", "political", "democrat", "republican", "policy", "vote"],
@@ -284,24 +361,31 @@ function scoreTaxonomy(text: string): string[] {
         .map(c => c[0]);
 }
 
-async function applyDuplicatePolicy(originalUrl: string | undefined, policy: DuplicatePolicy) {
-    if (!originalUrl) return { duplicate: null as any, skipped: false };
+async function checkAndLabelDuplicate(originalUrl: string | undefined): Promise<boolean> {
+    if (!originalUrl) return false;
     const duplicate = await prisma.video.findFirst({ where: { originalUrl } });
-    if (!duplicate) return { duplicate: null as any, skipped: false };
-    if (policy === "skip") {
-        return { duplicate, skipped: true };
-    }
-    if (policy === "replace") {
-        try {
-            if (duplicate.localPath && fs.existsSync(duplicate.localPath)) {
-                fs.unlinkSync(duplicate.localPath);
-            }
-        } catch (error) {
-            console.warn("[Queue] Could not remove duplicate local file", error);
+    if (!duplicate) return false;
+
+    try {
+        let dupLabel = await prisma.label.findUnique({ where: { name: "Duplicate" } });
+        if (!dupLabel) {
+            dupLabel = await prisma.label.create({ data: { name: "Duplicate", color: "#ef4444" } });
         }
-        await prisma.video.delete({ where: { id: duplicate.id } });
+        const existing = await prisma.video.findFirst({
+            where: { id: duplicate.id, labels: { some: { id: dupLabel.id } } },
+        });
+        if (!existing) {
+            await prisma.video.update({
+                where: { id: duplicate.id },
+                data: { labels: { connect: { id: dupLabel.id } } },
+            });
+            console.log(`[Queue] Labeled existing "${duplicate.title}" as Duplicate (URL already downloaded)`);
+        }
+    } catch (err) {
+        console.warn("[Queue] Failed to label duplicate:", err);
     }
-    return { duplicate, skipped: false };
+
+    return true;
 }
 
 async function downloadFile(url: string, dest: string, jobId?: string): Promise<void> {
@@ -345,10 +429,12 @@ export async function startDownload(
     imageUrl?: string,
     formatId?: string,
     forceCloudSync: boolean = false,
-    duplicatePolicy: DuplicatePolicy = "keep-both",
+    _duplicatePolicy: string = "skip",
     qualityPreset: QualityPreset = "best",
     profileId?: string,
     existingJobId?: string,
+    thumbnailUrl?: string,
+    duration?: number,
 ) {
     try {
         const parsedUrl = new URL(url);
@@ -361,7 +447,7 @@ export async function startDownload(
 
     const id = existingJobId || Math.random().toString(36).substring(2, 15);
     const safeTitle = title.replace(/[^a-z0-9]/gi, "_").toLowerCase();
-    const duplicateState = await applyDuplicatePolicy(url, duplicatePolicy);
+    const isDuplicate = await checkAndLabelDuplicate(url);
 
     const current = activeDownloads.get(id);
     if (current && ["queued", "downloading", "processing", "paused"].includes(current.status)) {
@@ -383,15 +469,17 @@ export async function startDownload(
         sourcePlatform,
         mediaType,
         imageUrl,
+        thumbnailUrl: thumbnailUrl || imageUrl,
+        duration,
         formatId,
         qualityPreset,
-        duplicatePolicy,
+        duplicatePolicy: "skip",
         ...(profileId ? { qualityPreset: `profile:${profileId}` } : {}),
     });
 
-    if (duplicateState.skipped) {
+    if (isDuplicate && !existingJobId) {
         job.status = "completed";
-        job.error = "Skipped duplicate URL (policy: skip)";
+        job.error = "Skipped — URL already in library (labeled as Duplicate)";
         job.completedAt = Date.now();
         activeDownloads.set(id, job);
         await persistJob(job);
@@ -406,6 +494,7 @@ export async function startDownload(
             const ext = path.extname(new URL(imageUrl).pathname) || ".jpg";
             const fileName = `${safeTitle}_${id}${ext}`;
             const outputPath = path.join(downloadsDir, fileName);
+            let logEntryId = "";
 
             try {
                 // Create download log entry
@@ -415,6 +504,7 @@ export async function startDownload(
                 const logEntry = await prisma.downloadLog.create({
                     data: { url, title, sourcePlatform, status: "downloading" },
                 });
+                logEntryId = logEntry.id;
 
             await downloadFile(imageUrl, outputPath, id);
 
@@ -433,7 +523,6 @@ export async function startDownload(
 
             // DB insert
             const allTags = new Set<string>();
-            if (duplicateState.duplicate) allTags.add("Duplicate");
 
             // Score title for taxonomy
             const topCategories = scoreTaxonomy(title);
@@ -493,17 +582,19 @@ export async function startDownload(
             console.error("Image download failed:", err);
 
             // Log failure
-            try {
-                await prisma.downloadLog.updateMany({
-                    where: { url, status: "downloading" },
-                    data: {
-                        status: "error",
-                        errorMessage: err.message || "Image download failed",
-                        duration: (Date.now() - startTime) / 1000,
-                        completedAt: new Date(),
-                    },
-                });
-            } catch { }
+            if (logEntryId) {
+                try {
+                    await prisma.downloadLog.update({
+                        where: { id: logEntryId },
+                        data: {
+                            status: "error",
+                            errorMessage: err.message || "Image download failed",
+                            duration: (Date.now() - startTime) / 1000,
+                            completedAt: new Date(),
+                        },
+                    });
+                } catch { }
+            }
         }
         }); // End limit()
         return job;
@@ -615,11 +706,10 @@ export async function startDownload(
                     sourcePlatform,
                     localPath: outputPath,
                     fileSize,
-                    mediaType: "video",
+                    mediaType: isAudio ? "audio" : "video",
                 };
 
                 const allTags = new Set<string>();
-                if (duplicateState.duplicate) allTags.add("Duplicate");
 
                 // Read info JSON for taxonomy scoring
                 const ext = isAudio ? ".mp3" : ".mp4";
@@ -704,7 +794,7 @@ export async function startDownload(
                     await prisma.downloadLog.update({
                         where: { id: logId },
                         data: {
-                            status: job.status === "cancelled" ? "error" : "error",
+                            status: job.status === "cancelled" ? "cancelled" : "error",
                             errorMessage: job.error || `Process exited with code ${code}`,
                             duration: (Date.now() - startTime) / 1000,
                             completedAt: new Date(),
