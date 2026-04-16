@@ -28,6 +28,7 @@ import {
     parseSrt,
     parseVtt,
     subtitlesToSrt,
+    clipAndShiftSubtitles,
 } from "./subtitle-types";
 
 interface Video {
@@ -83,6 +84,7 @@ export function VideoEditorModal({
     const [transcriptionProvider, setTranscriptionProvider] = useState<"openai" | "groq">("openai");
 
     const [isExporting, setIsExporting] = useState(false);
+    const [includeSubtitles, setIncludeSubtitles] = useState(false);
 
     // Aspect ratio presets — shown in all modes; in trim, applies crop+trim in one pass
     type AspectRatio = "original" | "16:9" | "9:16" | "1:1" | "4:5";
@@ -155,7 +157,7 @@ export function VideoEditorModal({
             }
         };
         loadSubtitles();
-    }, [video.transcriptStatus, video.transcriptPath]);
+    }, [video.id, video.transcriptStatus, video.transcriptPath]);
 
     useEffect(() => {
         fetch("/api/settings/ai")
@@ -333,13 +335,30 @@ export function VideoEditorModal({
         try {
             const bodyPayload: Record<string, unknown> = { videoId: video.id };
 
+            const wantSubs = includeSubtitles && hasSubtitles && mode !== "subtitles";
+            const subsParams = wantSubs ? {
+                srtContent: subtitlesToSrt(
+                    mode === "trim" ? clipAndShiftSubtitles(subtitles, trimStart, trimEnd) : subtitles
+                ),
+                stylePreset,
+                fontFamily,
+            } : {};
+
             if (mode === "trim") {
                 if (trimEnd - trimStart <= 0.1) throw new Error("Trim duration is too short.");
-                if (aspectRatio !== "original") {
-                    const cropPx = getCropPixels();
-                    if (!cropPx) throw new Error("Could not detect video resolution.");
+                const hasCrop = aspectRatio !== "original";
+                const cropPx = hasCrop ? getCropPixels() : null;
+                if (hasCrop && !cropPx) throw new Error("Could not detect video resolution.");
+
+                if (hasCrop && wantSubs) {
+                    bodyPayload.action = "trim-crop-burn";
+                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, ...cropPx, ...subsParams };
+                } else if (hasCrop) {
                     bodyPayload.action = "trim-crop";
                     bodyPayload.params = { startTime: trimStart, endTime: trimEnd, ...cropPx };
+                } else if (wantSubs) {
+                    bodyPayload.action = "trim-burn";
+                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, ...subsParams };
                 } else {
                     bodyPayload.action = "trim";
                     bodyPayload.params = { startTime: trimStart, endTime: trimEnd };
@@ -347,8 +366,13 @@ export function VideoEditorModal({
             } else if (mode === "crop") {
                 const cropPx = getCropPixels();
                 if (!cropPx) throw new Error("Could not detect video resolution.");
-                bodyPayload.action = "crop";
-                bodyPayload.params = cropPx;
+                if (wantSubs) {
+                    bodyPayload.action = "crop-burn";
+                    bodyPayload.params = { ...cropPx, ...subsParams };
+                } else {
+                    bodyPayload.action = "crop";
+                    bodyPayload.params = cropPx;
+                }
             } else if (mode === "subtitles") {
                 if (subtitles.length === 0) throw new Error("No subtitles to burn. Transcribe the video first.");
                 bodyPayload.action = "burn-subtitles";
@@ -409,7 +433,7 @@ export function VideoEditorModal({
         ease: [0.22, 1, 0.36, 1] as const,
     };
 
-    const showCropOverlay = mode === "crop";
+    const showCropOverlay = mode === "crop" || (mode === "trim" && aspectRatio !== "original");
 
     return (
         <motion.div
@@ -461,6 +485,19 @@ export function VideoEditorModal({
                 </div>
 
                 <div className="flex items-center gap-3">
+                    {/* Include Subtitles toggle — visible in trim/crop when subtitles exist */}
+                    {mode !== "subtitles" && hasSubtitles && (
+                        <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                            <input
+                                type="checkbox"
+                                checked={includeSubtitles}
+                                onChange={(e) => setIncludeSubtitles(e.target.checked)}
+                                className="rounded border-border"
+                            />
+                            <Captions className="w-3.5 h-3.5" />
+                            Include Subtitles
+                        </label>
+                    )}
                     <Button
                         variant="secondary"
                         size="sm"
@@ -519,8 +556,7 @@ export function VideoEditorModal({
                                     src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
                                     className={cn(
                                         "w-full h-full rounded-md",
-                                        // Crop UI is % of container — must match filled video; trim/subtitles match Nutlope contain
-                                        mode === "crop" ? "object-cover" : "object-contain"
+                                        showCropOverlay ? "object-cover" : "object-contain"
                                     )}
                                     preload="metadata"
                                     onLoadedMetadata={handleLoadedMetadata}
@@ -536,6 +572,7 @@ export function VideoEditorModal({
                                             crop={crop}
                                             onChange={setCrop}
                                             containerRef={containerRef}
+                                            readOnly={mode === "trim"}
                                         />
                                     )}
                                 </AnimatePresence>
@@ -558,7 +595,7 @@ export function VideoEditorModal({
                                 </AnimatePresence>
 
                                 {/* Subtitle Overlay — inside the shaped frame, positioning always relative to output */}
-                                {mode === "subtitles" && (
+                                {(mode === "subtitles" || (includeSubtitles && hasSubtitles)) && (
                                     <SubtitleOverlay
                                         subtitles={subtitles}
                                         currentTime={currentTime}
@@ -577,7 +614,7 @@ export function VideoEditorModal({
 
                     {/* Style + Font Selector Panel — shrink-0 so it's always visible */}
                     <AnimatePresence>
-                        {mode === "subtitles" && (
+                        {(mode === "subtitles" || (includeSubtitles && hasSubtitles)) && (
                             <motion.div
                                 initial={{ opacity: 0, height: 0 }}
                                 animate={{ opacity: 1, height: "auto" }}

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import { getDownloadsDir } from "@/lib/download-manager";
 
 const MIME_TYPES: Record<string, string> = {
     ".mp4": "video/mp4",
@@ -8,6 +9,14 @@ const MIME_TYPES: Record<string, string> = {
     ".mkv": "video/x-matroska",
     ".mov": "video/quicktime",
     ".avi": "video/x-msvideo",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".aac": "audio/aac",
+    ".ogg": "audio/ogg",
+    ".opus": "audio/opus",
+    ".flac": "audio/flac",
+    ".wav": "audio/wav",
+    ".wma": "audio/x-ms-wma",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".png": "image/png",
@@ -15,6 +24,8 @@ const MIME_TYPES: Record<string, string> = {
     ".webp": "image/webp",
     ".svg": "image/svg+xml",
     ".bmp": "image/bmp",
+    ".vtt": "text/vtt",
+    ".srt": "text/plain",
 };
 
 export async function GET(req: Request) {
@@ -27,16 +38,43 @@ export async function GET(req: Request) {
 
     const absolutePath = path.resolve(mediaPath);
 
+    // Security: reject paths containing ".." traversal or outside allowed directories
+    if (absolutePath.includes("..")) {
+        return new NextResponse("Invalid path", { status: 403 });
+    }
+
+    const downloadsDir = getDownloadsDir();
+    const allowedRoots = [
+        path.resolve(downloadsDir),
+        path.resolve(process.cwd(), "downloads"),
+        path.resolve(process.cwd(), "thumbnails"),
+        "/tmp",
+    ];
+
+    // Also allow paths from the watch folder setting
+    try {
+        const settingsPath = path.join(process.cwd(), "watch_folder");
+        if (fs.existsSync(settingsPath)) {
+            const watchFolder = fs.readFileSync(settingsPath, "utf-8").trim();
+            if (watchFolder) allowedRoots.push(path.resolve(watchFolder));
+        }
+    } catch { }
+
+    const isAllowed = allowedRoots.some(root => absolutePath.startsWith(root));
+    if (!isAllowed) {
+        return new NextResponse("Access denied: path outside allowed directories", { status: 403 });
+    }
+
     try {
         const stat = fs.statSync(absolutePath);
         const fileSize = stat.size;
         const ext = path.extname(absolutePath).toLowerCase();
         const contentType = MIME_TYPES[ext] || "application/octet-stream";
-        const isVideo = contentType.startsWith("video/");
+        const isStreamable = contentType.startsWith("video/") || contentType.startsWith("audio/");
 
         const range = req.headers.get("range");
 
-        if (range && isVideo) {
+        if (range && isStreamable) {
             const parts = range.replace(/bytes=/, "").split("-");
             const start = parseInt(parts[0], 10);
             const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;

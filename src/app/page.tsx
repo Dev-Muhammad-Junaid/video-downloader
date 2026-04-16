@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Copy, FolderOpen, Play, Cloud, CloudOff, DownloadCloud, Loader2, CheckCircle2, AlertCircle, Video as VideoIcon, Image as ImageIcon, Search, Pencil, Filter, ExternalLink, HelpCircle, XCircle, Maximize2, Mic, BrainCircuit, Sparkles } from "lucide-react";
+import { Copy, FolderOpen, Play, Pause, RotateCcw, Cloud, CloudOff, DownloadCloud, Loader2, CheckCircle2, AlertCircle, Video as VideoIcon, Image as ImageIcon, Search, Pencil, Filter, ExternalLink, HelpCircle, XCircle, Maximize2, Mic, BrainCircuit, Sparkles, Ban } from "lucide-react";
 import {
     Card,
     CardContent,
@@ -38,7 +38,7 @@ import {
     CommandList
 } from "@/components/ui/command";
 import { toast } from "sonner";
-import { Trash2, Tags, PlusCircle } from "lucide-react";
+import { Trash2, Tags, PlusCircle, CheckSquare, Square, Music } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { MediaPlayerModal } from "@/components/media-player-modal";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -114,7 +114,6 @@ export default function LibraryPage() {
     const [queue, setQueue] = useState<QueueItem[]>([]);
     const [profiles, setProfiles] = useState<DownloadProfile[]>([]);
     const [selectedQueueProfile, setSelectedQueueProfile] = useState<string>("default-auto");
-    const [duplicatePolicy, setDuplicatePolicy] = useState<"skip" | "replace" | "keep-both">("keep-both");
     const [queueFilter, setQueueFilter] = useState<"all" | "active" | "failed">("all");
 
     // Filter & Sort State
@@ -123,7 +122,7 @@ export default function LibraryPage() {
     const [platformFilter, setPlatformFilter] = useState("all");
     // Keep SSR and first client render identical; hydrate localStorage prefs after mount.
     const [groupByDate, setGroupByDate] = useState(true);
-    const [mediaTypeFilter, setMediaTypeFilter] = useState<"all" | "video" | "image">("all");
+    const [mediaTypeFilter, setMediaTypeFilter] = useState<"all" | "video" | "image" | "audio">("all");
 
     // Renaming state
     const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
@@ -147,7 +146,12 @@ export default function LibraryPage() {
     const [transcriptionProvider, setTranscriptionProvider] = useState<"openai" | "groq">("openai");
     const [retryingQueueIds, setRetryingQueueIds] = useState<Set<string>>(new Set());
 
+    // Bulk Selection State
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [selectionMode, setSelectionMode] = useState(false);
+
     const pollingRefs = React.useRef<{ [key: string]: NodeJS.Timeout }>({});
+    const sseRef = React.useRef<EventSource | null>(null);
 
     const matchProfileForUrl = useCallback((url: string) => {
         for (const profile of profiles.filter((p) => p.isActive)) {
@@ -220,7 +224,7 @@ export default function LibraryPage() {
         }
 
         const savedMediaType = localStorage.getItem("ui_mediaTypeFilter");
-        if (savedMediaType === "all" || savedMediaType === "video" || savedMediaType === "image") {
+        if (savedMediaType === "all" || savedMediaType === "video" || savedMediaType === "image" || savedMediaType === "audio") {
             setMediaTypeFilter(savedMediaType);
         }
     }, []);
@@ -244,6 +248,12 @@ export default function LibraryPage() {
             fetchLibrary();
             fetchQueue();
             fetchLabels();
+            // Resume any interrupted jobs from a previous server session
+            fetch("/api/download/queue", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "resumeInterrupted" }),
+            }).catch(() => {});
             fetch("/api/profiles")
                 .then((r) => r.json())
                 .then((data) => {
@@ -272,13 +282,19 @@ export default function LibraryPage() {
         };
         init();
 
-        // WID-300: Global Queue Sync for Chrome Extension interactions
+        // SSE for real-time progress
+        setupSSE();
+
+        // Global queue sync for Chrome Extension interactions (less frequent now with SSE)
         const globalPoll = setInterval(fetchQueue, 5000);
 
         return () => {
             clearInterval(globalPoll);
-            // Cleanup active polling on unmount
             Object.values(pollingRefs.current).forEach(clearInterval);
+            if (sseRef.current) {
+                sseRef.current.close();
+                sseRef.current = null;
+            }
         };
     }, []);
 
@@ -397,47 +413,56 @@ export default function LibraryPage() {
             const res = await fetch("/api/download/queue");
             if (res.ok) {
                 const jobs = await res.json();
-                if (jobs && jobs.length > 0) {
-                    const activeJobs: QueueItem[] = jobs.map((j: any) => ({
-                        id: j.id,
-                        jobId: j.id,
-                        originalUrl: j.url,
-                        title: j.title,
-                        status: j.status,
-                        progress: j.progress,
-                        thumbnail: j.imageUrl,
-                        errorText: j.error,
-                    }));
+                const activeJobs: QueueItem[] = (Array.isArray(jobs) ? jobs : []).map((j: any) => ({
+                    id: j.id,
+                    jobId: j.id,
+                    originalUrl: j.url,
+                    title: j.title,
+                    status: j.status,
+                    progress: j.progress,
+                    thumbnail: j.thumbnailUrl || j.imageUrl,
+                    sourcePlatform: j.sourcePlatform,
+                    duration: j.duration,
+                    errorText: j.error,
+                    mediaType: j.mediaType,
+                    imageUrl: j.imageUrl,
+                }));
 
-                    setQueue(prev => {
-                        const localOnly = prev.filter(p => !p.jobId && (p.status === 'parsing' || p.status === 'pending'));
-                        const prevById = new Map(prev.filter(p => p.jobId).map(p => [p.jobId as string, p]));
-                        const merged = activeJobs.map(job => {
-                            const existing = prevById.get(job.jobId as string);
-                            if (!existing) return job;
-                            return {
-                                ...existing,
-                                ...job,
-                                // Preserve client-side item id so active pollers keep updating the same queue row.
-                                id: existing.id,
-                                thumbnail: existing.thumbnail || job.thumbnail,
-                                progress: (job.status === "downloading" || job.status === "processing" || job.status === "paused")
-                                    ? Math.max(existing.progress || 0, job.progress || 0)
-                                    : (job.progress ?? existing.progress),
-                                errorText: (job.status === "error" || job.status === "cancelled")
-                                    ? (job.errorText || existing.errorText)
-                                    : undefined,
-                            } satisfies QueueItem;
-                        });
-                        return [...localOnly, ...merged];
+                setQueue(prev => {
+                    const localOnly = prev.filter(p => !p.jobId && (p.status === 'parsing' || p.status === 'pending'));
+                    if (activeJobs.length === 0) return localOnly;
+                    const prevById = new Map(prev.filter(p => p.jobId).map(p => [p.jobId as string, p]));
+                    const merged = activeJobs.map(job => {
+                        const existing = prevById.get(job.jobId as string);
+                        if (!existing) return job;
+                        return {
+                            ...existing,
+                            ...job,
+                            id: existing.id,
+                            thumbnail: existing.thumbnail || job.thumbnail,
+                            title: job.title || existing.title,
+                            sourcePlatform: existing.sourcePlatform || job.sourcePlatform,
+                            duration: existing.duration || job.duration,
+                            formats: existing.formats,
+                            selectedFormat: existing.selectedFormat,
+                            mediaType: existing.mediaType || job.mediaType,
+                            imageUrl: existing.imageUrl || job.imageUrl,
+                            progress: (job.status === "downloading" || job.status === "processing" || job.status === "paused")
+                                ? Math.max(existing.progress || 0, job.progress || 0)
+                                : (job.progress ?? existing.progress),
+                            errorText: (job.status === "error" || job.status === "cancelled")
+                                ? (job.errorText || existing.errorText)
+                                : undefined,
+                        } satisfies QueueItem;
                     });
+                    return [...localOnly, ...merged];
+                });
 
-                    activeJobs.forEach(q => {
-                        if (q.status !== 'completed' && q.status !== 'error' && q.status !== 'cancelled' && q.jobId) {
-                            pollProgress(q.id, q.jobId);
-                        }
-                    });
-                }
+                activeJobs.forEach(q => {
+                    if (q.status !== 'completed' && q.status !== 'error' && q.status !== 'cancelled' && q.jobId) {
+                        pollProgress(q.id, q.jobId);
+                    }
+                });
             }
         } catch (error) {
             console.error("Failed to restore queue", error);
@@ -473,11 +498,34 @@ export default function LibraryPage() {
         const links = [...new Set(urlText.split('\n').map(l => l.trim()).filter(l => l.length > 0))];
         if (links.length === 0) return;
 
-        const newItems: QueueItem[] = links.map(url => ({
-            id: Math.random().toString(36).substring(7),
-            originalUrl: url,
-            status: 'parsing'
-        }));
+        const existingQueueUrls = new Set(queue.map(q => q.originalUrl));
+        const existingLibraryUrls = new Set(videos.filter(v => v.originalUrl).map(v => v.originalUrl!));
+
+        let skippedCount = 0;
+        const newItems: QueueItem[] = [];
+        for (const url of links) {
+            if (existingQueueUrls.has(url)) {
+                skippedCount++;
+                continue;
+            }
+            if (existingLibraryUrls.has(url)) {
+                skippedCount++;
+                continue;
+            }
+            newItems.push({
+                id: Math.random().toString(36).substring(7),
+                originalUrl: url,
+                status: 'parsing',
+            });
+        }
+
+        if (skippedCount > 0) {
+            toast.info(`Skipped ${skippedCount} duplicate link${skippedCount > 1 ? "s" : ""} (already in queue or library)`);
+        }
+        if (newItems.length === 0) {
+            setUrlText("");
+            return;
+        }
 
         setQueue(prev => [...newItems, ...prev]);
         setUrlText("");
@@ -571,8 +619,8 @@ export default function LibraryPage() {
                     thumbnail: item.thumbnail,
                     formatId: item.selectedFormat || undefined,
                     profileId: selectedProfile,
-                    duplicatePolicy,
                     retryJobId: item.jobId || undefined,
+                    duration: item.duration,
                 }),
             });
 
@@ -602,8 +650,62 @@ export default function LibraryPage() {
         }
     };
 
+    // SSE-based progress: single connection streams all active job progress
+    const setupSSE = useCallback(() => {
+        if (sseRef.current) return;
+        const es = new EventSource("/api/download/events");
+        sseRef.current = es;
+        let prevCompletedSet = new Set<string>();
+
+        es.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data._heartbeat || data._connected) return;
+
+                const completedNow = new Set<string>();
+                setQueue(prev => {
+                    let changed = false;
+                    const next = prev.map(q => {
+                        if (!q.jobId || !data[q.jobId]) return q;
+                        const live = data[q.jobId];
+                        if (live.status === q.status && Math.abs((live.progress || 0) - (q.progress || 0)) < 0.5) return q;
+                        changed = true;
+                        const updated = { ...q };
+                        updated.status = live.status;
+                        updated.progress = live.progress ?? q.progress;
+                        if (live.status === "error" || live.status === "cancelled") {
+                            updated.errorText = live.error || q.errorText;
+                        } else {
+                            updated.errorText = undefined;
+                        }
+                        if (live.status === "completed") completedNow.add(q.jobId!);
+                        return updated;
+                    });
+                    return changed ? next : prev;
+                });
+
+                // Check for newly completed downloads
+                for (const jobId of completedNow) {
+                    if (!prevCompletedSet.has(jobId)) {
+                        toast.success("Download complete!");
+                        fetchLibrary();
+                    }
+                }
+                prevCompletedSet = completedNow;
+            } catch { /* ignore parse errors */ }
+        };
+
+        es.onerror = () => {
+            es.close();
+            sseRef.current = null;
+            // Reconnect after 3s
+            setTimeout(() => setupSSE(), 3000);
+        };
+    }, []);
+
+    // Legacy per-job polling as fallback for when SSE is not yet connected
     const pollProgress = (itemId: string, jobId: string) => {
-        if (pollingRefs.current[jobId]) return; // Already polling
+        if (pollingRefs.current[jobId]) return;
 
         const interval = setInterval(async () => {
             try {
@@ -619,7 +721,7 @@ export default function LibraryPage() {
                         progress: 100
                     } : q));
                     toast.success("Download complete!");
-                    fetchLibrary(); // refresh library to show new video
+                    fetchLibrary();
                 } else if (data.status === "error") {
                     clearInterval(interval);
                     delete pollingRefs.current[jobId];
@@ -781,6 +883,23 @@ export default function LibraryPage() {
 
     const providerLabel = transcriptionProvider === "groq" ? "Groq" : "OpenAI";
 
+    const toggleSelection = useCallback((videoId: string) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(videoId)) next.delete(videoId);
+            else next.add(videoId);
+            return next;
+        });
+    }, []);
+
+    const selectAll = useCallback(() => {
+        setSelectedIds(new Set(videos.map(v => v.id)));
+    }, [videos]);
+
+    const deselectAll = useCallback(() => {
+        setSelectedIds(new Set());
+    }, []);
+
     const attachLabel = async (videoId: string, labelId: string) => {
         try {
             const res = await fetch(`/api/library/${videoId}/labels`, {
@@ -887,7 +1006,20 @@ export default function LibraryPage() {
     }, [videos]);
 
     const renderVideoCard = (video: Video) => (
-        <Card key={video.id} className="flex flex-col group overflow-hidden border-border/40 hover:border-primary/30 transition-all hover:shadow-lg bg-card/50 backdrop-blur-sm">
+        <Card key={video.id} className={cn("flex flex-col group overflow-hidden border-border/40 hover:border-primary/30 transition-all hover:shadow-lg bg-card/50 backdrop-blur-sm relative", selectedIds.has(video.id) && "ring-2 ring-primary border-primary/50")}>
+            {/* Selection checkbox */}
+            {selectionMode && (
+                <button
+                    className="absolute top-2 left-2 z-20 w-6 h-6 flex items-center justify-center rounded bg-background/80 backdrop-blur-sm border border-border/60 hover:bg-background transition-colors"
+                    onClick={(e) => { e.stopPropagation(); toggleSelection(video.id); }}
+                >
+                    {selectedIds.has(video.id) ? (
+                        <CheckSquare className="w-4 h-4 text-primary" />
+                    ) : (
+                        <Square className="w-4 h-4 text-muted-foreground" />
+                    )}
+                </button>
+            )}
             <CardHeader className="p-4 z-10 bg-gradient-to-b from-card to-transparent border-b border-border/10 relative">
                 {editingVideoId === video.id ? (
                     <div className="flex items-center gap-2 mb-1.5">
@@ -1016,6 +1148,16 @@ export default function LibraryPage() {
                         className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                         loading="lazy"
                     />
+                ) : video.mediaType === "audio" ? (
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-3 p-4 bg-gradient-to-b from-muted/30 to-muted/60">
+                        <Music className="w-10 h-10 text-muted-foreground/40" />
+                        <audio
+                            src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
+                            controls
+                            preload="metadata"
+                            className="w-full max-w-[240px]"
+                        />
+                    </div>
                 ) : (
                     <video
                         src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
@@ -1161,78 +1303,158 @@ export default function LibraryPage() {
                 </motion.div>
 
                 {/* Right Panel: Active Queue */}
-                <div className="w-full xl:w-2/3 flex flex-col gap-4">
-                    <div className="flex justify-between items-end mb-1">
-                        <h2 className="text-xl font-bold tracking-tight text-foreground/90">
-                            Active Queue
-                            {queue.length > 0 && <span className="ml-2 text-sm font-normal text-muted-foreground px-2 py-0.5 bg-muted rounded-full">{queue.length} jobs</span>}
-                        </h2>
+                <div className="w-full xl:w-2/3 flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <h2 className="text-xl font-bold tracking-tight text-foreground/90">
+                                Active Queue
+                            </h2>
+                            {queue.length > 0 && <span className="text-xs font-normal text-muted-foreground px-2 py-0.5 bg-muted rounded-full">{queue.length}</span>}
+                            {profiles.length > 0 && (
+                                <select
+                                    value={selectedQueueProfile}
+                                    onChange={(e) => setSelectedQueueProfile(e.target.value)}
+                                    className="h-7 rounded-md border border-input bg-transparent px-2 text-xs ml-1"
+                                >
+                                    <option value="default-auto">Auto Profile</option>
+                                    {profiles.map((profile) => (
+                                        <option key={profile.id} value={profile.id}>
+                                            {profile.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
+                        </div>
                         {queue.length > 0 && (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 text-xs text-muted-foreground hover:text-destructive gap-1.5"
-                                onClick={async () => {
-                                    try {
-                                        await fetch("/api/download/queue?mode=all", { method: "DELETE" });
-                                        setQueue([]);
-                                        toast.success("Queue cleared");
-                                    } catch {
-                                        toast.error("Failed to clear queue");
-                                    }
-                                }}
-                            >
-                                <XCircle className="w-3.5 h-3.5" />
-                                Clear Queue
-                            </Button>
+                            <div className="flex items-center gap-1">
+                                {queue.some(q => q.status === "pending") && (
+                                    <Tooltip>
+                                        <TooltipTrigger
+                                            className={cn(buttonVariants({ variant: "default", size: "icon" }), "h-7 w-7")}
+                                            onClick={() => {
+                                                const pending = queue.filter(q => q.status === "pending");
+                                                pending.forEach(item => startDownloadJob(item.id));
+                                                toast.info(`Starting ${pending.length} downloads...`);
+                                            }}
+                                        >
+                                            <DownloadCloud className="w-3.5 h-3.5" />
+                                        </TooltipTrigger>
+                                        <TooltipContent>Download All ({queue.filter(q => q.status === "pending").length})</TooltipContent>
+                                    </Tooltip>
+                                )}
+                                {queue.some(q => q.status === "downloading" && q.jobId) && (
+                                    <Tooltip>
+                                        <TooltipTrigger
+                                            className={cn(buttonVariants({ variant: "outline", size: "icon" }), "h-7 w-7")}
+                                            onClick={async () => {
+                                                const active = queue.filter(q => q.status === "downloading" && q.jobId);
+                                                for (const item of active) {
+                                                    await fetch(`/api/download/${item.jobId}`, {
+                                                        method: "PATCH",
+                                                        headers: { "Content-Type": "application/json" },
+                                                        body: JSON.stringify({ action: "pause" }),
+                                                    });
+                                                }
+                                                setQueue(prev => prev.map(q => active.find(a => a.id === q.id) ? { ...q, status: "paused" as const } : q));
+                                                toast.info(`Paused ${active.length} downloads`);
+                                            }}
+                                        >
+                                            <Pause className="w-3.5 h-3.5" />
+                                        </TooltipTrigger>
+                                        <TooltipContent>Pause All</TooltipContent>
+                                    </Tooltip>
+                                )}
+                                {queue.some(q => q.status === "paused" && q.jobId) && (
+                                    <Tooltip>
+                                        <TooltipTrigger
+                                            className={cn(buttonVariants({ variant: "outline", size: "icon" }), "h-7 w-7")}
+                                            onClick={async () => {
+                                                const paused = queue.filter(q => q.status === "paused" && q.jobId);
+                                                for (const item of paused) {
+                                                    await fetch(`/api/download/${item.jobId}`, {
+                                                        method: "PATCH",
+                                                        headers: { "Content-Type": "application/json" },
+                                                        body: JSON.stringify({ action: "resume" }),
+                                                    });
+                                                }
+                                                setQueue(prev => prev.map(q => paused.find(a => a.id === q.id) ? { ...q, status: "downloading" as const } : q));
+                                                toast.info(`Resumed ${paused.length} downloads`);
+                                            }}
+                                        >
+                                            <Play className="w-3.5 h-3.5" />
+                                        </TooltipTrigger>
+                                        <TooltipContent>Resume All</TooltipContent>
+                                    </Tooltip>
+                                )}
+                                {queue.some(q => q.status === "error" || q.status === "cancelled") && (
+                                    <Tooltip>
+                                        <TooltipTrigger
+                                            className={cn(buttonVariants({ variant: "outline", size: "icon" }), "h-7 w-7")}
+                                            onClick={async () => {
+                                                try {
+                                                    const res = await fetch("/api/download/queue", {
+                                                        method: "PATCH",
+                                                        headers: { "Content-Type": "application/json" },
+                                                        body: JSON.stringify({ action: "retryFailed" }),
+                                                    });
+                                                    const data = await res.json();
+                                                    if (!res.ok) throw new Error(data.error || "Retry failed");
+                                                    toast.success(`Retried ${data.retried || 0} jobs`);
+                                                    fetchQueue();
+                                                } catch (error: any) {
+                                                    toast.error(error.message || "Failed to retry");
+                                                }
+                                            }}
+                                        >
+                                            <RotateCcw className="w-3.5 h-3.5" />
+                                        </TooltipTrigger>
+                                        <TooltipContent>Retry Failed</TooltipContent>
+                                    </Tooltip>
+                                )}
+                                {queue.some(q => (q.status === "downloading" || q.status === "paused") && q.jobId) && (
+                                    <Tooltip>
+                                        <TooltipTrigger
+                                            className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "h-7 w-7 text-destructive hover:text-destructive")}
+                                            onClick={async () => {
+                                                const active = queue.filter(q => (q.status === "downloading" || q.status === "paused") && q.jobId);
+                                                for (const item of active) {
+                                                    await fetch(`/api/download/${item.jobId}`, {
+                                                        method: "PATCH",
+                                                        headers: { "Content-Type": "application/json" },
+                                                        body: JSON.stringify({ action: "cancel" }),
+                                                    });
+                                                }
+                                                setQueue(prev => prev.map(q => active.find(a => a.id === q.id) ? { ...q, status: "cancelled" as const, errorText: "Cancelled by user" } : q));
+                                                toast.info(`Cancelled ${active.length} downloads`);
+                                            }}
+                                        >
+                                            <Ban className="w-3.5 h-3.5" />
+                                        </TooltipTrigger>
+                                        <TooltipContent>Cancel All</TooltipContent>
+                                    </Tooltip>
+                                )}
+                                <div className="w-px h-5 bg-border/40 mx-0.5" />
+                                <Tooltip>
+                                    <TooltipTrigger
+                                        className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "h-7 w-7 text-muted-foreground hover:text-destructive")}
+                                        onClick={async () => {
+                                            try {
+                                                await fetch("/api/download/queue?mode=all", { method: "DELETE" });
+                                                setQueue([]);
+                                                toast.success("Queue cleared");
+                                            } catch {
+                                                toast.error("Failed to clear queue");
+                                            }
+                                        }}
+                                    >
+                                        <XCircle className="w-3.5 h-3.5" />
+                                    </TooltipTrigger>
+                                    <TooltipContent>Clear Queue</TooltipContent>
+                                </Tooltip>
+                            </div>
                         )}
                     </div>
-                    <div className="flex flex-wrap gap-2 mb-2">
-                        <select
-                            value={selectedQueueProfile}
-                            onChange={(e) => setSelectedQueueProfile(e.target.value)}
-                            className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
-                        >
-                            <option value="default-auto">Auto (Match URL profile)</option>
-                            {profiles.map((profile) => (
-                                <option key={profile.id} value={profile.id}>
-                                    Profile: {profile.name}
-                                </option>
-                            ))}
-                        </select>
-                        <select
-                            value={duplicatePolicy}
-                            onChange={(e) => setDuplicatePolicy(e.target.value as "skip" | "replace" | "keep-both")}
-                            className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
-                        >
-                            <option value="keep-both">Duplicates: Keep both</option>
-                            <option value="skip">Duplicates: Skip</option>
-                            <option value="replace">Duplicates: Replace old</option>
-                        </select>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 text-xs"
-                            onClick={async () => {
-                                try {
-                                    const res = await fetch("/api/download/queue", {
-                                        method: "PATCH",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ action: "retryFailed" }),
-                                    });
-                                    const data = await res.json();
-                                    if (!res.ok) throw new Error(data.error || "Retry failed");
-                                    toast.success(`Retried ${data.retried || 0} failed jobs`);
-                                    fetchQueue();
-                                } catch (error: any) {
-                                    toast.error(error.message || "Failed to retry failed jobs");
-                                }
-                            }}
-                        >
-                            Retry Failed
-                        </Button>
-                    </div>
-                    <div className="flex items-center border border-border/50 rounded-md overflow-hidden -mt-1">
+                    <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
                         <Button
                             variant={queueFilter === "all" ? "secondary" : "ghost"}
                             size="sm"
@@ -1456,13 +1678,98 @@ export default function LibraryPage() {
                 transition={{ type: "spring" as const, damping: 22, stiffness: 160, delay: 0.2 }}
                 className="space-y-6 pt-4"
             >
-                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 px-1">
-                    <div>
-                        <h2 className="text-2xl font-bold tracking-tight">Saved Media</h2>
-                        <div className="text-sm text-muted-foreground mt-1">
-                            {displayedVideos.length} {displayedVideos.length === 1 ? 'item' : 'items'}
+                <div className="flex flex-col gap-3 px-1">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                            <div>
+                                <h2 className="text-2xl font-bold tracking-tight">Saved Media</h2>
+                                <div className="text-sm text-muted-foreground mt-0.5">
+                                    {displayedVideos.length} {displayedVideos.length === 1 ? 'item' : 'items'}
+                                    {selectedIds.size > 0 && ` · ${selectedIds.size} selected`}
+                                </div>
+                            </div>
+                            <Button
+                                variant={selectionMode ? "secondary" : "ghost"}
+                                size="sm"
+                                className="h-8 text-xs gap-1.5"
+                                onClick={() => { setSelectionMode(!selectionMode); if (selectionMode) deselectAll(); }}
+                            >
+                                <CheckSquare className="w-3.5 h-3.5" />
+                                {selectionMode ? "Done" : "Select"}
+                            </Button>
                         </div>
                     </div>
+
+                    {selectionMode && (
+                        <div className="flex flex-wrap items-center gap-2 py-2 px-3 rounded-lg bg-muted/40 border border-border/50">
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={selectAll}>Select All</Button>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={deselectAll}>Deselect All</Button>
+                            {selectedIds.size > 0 && (
+                                <>
+                                    <div className="w-px h-5 bg-border/50 mx-1" />
+                                    <Button
+                                        variant="destructive"
+                                        size="sm"
+                                        className="h-7 text-xs gap-1.5"
+                                        onClick={async () => {
+                                            if (!confirm(`Delete ${selectedIds.size} selected items? This cannot be undone.`)) return;
+                                            const toastId = toast.loading(`Deleting ${selectedIds.size} items...`);
+                                            try {
+                                                const res = await fetch("/api/library/bulk", {
+                                                    method: "DELETE",
+                                                    headers: { "Content-Type": "application/json" },
+                                                    body: JSON.stringify({ ids: Array.from(selectedIds) }),
+                                                });
+                                                if (res.ok) {
+                                                    const data = await res.json();
+                                                    toast.success(`Deleted ${data.deleted} items`, { id: toastId });
+                                                    setVideos(prev => prev.filter(v => !selectedIds.has(v.id)));
+                                                    deselectAll();
+                                                } else {
+                                                    toast.error("Bulk delete failed", { id: toastId });
+                                                }
+                                            } catch { toast.error("Bulk delete error", { id: toastId }); }
+                                        }}
+                                    >
+                                        <Trash2 className="w-3.5 h-3.5" /> Delete ({selectedIds.size})
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 text-xs gap-1.5"
+                                        onClick={async () => {
+                                            const toastId = toast.loading(`Uploading ${selectedIds.size} items to cloud...`);
+                                            try {
+                                                const res = await fetch("/api/sync/bulk", {
+                                                    method: "POST",
+                                                    headers: { "Content-Type": "application/json" },
+                                                    body: JSON.stringify({ ids: Array.from(selectedIds) }),
+                                                });
+                                                const data = await res.json();
+                                                if (res.ok) {
+                                                    const uploaded = data.uploaded || 0;
+                                                    const errCount = data.errors?.length || 0;
+                                                    if (errCount > 0) {
+                                                        toast.warning(`Uploaded ${uploaded}, failed ${errCount}: ${data.errors[0]?.error}`, { id: toastId, duration: 6000 });
+                                                    } else if (uploaded === 0) {
+                                                        toast.info("No new items to upload (already synced or missing credentials)", { id: toastId, duration: 5000 });
+                                                    } else {
+                                                        toast.success(`Uploaded ${uploaded} items to cloud`, { id: toastId });
+                                                    }
+                                                    fetchLibrary();
+                                                    deselectAll();
+                                                } else {
+                                                    toast.error(`Cloud upload failed: ${data.error || "Unknown error"}${data.details ? ` — ${data.details}` : ""}`, { id: toastId, duration: 6000 });
+                                                }
+                                            } catch (err: any) { toast.error(`Cloud upload error: ${err.message}`, { id: toastId }); }
+                                        }}
+                                    >
+                                        <Cloud className="w-3.5 h-3.5" /> Cloud Upload
+                                    </Button>
+                                </>
+                            )}
+                        </div>
+                    )}
 
                     <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
                         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full md:w-auto">
@@ -1549,6 +1856,15 @@ export default function LibraryPage() {
                                 title="Images only"
                             >
                                 <ImageIcon className="w-4 h-4" />
+                            </Button>
+                            <Button
+                                variant={mediaTypeFilter === "audio" ? "secondary" : "ghost"}
+                                size="sm"
+                                className="h-9 rounded-none border-none px-3"
+                                onClick={() => { const next = "audio"; setMediaTypeFilter(next); localStorage.setItem("ui_mediaTypeFilter", next); }}
+                                title="Audio only"
+                            >
+                                <Music className="w-4 h-4" />
                             </Button>
                         </div>
 
