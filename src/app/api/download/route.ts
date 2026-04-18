@@ -3,7 +3,7 @@ import { startDownload } from "@/lib/download-manager";
 
 export async function POST(req: Request) {
     try {
-        const { url, title, sourcePlatform, mediaType, imageUrl, thumbnail, formatId, profileId, retryJobId, duration } = await req.json();
+        const { url, title, sourcePlatform, mediaType, imageUrl, thumbnail, formatId, profileId, retryJobId, duration, profileName, formatLabel } = await req.json();
 
         if (!url || !title) {
             return NextResponse.json({ error: "URL and title are required" }, { status: 400 });
@@ -23,6 +23,8 @@ export async function POST(req: Request) {
             retryJobId,
             thumbnail,
             duration,
+            profileName,
+            formatLabel,
         );
 
         return NextResponse.json({ jobId: job.id, status: job.status });

@@ -3,13 +3,14 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FolderOpen, Loader2, Download, Eye, Clock, FileDown, Database, BrainCircuit, Mic, Plus, Trash2, Edit2, Settings2, CloudSync, Tags, Check, X, ShieldCheck } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 export default function SettingsPage() {
     const [settings, setSettings] = useState({
@@ -152,24 +153,32 @@ export default function SettingsPage() {
 
     const handleSaveProfile = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!editingProfile?.name?.trim()) {
+            toast.error("Profile name is required");
+            return;
+        }
         const method = editingProfile?.id ? "PATCH" : "POST";
         const url = editingProfile?.id ? `/api/profiles/${editingProfile.id}` : "/api/profiles";
-        
+
         try {
             const res = await fetch(url, {
                 method,
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(editingProfile),
             });
-            if (res.ok) {
-                const updated = await res.json();
-                if (method === "POST") setProfiles([...profiles, updated]);
-                else setProfiles(profiles.map(p => p.id === updated.id ? updated : p));
-                setIsProfileDialogOpen(false);
-                toast.success("Profile saved");
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                toast.error(data.error || `Failed to save profile (HTTP ${res.status})`);
+                return;
             }
-        } catch {
-            toast.error("Failed to save profile");
+            if (method === "POST") setProfiles([...profiles, data]);
+            else setProfiles(profiles.map(p => p.id === data.id ? data : p));
+            // Refresh full list so demoted defaults show their new priority correctly.
+            fetch("/api/profiles").then(r => r.json()).then(list => { if (Array.isArray(list)) setProfiles(list); }).catch(() => {});
+            setIsProfileDialogOpen(false);
+            toast.success("Profile saved");
+        } catch (err: any) {
+            toast.error(err?.message || "Failed to save profile");
         }
     };
 
@@ -572,36 +581,65 @@ export default function SettingsPage() {
                 {/* Quality & Format Profiles (WID-306) */}
                 <motion.div variants={fadeUp} className="lg:col-span-2">
                 <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
-                    <CardHeader className="flex flex-row items-center justify-between">
+                    <CardHeader className="flex flex-row items-center justify-between gap-2">
                         <div>
                             <CardTitle className="text-xl flex items-center gap-2">
                                 <Settings2 className="w-5 h-5 text-primary" />
                                 Quality & Format Profiles
                             </CardTitle>
-                            <CardDescription>Define site-specific resolution and format rules.</CardDescription>
+                            <CardDescription>Pick a preset or define your own resolution and format rules.</CardDescription>
                         </div>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-2"
+                                onClick={async () => {
+                                    try {
+                                        const res = await fetch("/api/profiles/reset", { method: "POST" });
+                                        const data = await res.json();
+                                        if (res.ok) {
+                                            setProfiles(data.profiles || []);
+                                            if (data.added?.length > 0) {
+                                                toast.success(`Added ${data.added.length} preset${data.added.length > 1 ? "s" : ""}: ${data.added.join(", ")}`);
+                                            } else {
+                                                toast.info("All presets are already present");
+                                            }
+                                        } else {
+                                            toast.error(data.error || "Reset failed");
+                                        }
+                                    } catch { toast.error("Reset failed"); }
+                                }}
+                            >
+                                Reset to Defaults
+                            </Button>
                         <Dialog open={isProfileDialogOpen} onOpenChange={setIsProfileDialogOpen}>
                             <DialogTrigger render={
                                 <Button size="sm" className="gap-2" onClick={() => setEditingProfile({ name: "", sitePattern: "*", maxResolution: "best", preferredFormat: "mp4", autoCloudSync: false, requireManualFormat: false, priority: 0 })}>
                                     <Plus className="w-4 h-4" /> Add Profile
                                 </Button>
                             } />
-                            <DialogContent>
+                            <DialogContent className="sm:max-w-[560px]">
                                 <DialogHeader>
                                     <DialogTitle>{editingProfile?.id ? 'Edit Profile' : 'New Profile'}</DialogTitle>
                                     <DialogDescription>Apply rules based on the video URL.</DialogDescription>
                                 </DialogHeader>
-                                <form onSubmit={handleSaveProfile} className="space-y-4 py-4">
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="prof-name">Profile Name</Label>
-                                        <Input id="prof-name" value={editingProfile?.name || ""} onChange={e => setEditingProfile({...editingProfile, name: e.target.value})} placeholder="e.g. YouTube 4K" required />
+                                <form
+                                    onSubmit={handleSaveProfile}
+                                    className="space-y-4 py-3 max-h-[70vh] overflow-y-auto pr-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+                                >
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div className="grid gap-1.5">
+                                            <Label htmlFor="prof-name">Profile Name</Label>
+                                            <Input id="prof-name" value={editingProfile?.name || ""} onChange={e => setEditingProfile({...editingProfile, name: e.target.value})} placeholder="e.g. YouTube 4K" required />
+                                        </div>
+                                        <div className="grid gap-1.5">
+                                            <Label htmlFor="prof-site">Site Pattern</Label>
+                                            <Input id="prof-site" value={editingProfile?.sitePattern || ""} onChange={e => setEditingProfile({...editingProfile, sitePattern: e.target.value})} placeholder="youtube.com or *" />
+                                        </div>
                                     </div>
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="prof-site">Site Pattern (URL includes)</Label>
-                                        <Input id="prof-site" value={editingProfile?.sitePattern || ""} onChange={e => setEditingProfile({...editingProfile, sitePattern: e.target.value})} placeholder="youtube.com (or * for all)" />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="grid gap-2">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div className="grid gap-1.5">
                                             <Label>Max Resolution</Label>
                                             <Select value={editingProfile?.maxResolution || "best"} onValueChange={v => setEditingProfile({...editingProfile, maxResolution: v})}>
                                                 <SelectTrigger>
@@ -617,7 +655,7 @@ export default function SettingsPage() {
                                                 </SelectContent>
                                             </Select>
                                         </div>
-                                        <div className="grid gap-2">
+                                        <div className="grid gap-1.5">
                                             <Label>Format</Label>
                                             <Select value={editingProfile?.preferredFormat || "mp4"} onValueChange={v => setEditingProfile({...editingProfile, preferredFormat: v})}>
                                                 <SelectTrigger>
@@ -632,62 +670,105 @@ export default function SettingsPage() {
                                             </Select>
                                         </div>
                                     </div>
-                                    <div className="flex items-center space-x-2 pt-2">
-                                        <input 
-                                            type="checkbox" 
-                                            id="prof-sync" 
-                                            checked={!!editingProfile?.autoCloudSync} 
-                                            onChange={e => setEditingProfile({...editingProfile, autoCloudSync: e.target.checked})}
-                                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                                        />
-                                        <Label htmlFor="prof-sync" className="cursor-pointer">Auto-sync to Cloud after download</Label>
+
+                                    <div className="border-t border-border/40 pt-3">
+                                        <div className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold mb-2">Behaviour</div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            <label htmlFor="prof-default" className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/50 bg-background/40 hover:bg-background/70 cursor-pointer transition-colors">
+                                                <input
+                                                    type="checkbox"
+                                                    id="prof-default"
+                                                    checked={editingProfile?.priority === -1 || !!editingProfile?.isDefault}
+                                                    onChange={e => setEditingProfile({ ...editingProfile, isDefault: e.target.checked, priority: e.target.checked ? -1 : 0 })}
+                                                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                                />
+                                                <span className="text-sm font-medium">Default profile</span>
+                                            </label>
+
+                                            <label htmlFor="prof-manual" className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/50 bg-background/40 hover:bg-background/70 cursor-pointer transition-colors">
+                                                <input
+                                                    type="checkbox"
+                                                    id="prof-manual"
+                                                    checked={!!editingProfile?.requireManualFormat}
+                                                    onChange={e => setEditingProfile({ ...editingProfile, requireManualFormat: e.target.checked })}
+                                                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                                />
+                                                <span className="text-sm font-medium">Manual select</span>
+                                            </label>
+
+                                            <label
+                                                htmlFor="prof-strict"
+                                                className={cn(
+                                                    "flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/50 bg-background/40 hover:bg-background/70 cursor-pointer transition-colors",
+                                                    (editingProfile?.maxResolution === "best" || editingProfile?.preferredFormat === "mp3") && "opacity-50 cursor-not-allowed"
+                                                )}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    id="prof-strict"
+                                                    checked={!!editingProfile?.strictResolution}
+                                                    onChange={e => setEditingProfile({ ...editingProfile, strictResolution: e.target.checked })}
+                                                    disabled={editingProfile?.maxResolution === "best" || editingProfile?.preferredFormat === "mp3"}
+                                                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary disabled:opacity-40"
+                                                />
+                                                <span className="text-sm font-medium">Strict resolution</span>
+                                            </label>
+
+                                            <label htmlFor="prof-sync" className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/50 bg-background/40 hover:bg-background/70 cursor-pointer transition-colors">
+                                                <input
+                                                    type="checkbox"
+                                                    id="prof-sync"
+                                                    checked={!!editingProfile?.autoCloudSync}
+                                                    onChange={e => setEditingProfile({...editingProfile, autoCloudSync: e.target.checked})}
+                                                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                                />
+                                                <span className="text-sm font-medium">Auto-sync to Cloud</span>
+                                            </label>
+                                        </div>
                                     </div>
-                                    <div className="flex items-center space-x-2 pt-1">
-                                        <input
-                                            type="checkbox"
-                                            id="prof-manual"
-                                            checked={!!editingProfile?.requireManualFormat}
-                                            onChange={e => setEditingProfile({ ...editingProfile, requireManualFormat: e.target.checked })}
-                                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                                        />
-                                        <Label htmlFor="prof-manual" className="cursor-pointer">Require manual per-URL format selection</Label>
-                                    </div>
-                                    <DialogFooter>
-                                        <Button type="submit">Save Profile</Button>
+
+                                    <DialogFooter className="pt-2 gap-2">
+                                        <button type="button" onClick={() => setIsProfileDialogOpen(false)} className={cn(buttonVariants({ variant: "outline" }))}>
+                                            Cancel
+                                        </button>
+                                        {/* Native submit button — base-ui Button primitive ignores type="submit". */}
+                                        <button type="submit" className={cn(buttonVariants({ variant: "default" }))}>
+                                            Save Profile
+                                        </button>
                                     </DialogFooter>
                                 </form>
                             </DialogContent>
                         </Dialog>
+                        </div>
                     </CardHeader>
                     <CardContent>
                         <div className="rounded-lg border border-border/50 divide-y divide-border/50">
                             {profiles.length === 0 ? (
-                                <div className="p-8 text-center text-muted-foreground text-sm">No profiles defined. The system will use defaults.</div>
+                                <div className="p-8 text-center text-muted-foreground text-sm">No profiles defined. Click &quot;Reset to Defaults&quot; above to restore the 5 presets, or &quot;Add Profile&quot; to create a custom one.</div>
                             ) : (
                                 profiles.map((profile) => (
                                     <div key={profile.id} className="p-4 flex items-center justify-between group">
                                         <div className="space-y-1">
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-2 flex-wrap">
                                                 <span className="font-medium">{profile.name}</span>
-                                                {profile.priority === -1 && <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">Default</span>}
+                                                {profile.priority === -1 && <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded font-medium">Default</span>}
+                                                {profile.requireManualFormat && <span className="text-[10px] bg-amber-500/20 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded font-medium">Manual</span>}
+                                                {profile.strictResolution && <span className="text-[10px] bg-purple-500/20 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded font-medium">Strict</span>}
                                                 {profile.autoCloudSync && <CloudSync className="w-3.5 h-3.5 text-blue-500" />}
                                             </div>
-                                            <div className="text-xs text-muted-foreground flex gap-3">
+                                            <div className="text-xs text-muted-foreground flex gap-3 flex-wrap">
                                                 <span>Pattern: <code className="bg-muted px-1 rounded">{profile.sitePattern}</code></span>
-                                                <span>Quality: {profile.maxResolution === 'best' ? 'Best' : profile.maxResolution + 'p'}</span>
+                                                <span>Quality: {profile.maxResolution === 'best' ? 'Best' : (profile.strictResolution ? '=' : '≤') + profile.maxResolution + 'p'}</span>
                                                 <span>Format: {profile.preferredFormat?.toUpperCase()}</span>
-                                                {profile.requireManualFormat && <span className="text-amber-500">Manual select</span>}
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingProfile(profile); setIsProfileDialogOpen(true); }}>
                                                 <Edit2 className="w-3.5 h-3.5" />
                                             </Button>
-                                            {profile.priority !== -1 && (
-                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDeleteProfile(profile.id)}>
-                                                    <Trash2 className="w-3.5 h-3.5" />
-                                                </Button>
-                                            )}
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDeleteProfile(profile.id)}>
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </Button>
                                         </div>
                                     </div>
                                 ))

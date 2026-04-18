@@ -92,6 +92,8 @@ type QueueItem = {
     selectedFormat?: string;
     needsReview?: boolean;
     reviewReason?: string;
+    matchedProfileName?: string;
+    matchedFormatLabel?: string;
 };
 
 type DownloadProfile = {
@@ -103,6 +105,7 @@ type DownloadProfile = {
     priority: number;
     isActive: boolean;
     requireManualFormat?: boolean;
+    strictResolution?: boolean;
 };
 
 export default function LibraryPage() {
@@ -168,27 +171,78 @@ export default function LibraryPage() {
 
     const pickFormatForProfile = useCallback((item: QueueItem, profile: DownloadProfile) => {
         const formats = item.formats || [];
-        if (formats.length === 0) return { formatId: undefined, needsReview: false, reviewReason: "" };
+
+        // Audio-only profile: always match if the source can produce audio.
+        // yt-dlp's -x flag extracts audio from any video, so this always works unless it's an image.
         if (profile.preferredFormat === "mp3") {
+            if (item.mediaType === "image") {
+                return { formatId: undefined, needsReview: true, reviewReason: `"${profile.name}" is audio-only but this link is an image` };
+            }
             return { formatId: "audio", needsReview: false, reviewReason: "" };
         }
-        const maxRes = parseInt((profile.maxResolution || "best").replace(/[^0-9]/g, ""), 10);
-        const ext = (profile.preferredFormat || "mp4").toLowerCase();
-        const candidates = formats.filter((f) => {
-            const resolution = f.resolution ? parseInt(f.resolution.replace("p", ""), 10) : 0;
-            const withinRes = Number.isNaN(maxRes) || !maxRes || resolution <= maxRes || resolution === 0;
-            const extOk = ext === "best" || !f.ext || f.ext.toLowerCase() === ext;
-            return withinRes && extOk;
-        });
-        if (candidates.length === 0) {
-            return { formatId: undefined, needsReview: true, reviewReason: `No preset matches "${profile.name}"` };
+
+        // Images don't have "formats" in the traditional sense — a direct URL download works.
+        if (item.mediaType === "image") {
+            return { formatId: undefined, needsReview: false, reviewReason: "" };
         }
-        const sorted = [...candidates].sort((a, b) => {
-            const aRes = a.resolution ? parseInt(a.resolution, 10) : 0;
-            const bRes = b.resolution ? parseInt(b.resolution, 10) : 0;
-            return bRes - aRes;
+
+        // "best" means: pick the highest-quality available, no ceiling. Always matches.
+        const maxResRaw = (profile.maxResolution || "best").toString();
+        const isBest = maxResRaw === "best" || maxResRaw === "";
+        const maxRes = isBest ? 0 : parseInt(maxResRaw.replace(/[^0-9]/g, ""), 10);
+        const preferredExt = (profile.preferredFormat || "mp4").toLowerCase();
+        const strict = !!profile.strictResolution && !isBest;
+        const resOp = strict ? "=" : "≤";
+
+        // If no formats were extracted, we can only safely auto-start for the
+        // "Best Quality" profile (no ceiling). For resolution-constrained profiles
+        // we'd risk silently downloading the wrong quality — force manual review.
+        if (formats.length === 0) {
+            if (isBest) {
+                return { formatId: undefined, needsReview: false, reviewReason: "" };
+            }
+            return {
+                formatId: undefined,
+                needsReview: true,
+                reviewReason: `Couldn't read available formats for "${profile.name}" — pick one manually`,
+            };
+        }
+
+        // Resolution predicate: strict = exact match; otherwise ≤ ceiling.
+        const matchesRes = (f: typeof formats[number]) => {
+            const resolution = f.resolution ? parseInt(f.resolution.replace("p", ""), 10) : 0;
+            if (isBest) return true;
+            if (!maxRes) return true;
+            if (strict) return resolution === maxRes;
+            return resolution <= maxRes || resolution === 0;
+        };
+
+        // First pass: match by resolution AND preferred ext.
+        const exactMatches = formats.filter((f) => {
+            const extOk = preferredExt === "best" || !f.ext || f.ext.toLowerCase() === preferredExt;
+            return matchesRes(f) && extOk;
         });
-        return { formatId: sorted[0]?.formatId, needsReview: false, reviewReason: "" };
+        if (exactMatches.length > 0) {
+            const sorted = [...exactMatches].sort((a, b) => (parseInt(b.resolution || "0", 10) - parseInt(a.resolution || "0", 10)));
+            return { formatId: sorted[0].formatId, needsReview: false, reviewReason: "" };
+        }
+
+        // Second pass: match by resolution only (ignore ext preference — server will remux).
+        const resOnly = formats.filter(matchesRes);
+        if (resOnly.length > 0) {
+            const sorted = [...resOnly].sort((a, b) => (parseInt(b.resolution || "0", 10) - parseInt(a.resolution || "0", 10)));
+            return { formatId: sorted[0].formatId, needsReview: false, reviewReason: "" };
+        }
+
+        // Nothing matches — user must pick.
+        const maxAvailable = formats.reduce((max, f) => Math.max(max, parseInt(f.resolution || "0", 10)), 0);
+        return {
+            formatId: undefined,
+            needsReview: true,
+            reviewReason: strict
+                ? `"${profile.name}" needs exactly ${maxResRaw}p, but that resolution isn't available (max: ${maxAvailable}p)`
+                : `"${profile.name}" wants ${resOp}${maxResRaw}p but highest available is ${maxAvailable}p`,
+        };
     }, []);
 
     const applyQueueProfileToItem = useCallback((item: QueueItem): QueueItem => {
@@ -199,21 +253,29 @@ export default function LibraryPage() {
             ? matchProfileForUrl(item.originalUrl)
             : profiles.find((p) => p.id === selectedQueueProfile);
         if (!profile) {
-            return { ...item, needsReview: true, reviewReason: "No profile available" };
+            return { ...item, needsReview: true, reviewReason: "No profile available", matchedProfileName: undefined };
         }
         if (profile.requireManualFormat) {
             return {
                 ...item,
+                matchedProfileName: profile.name,
                 needsReview: !item.selectedFormat,
-                reviewReason: !item.selectedFormat ? `Profile "${profile.name}" requires manual format selection` : undefined,
+                reviewReason: !item.selectedFormat ? `"${profile.name}" requires manual format selection` : undefined,
             };
         }
         const picked = pickFormatForProfile(item, profile);
+        const matchedLabel = picked.formatId === "audio"
+            ? "Audio (MP3)"
+            : picked.formatId && item.formats
+                ? item.formats.find(f => f.formatId === picked.formatId)?.label
+                : profile.maxResolution === "best" ? "Best available" : `≤${profile.maxResolution}p ${(profile.preferredFormat || "mp4").toUpperCase()}`;
         return {
             ...item,
             selectedFormat: picked.formatId ?? item.selectedFormat ?? "",
             needsReview: picked.needsReview,
             reviewReason: picked.reviewReason || undefined,
+            matchedProfileName: profile.name,
+            matchedFormatLabel: picked.needsReview ? undefined : matchedLabel,
         };
     }, [matchProfileForUrl, pickFormatForProfile, profiles, selectedQueueProfile]);
 
@@ -426,6 +488,8 @@ export default function LibraryPage() {
                     errorText: j.error,
                     mediaType: j.mediaType,
                     imageUrl: j.imageUrl,
+                    matchedProfileName: j.profileName,
+                    matchedFormatLabel: j.formatLabel,
                 }));
 
                 setQueue(prev => {
@@ -447,6 +511,8 @@ export default function LibraryPage() {
                             selectedFormat: existing.selectedFormat,
                             mediaType: existing.mediaType || job.mediaType,
                             imageUrl: existing.imageUrl || job.imageUrl,
+                            matchedProfileName: existing.matchedProfileName || job.matchedProfileName,
+                            matchedFormatLabel: existing.matchedFormatLabel || job.matchedFormatLabel,
                             progress: (job.status === "downloading" || job.status === "processing" || job.status === "paused")
                                 ? Math.max(existing.progress || 0, job.progress || 0)
                                 : (job.progress ?? existing.progress),
@@ -498,17 +564,19 @@ export default function LibraryPage() {
         const links = [...new Set(urlText.split('\n').map(l => l.trim()).filter(l => l.length > 0))];
         if (links.length === 0) return;
 
-        const existingQueueUrls = new Set(queue.map(q => q.originalUrl));
-        const existingLibraryUrls = new Set(videos.filter(v => v.originalUrl).map(v => v.originalUrl!));
+        // Only block links that are CURRENTLY active in the queue (parsing/pending/downloading/etc).
+        // Completed/cancelled queue items AND library items are allowed back in — user may want
+        // to re-download with a different format/profile.
+        const activeInQueue = new Set(
+            queue
+                .filter(q => !["completed", "error", "cancelled"].includes(q.status))
+                .map(q => q.originalUrl)
+        );
 
         let skippedCount = 0;
         const newItems: QueueItem[] = [];
         for (const url of links) {
-            if (existingQueueUrls.has(url)) {
-                skippedCount++;
-                continue;
-            }
-            if (existingLibraryUrls.has(url)) {
+            if (activeInQueue.has(url)) {
                 skippedCount++;
                 continue;
             }
@@ -520,7 +588,7 @@ export default function LibraryPage() {
         }
 
         if (skippedCount > 0) {
-            toast.info(`Skipped ${skippedCount} duplicate link${skippedCount > 1 ? "s" : ""} (already in queue or library)`);
+            toast.info(`Skipped ${skippedCount} link${skippedCount > 1 ? "s" : ""} — already being processed`);
         }
         if (newItems.length === 0) {
             setUrlText("");
@@ -570,18 +638,34 @@ export default function LibraryPage() {
                 return;
             }
 
-            setQueue(prev => prev.map(q => q.id === id ? applyQueueProfileToItem({
-                ...q,
-                title: metadata.title,
-                thumbnail: metadata.thumbnail,
-                sourcePlatform: metadata.sourcePlatform,
-                duration: metadata.duration ?? null,
-                mediaType: metadata.mediaType || "video",
-                imageUrl: metadata.imageUrl,
-                formats: metadata.formats || [],
-                selectedFormat: "",
-                status: 'pending'
-            }) : q));
+            let autoItem: QueueItem | null = null;
+            setQueue(prev => prev.map(q => {
+                if (q.id !== id) return q;
+                const updated = applyQueueProfileToItem({
+                    ...q,
+                    title: metadata.title,
+                    thumbnail: metadata.thumbnail,
+                    sourcePlatform: metadata.sourcePlatform,
+                    duration: metadata.duration ?? null,
+                    mediaType: metadata.mediaType || "video",
+                    imageUrl: metadata.imageUrl,
+                    formats: metadata.formats || [],
+                    selectedFormat: "",
+                    status: 'pending',
+                });
+                if (!updated.needsReview) {
+                    autoItem = updated;
+                }
+                return updated;
+            }));
+
+            // Auto-start download when profile matches cleanly — no manual click required.
+            if (autoItem) {
+                const ai = autoItem as QueueItem;
+                const label = ai.matchedFormatLabel ? ` · ${ai.matchedFormatLabel}` : "";
+                toast.success(`Auto-downloading "${ai.title?.slice(0, 40)}${(ai.title?.length || 0) > 40 ? "…" : ""}" with ${ai.matchedProfileName || "default"}${label}`);
+                setTimeout(() => startDownloadJobForItem(ai), 0);
+            }
 
         } catch (error: any) {
             setQueue(prev => prev.map(q => q.id === id ? {
@@ -592,9 +676,8 @@ export default function LibraryPage() {
         }
     };
 
-    const startDownloadJob = async (id: string) => {
-        const item = queue.find(q => q.id === id);
-        if (!item) return;
+    const startDownloadJobForItem = async (item: QueueItem) => {
+        const id = item.id;
         if (retryingQueueIds.has(id)) return;
         if (item.needsReview && !item.selectedFormat) {
             toast.error(item.reviewReason || "This item needs format review before download");
@@ -621,6 +704,8 @@ export default function LibraryPage() {
                     profileId: selectedProfile,
                     retryJobId: item.jobId || undefined,
                     duration: item.duration,
+                    profileName: item.matchedProfileName,
+                    formatLabel: item.matchedFormatLabel,
                 }),
             });
 
@@ -648,6 +733,12 @@ export default function LibraryPage() {
                 return next;
             });
         }
+    };
+
+    const startDownloadJob = (id: string) => {
+        const item = queue.find(q => q.id === id);
+        if (!item) return;
+        return startDownloadJobForItem(item);
     };
 
     // SSE-based progress: single connection streams all active job progress
@@ -1316,12 +1407,18 @@ export default function LibraryPage() {
                                     onChange={(e) => setSelectedQueueProfile(e.target.value)}
                                     className="h-7 rounded-md border border-input bg-transparent px-2 text-xs ml-1"
                                 >
-                                    <option value="default-auto">Auto Profile</option>
-                                    {profiles.map((profile) => (
-                                        <option key={profile.id} value={profile.id}>
-                                            {profile.name}
-                                        </option>
-                                    ))}
+                                    <option value="default-auto">Auto (match by URL)</option>
+                                    {profiles.map((profile) => {
+                                        const tags: string[] = [];
+                                        if (profile.priority === -1) tags.push("default");
+                                        if (profile.requireManualFormat) tags.push("manual");
+                                        if (profile.strictResolution) tags.push("strict");
+                                        return (
+                                            <option key={profile.id} value={profile.id}>
+                                                {profile.name}{tags.length ? ` · ${tags.join(", ")}` : ""}
+                                            </option>
+                                        );
+                                    })}
                                 </select>
                             )}
                         </div>
@@ -1488,26 +1585,58 @@ export default function LibraryPage() {
                                 <span className="text-sm opacity-60">No queue items for this filter</span>
                             </div>
                         ) : (
-                            filteredQueue.map(item => (
+                            filteredQueue.map(item => {
+                                const matchedVideo = item.status === 'completed'
+                                    ? videos.find(v => (v.originalUrl && v.originalUrl === item.originalUrl))
+                                    : null;
+                                const isClickable = !!matchedVideo;
+                                const openInPlayer = () => {
+                                    if (!matchedVideo) return;
+                                    const idx = displayedVideos.findIndex(v => v.id === matchedVideo.id);
+                                    if (idx >= 0) {
+                                        setPlayerIndex(idx);
+                                    } else {
+                                        const fallbackIdx = videos.findIndex(v => v.id === matchedVideo.id);
+                                        setPlayerIndex(fallbackIdx >= 0 ? fallbackIdx : 0);
+                                    }
+                                    setPlayerOpen(true);
+                                };
+                                const iconBtn = cn(buttonVariants({ variant: "ghost", size: "icon" }), "h-7 w-7 flex-shrink-0");
+                                const iconBtnOutline = cn(buttonVariants({ variant: "outline", size: "icon" }), "h-7 w-7 flex-shrink-0");
+                                const iconBtnDestructive = cn(buttonVariants({ variant: "ghost", size: "icon" }), "h-7 w-7 flex-shrink-0 text-destructive hover:text-destructive");
+                                const stop = (e: React.MouseEvent) => e.stopPropagation();
+                                return (
                                 <div
                                     key={item.id}
-                                    className="relative flex items-center gap-4 p-4 rounded-xl border border-border/60 bg-card/60 backdrop-blur-md shadow-sm transition-all hover:bg-card/80"
+                                    onClick={isClickable ? openInPlayer : undefined}
+                                    role={isClickable ? "button" : undefined}
+                                    tabIndex={isClickable ? 0 : undefined}
+                                    onKeyDown={isClickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openInPlayer(); } } : undefined}
+                                    className={cn(
+                                        "relative flex items-start gap-3 p-3 rounded-xl border border-border/60 bg-card/60 backdrop-blur-md shadow-sm transition-all hover:bg-card/80",
+                                        isClickable && "cursor-pointer hover:border-primary/40 hover:shadow-md"
+                                    )}
                                 >
                                     {item.thumbnail ? (
-                                        <div className="w-20 h-14 rounded-md overflow-hidden flex-shrink-0 relative bg-muted shadow-inner">
+                                        <div className="w-16 h-12 sm:w-20 sm:h-14 rounded-md overflow-hidden flex-shrink-0 relative bg-muted shadow-inner group">
                                             <img src={item.thumbnail} className="object-cover w-full h-full" alt="thumb" />
+                                            {isClickable && (
+                                                <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <Play className="w-5 h-5 text-white fill-white" />
+                                                </div>
+                                            )}
                                         </div>
                                     ) : (
-                                        <div className="w-20 h-14 rounded-md flex items-center justify-center flex-shrink-0 bg-muted/50 border border-dashed">
+                                        <div className="w-16 h-12 sm:w-20 sm:h-14 rounded-md flex items-center justify-center flex-shrink-0 bg-muted/50 border border-dashed">
                                             <VideoIcon className="w-5 h-5 text-muted-foreground/30" />
                                         </div>
                                     )}
 
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-semibold truncate text-foreground/90">
+                                    <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                                        <p className={cn("text-sm font-semibold truncate text-foreground/90", isClickable && "group-hover:text-primary")}>
                                             {item.title || item.originalUrl}
                                         </p>
-                                        <div className="mt-1 flex items-center gap-2">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
                                             <motion.div
                                                 key={`${item.id}-${item.status}`}
                                                 initial={{ opacity: 0, scale: 0.95 }}
@@ -1518,152 +1647,172 @@ export default function LibraryPage() {
                                                     {item.status}
                                                 </Badge>
                                             </motion.div>
+                                            {item.matchedProfileName && !item.needsReview && (
+                                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-primary/40 text-primary/80 gap-1 max-w-full truncate">
+                                                    <Sparkles className="w-2.5 h-2.5 flex-shrink-0" />
+                                                    <span className="truncate">
+                                                        {item.matchedProfileName}
+                                                        {item.matchedFormatLabel && <span className="opacity-70"> · {item.matchedFormatLabel}</span>}
+                                                    </span>
+                                                </Badge>
+                                            )}
                                             {item.errorText && (
-                                                <span className="text-[10px] text-muted-foreground truncate max-w-[280px]" title={item.errorText}>
+                                                <span className="text-[10px] text-muted-foreground truncate max-w-full" title={item.errorText}>
                                                     {item.errorText}
                                                 </span>
                                             )}
                                         </div>
-                                        {item.needsReview && (
-                                            <p className="mt-2 text-[10px] text-amber-500">{item.reviewReason || "Needs review"}</p>
-                                        )}
                                         {item.status === "parsing" && (
-                                            <p className="mt-2 text-xs text-muted-foreground">Parsing metadata...</p>
+                                            <p className="text-[11px] text-muted-foreground">Parsing metadata…</p>
                                         )}
                                         {item.status === "queued" && (
-                                            <p className="mt-2 text-xs text-muted-foreground">Queued, waiting for worker...</p>
+                                            <p className="text-[11px] text-muted-foreground">Queued, waiting for worker…</p>
                                         )}
                                         {(item.status === "downloading" || item.status === "paused" || item.status === "processing") && (
-                                            <div className="mt-3 flex items-center gap-3 max-w-[360px]">
+                                            <div className="flex items-center gap-2">
                                                 <Progress value={item.status === "processing" ? 100 : (item.progress ?? 0)} className="h-1.5 flex-1 bg-muted/80" />
                                                 <motion.span
                                                     key={`${item.id}-${item.status}-${Math.round(item.progress || 0)}`}
                                                     initial={{ opacity: 0.55, y: 2 }}
                                                     animate={{ opacity: 1, y: 0 }}
                                                     transition={{ duration: 0.16 }}
-                                                    className="text-xs font-bold text-primary w-9"
+                                                    className="text-[11px] font-bold text-primary w-10 text-right flex-shrink-0"
                                                 >
                                                     {item.status === "processing" ? "100%" : `${Math.round(item.progress || 0)}%`}
                                                 </motion.span>
                                             </div>
                                         )}
+                                        {item.formats && item.formats.length > 0 && !['queued', 'downloading', 'processing', 'paused', 'completed', 'cancelled'].includes(item.status) && (
+                                            <div className="flex items-center gap-1.5 w-full" onClick={stop}>
+                                                {item.needsReview && item.status === "pending" && (
+                                                    <Tooltip>
+                                                        <TooltipTrigger className="flex-shrink-0 text-amber-500 hover:text-amber-400 cursor-help">
+                                                            <AlertCircle className="w-4 h-4" />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent className="max-w-[260px]">
+                                                            {item.reviewReason || "Pick a format manually"}
+                                                        </TooltipContent>
+                                                    </Tooltip>
+                                                )}
+                                                <select
+                                                    value={item.selectedFormat || ""}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        setQueue(prev => prev.map(q => q.id === item.id ? { ...q, selectedFormat: val, needsReview: false, reviewReason: undefined } : q));
+                                                    }}
+                                                    className="h-7 flex-1 min-w-0 rounded-md border border-input bg-transparent px-2 py-1 text-[11px] shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                >
+                                                    <option value="">Best available (auto)</option>
+                                                    <option value="audio">🎵 Audio Only (MP3)</option>
+                                                    {item.formats.slice(0, 8).map(fmt => (
+                                                        <option key={fmt.formatId} value={fmt.formatId}>
+                                                            {fmt.label}{fmt.filesize ? ` (~${(fmt.filesize / (1024 * 1024)).toFixed(0)}MB)` : ''}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        )}
                                     </div>
 
-                                    <div className="w-[220px] flex flex-col items-end gap-2">
-                                        {item.formats && item.formats.length > 0 && !['queued', 'downloading', 'processing', 'paused', 'completed', 'cancelled'].includes(item.status) && (
-                                            <select
-                                                value={item.selectedFormat || ""}
-                                                onChange={(e) => {
-                                                    const val = e.target.value;
-                                                    setQueue(prev => prev.map(q => q.id === item.id ? { ...q, selectedFormat: val } : q));
-                                                }}
-                                                className="h-7 w-full rounded-md border border-input bg-transparent px-2 py-1 text-[11px] shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                            >
-                                                <option value="">Best Quality (default)</option>
-                                                <option value="audio">🎵 Audio Only (MP3)</option>
-                                                {item.formats.slice(0, 8).map(fmt => (
-                                                    <option key={fmt.formatId} value={fmt.formatId}>
-                                                        {fmt.label}{fmt.filesize ? ` (~${(fmt.filesize / (1024 * 1024)).toFixed(0)}MB)` : ''}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        )}
-
-                                        <div className="flex flex-wrap justify-end gap-1.5">
+                                    <div className="flex items-center gap-1 flex-shrink-0 self-start" onClick={stop}>
                                             {item.status === 'pending' && (
-                                                <Button
-                                                    size="sm"
-                                                    variant="default"
-                                                    className="h-7 px-3 text-[10px] gap-1.5 rounded-lg shadow-sm"
-                                                    onClick={() => startDownloadJob(item.id)}
-                                                    disabled={retryingQueueIds.has(item.id)}
-                                                >
-                                                    <DownloadCloud className="w-3 h-3" />
-                                                    Download
-                                                </Button>
+                                                <Tooltip>
+                                                    <TooltipTrigger
+                                                        className={cn(buttonVariants({ variant: "default", size: "icon" }), "h-7 w-7 flex-shrink-0", retryingQueueIds.has(item.id) && "opacity-50 pointer-events-none")}
+                                                        onClick={() => startDownloadJob(item.id)}
+                                                    >
+                                                        <DownloadCloud className="w-3.5 h-3.5" />
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>Download</TooltipContent>
+                                                </Tooltip>
                                             )}
                                             {item.status === 'downloading' && item.jobId && (
                                                 <>
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="h-6 text-[10px] px-2"
-                                                        onClick={async () => {
-                                                            await fetch(`/api/download/${item.jobId}`, {
-                                                                method: "PATCH",
-                                                                headers: { "Content-Type": "application/json" },
-                                                                body: JSON.stringify({ action: "pause" }),
-                                                            });
-                                                            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "paused" } : q));
-                                                        }}
-                                                    >
-                                                        Pause
-                                                    </Button>
-                                                    <Button
-                                                        variant="destructive"
-                                                        size="sm"
-                                                        className="h-6 text-[10px] px-2"
-                                                        onClick={async () => {
-                                                            await fetch(`/api/download/${item.jobId}`, {
-                                                                method: "PATCH",
-                                                                headers: { "Content-Type": "application/json" },
-                                                                body: JSON.stringify({ action: "cancel" }),
-                                                            });
-                                                            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "cancelled", errorText: "Cancelled by user" } : q));
-                                                        }}
-                                                    >
-                                                        Cancel
-                                                    </Button>
+                                                    <Tooltip>
+                                                        <TooltipTrigger
+                                                            className={iconBtnOutline}
+                                                            onClick={async () => {
+                                                                await fetch(`/api/download/${item.jobId}`, {
+                                                                    method: "PATCH",
+                                                                    headers: { "Content-Type": "application/json" },
+                                                                    body: JSON.stringify({ action: "pause" }),
+                                                                });
+                                                                setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "paused" } : q));
+                                                            }}
+                                                        >
+                                                            <Pause className="w-3.5 h-3.5" />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>Pause</TooltipContent>
+                                                    </Tooltip>
+                                                    <Tooltip>
+                                                        <TooltipTrigger
+                                                            className={iconBtnDestructive}
+                                                            onClick={async () => {
+                                                                await fetch(`/api/download/${item.jobId}`, {
+                                                                    method: "PATCH",
+                                                                    headers: { "Content-Type": "application/json" },
+                                                                    body: JSON.stringify({ action: "cancel" }),
+                                                                });
+                                                                setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "cancelled", errorText: "Cancelled by user" } : q));
+                                                            }}
+                                                        >
+                                                            <Ban className="w-3.5 h-3.5" />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>Cancel</TooltipContent>
+                                                    </Tooltip>
                                                 </>
                                             )}
                                             {item.status === 'paused' && item.jobId && (
                                                 <>
-                                                    <Button
-                                                        size="sm"
-                                                        className="h-6 text-[10px] px-2"
-                                                        onClick={async () => {
-                                                            await fetch(`/api/download/${item.jobId}`, {
-                                                                method: "PATCH",
-                                                                headers: { "Content-Type": "application/json" },
-                                                                body: JSON.stringify({ action: "resume" }),
-                                                            });
-                                                            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "downloading" } : q));
-                                                        }}
-                                                    >
-                                                        Resume
-                                                    </Button>
-                                                    <Button
-                                                        variant="destructive"
-                                                        size="sm"
-                                                        className="h-6 text-[10px] px-2"
-                                                        onClick={async () => {
-                                                            await fetch(`/api/download/${item.jobId}`, {
-                                                                method: "PATCH",
-                                                                headers: { "Content-Type": "application/json" },
-                                                                body: JSON.stringify({ action: "cancel" }),
-                                                            });
-                                                            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "cancelled", errorText: "Cancelled by user" } : q));
-                                                        }}
-                                                    >
-                                                        Cancel
-                                                    </Button>
+                                                    <Tooltip>
+                                                        <TooltipTrigger
+                                                            className={cn(buttonVariants({ variant: "default", size: "icon" }), "h-7 w-7 flex-shrink-0")}
+                                                            onClick={async () => {
+                                                                await fetch(`/api/download/${item.jobId}`, {
+                                                                    method: "PATCH",
+                                                                    headers: { "Content-Type": "application/json" },
+                                                                    body: JSON.stringify({ action: "resume" }),
+                                                                });
+                                                                setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "downloading" } : q));
+                                                            }}
+                                                        >
+                                                            <Play className="w-3.5 h-3.5" />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>Resume</TooltipContent>
+                                                    </Tooltip>
+                                                    <Tooltip>
+                                                        <TooltipTrigger
+                                                            className={iconBtnDestructive}
+                                                            onClick={async () => {
+                                                                await fetch(`/api/download/${item.jobId}`, {
+                                                                    method: "PATCH",
+                                                                    headers: { "Content-Type": "application/json" },
+                                                                    body: JSON.stringify({ action: "cancel" }),
+                                                                });
+                                                                setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "cancelled", errorText: "Cancelled by user" } : q));
+                                                            }}
+                                                        >
+                                                            <Ban className="w-3.5 h-3.5" />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>Cancel</TooltipContent>
+                                                    </Tooltip>
                                                 </>
                                             )}
                                             {(item.status === 'error' || item.status === 'cancelled') && (
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="h-6 text-[10px] px-2"
-                                                    onClick={() => startDownloadJob(item.id)}
-                                                    disabled={retryingQueueIds.has(item.id)}
-                                                >
-                                                    {retryingQueueIds.has(item.id) ? "Retrying..." : "Try Again"}
-                                                </Button>
+                                                <Tooltip>
+                                                    <TooltipTrigger
+                                                        className={cn(iconBtnOutline, retryingQueueIds.has(item.id) && "opacity-50 pointer-events-none")}
+                                                        onClick={() => startDownloadJob(item.id)}
+                                                    >
+                                                        <RotateCcw className="w-3.5 h-3.5" />
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>{retryingQueueIds.has(item.id) ? "Retrying…" : "Retry"}</TooltipContent>
+                                                </Tooltip>
                                             )}
-                                        </div>
                                     </div>
                                 </div>
-                            ))
+                                );
+                            })
                         )}
                     </div>
                 </div>
