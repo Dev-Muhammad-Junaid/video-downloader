@@ -106,6 +106,7 @@ async function persistJob(job: DownloadJob, extra?: Partial<{
     duration: number;
     formatId: string;
     formatLabel: string;
+    profileName: string;
     qualityPreset: string;
     duplicatePolicy: string;
 }>) {
@@ -123,6 +124,7 @@ async function persistJob(job: DownloadJob, extra?: Partial<{
                 duration: extra?.duration,
                 formatId: extra?.formatId,
                 formatLabel: extra?.formatLabel,
+                profileName: extra?.profileName,
                 qualityPreset: extra?.qualityPreset,
                 duplicatePolicy: extra?.duplicatePolicy ?? "keep-both",
                 status: job.status,
@@ -145,6 +147,7 @@ async function persistJob(job: DownloadJob, extra?: Partial<{
                 ...(extra?.duration !== undefined ? { duration: extra.duration } : {}),
                 ...(extra?.formatId ? { formatId: extra.formatId } : {}),
                 ...(extra?.formatLabel ? { formatLabel: extra.formatLabel } : {}),
+                ...(extra?.profileName ? { profileName: extra.profileName } : {}),
                 ...(extra?.qualityPreset ? { qualityPreset: extra.qualityPreset } : {}),
                 ...(extra?.duplicatePolicy ? { duplicatePolicy: extra.duplicatePolicy } : {}),
             },
@@ -172,6 +175,7 @@ export async function getAllJobs() {
             duration: job.duration ?? undefined,
             sourcePlatform: job.sourcePlatform ?? undefined,
             formatLabel: job.formatLabel ?? undefined,
+            profileName: job.profileName ?? undefined,
             downloadPath: live?.downloadPath || job.downloadPath || undefined,
             error: live?.error ?? job.error ?? undefined,
             completedAt: live?.completedAt ?? (job.completedAt ? job.completedAt.getTime() : undefined),
@@ -191,12 +195,40 @@ export async function clearCompletedJobs() {
 }
 
 export async function clearAllJobs() {
+    // Cancel every running/paused/queued job first (this finalizes their logs).
     for (const [id, job] of activeDownloads) {
         if (job.status === "downloading" || job.status === "processing" || job.status === "queued" || job.status === "paused") {
             await cancelJob(id);
         }
         activeDownloads.delete(id);
     }
+
+    // Any queue rows in "downloading/queued/paused/processing" that don't have an in-memory job
+    // (e.g. after a server restart) would leak logs too — mark their logs cancelled before we
+    // wipe the queue rows.
+    try {
+        const staleQueueJobs = await prisma.downloadQueueJob.findMany({
+            where: { status: { in: ["downloading", "processing", "queued", "paused"] } },
+            select: { url: true },
+        });
+        const staleUrls = [...new Set(staleQueueJobs.map((j) => j.url).filter(Boolean))];
+        if (staleUrls.length > 0) {
+            await prisma.downloadLog.updateMany({
+                where: {
+                    url: { in: staleUrls },
+                    status: { in: ["downloading", "processing"] },
+                },
+                data: {
+                    status: "cancelled",
+                    errorMessage: "Queue cleared",
+                    completedAt: new Date(),
+                },
+            });
+        }
+    } catch (err) {
+        console.warn("[Queue] Failed to finalize stale logs on clear:", err);
+    }
+
     await prisma.downloadQueueJob.deleteMany();
 }
 
@@ -242,8 +274,9 @@ export async function resumeJob(id: string) {
 
 export async function cancelJob(id: string) {
     const proc = jobProcesses.get(id);
-    if (proc && proc.pid) {
-        process.kill(proc.pid, "SIGTERM");
+    const hadProcess = !!(proc && proc.pid);
+    if (hadProcess) {
+        process.kill(proc!.pid!, "SIGTERM");
         jobProcesses.delete(id);
     }
     const controller = jobAbortControllers.get(id);
@@ -267,6 +300,27 @@ export async function cancelJob(id: string) {
                 completedAt: new Date(),
             },
         });
+    }
+
+    // Finalize any stale download-log entries for this URL that are still "downloading"/"processing".
+    // The process "close" handler updates the log if a process was running, but paused/queued jobs
+    // never had a running process to close, so their log entries would otherwise stay stuck.
+    if (!hadProcess) {
+        try {
+            const queueJob = await prisma.downloadQueueJob.findUnique({ where: { id } });
+            if (queueJob?.url) {
+                await prisma.downloadLog.updateMany({
+                    where: { url: queueJob.url, status: { in: ["downloading", "processing"] } },
+                    data: {
+                        status: "cancelled",
+                        errorMessage: "Cancelled by user",
+                        completedAt: new Date(),
+                    },
+                });
+            }
+        } catch (err) {
+            console.warn("[Queue] Failed to finalize log on cancel:", err);
+        }
     }
 }
 
@@ -435,6 +489,8 @@ export async function startDownload(
     existingJobId?: string,
     thumbnailUrl?: string,
     duration?: number,
+    profileName?: string,
+    formatLabel?: string,
 ) {
     try {
         const parsedUrl = new URL(url);
@@ -472,19 +528,18 @@ export async function startDownload(
         thumbnailUrl: thumbnailUrl || imageUrl,
         duration,
         formatId,
+        formatLabel,
+        profileName,
         qualityPreset,
         duplicatePolicy: "skip",
         ...(profileId ? { qualityPreset: `profile:${profileId}` } : {}),
     });
 
-    if (isDuplicate && !existingJobId) {
-        job.status = "completed";
-        job.error = "Skipped — URL already in library (labeled as Duplicate)";
-        job.completedAt = Date.now();
-        activeDownloads.set(id, job);
-        await persistJob(job);
-        return job;
-    }
+    // Note: we used to short-circuit here with `job.status = "completed"` when the URL
+    // already existed in the library. That prevented the user from re-downloading the
+    // same URL with a different format/profile. Now we just label the existing library
+    // item (via `checkAndLabelDuplicate` above) and proceed with the new download.
+    void isDuplicate;
 
     const startTime = Date.now();
 

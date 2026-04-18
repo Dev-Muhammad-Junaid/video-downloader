@@ -57,6 +57,7 @@ model DownloadProfile {
   
   autoCloudSync   Boolean  @default(false)
   requireManualFormat Boolean @default(false)
+  strictResolution Boolean @default(false) // if true, require EXACT match on maxResolution (e.g. "4K Only" means only 2160p)
   
   isActive        Boolean  @default(true)
   priority        Int      @default(0)
@@ -94,6 +95,7 @@ model DownloadQueueJob {
   duration         Float?
   formatId         String?
   formatLabel      String?
+  profileName      String?
   qualityPreset    String?
   duplicatePolicy  String   @default("keep-both") // "skip" | "replace" | "keep-both"
   status           String   // "pending" | "queued" | "downloading" | "processing" | "paused" | "completed" | "error" | "cancelled"
