@@ -31,6 +31,7 @@ export async function GET(
             status: video.transcriptStatus ?? "none",
             text: video.transcriptText ?? null,
             hasVtt: !!video.transcriptPath,
+            vttPath: video.transcriptPath ?? null,
         });
     } catch (err: any) {
         return NextResponse.json({ error: err.message }, { status: 500 });
@@ -47,12 +48,22 @@ export async function POST(
     try {
         const body = await req.json().catch(() => ({}));
         const settings = getServerSettings();
-        const apiKey: string = body.apiKey || settings.openaiApiKey || process.env.OPENAI_API_KEY || "";
+        const provider = body.provider || settings.transcriptionProvider || "openai";
+        const apiKey: string =
+            body.apiKey ||
+            (provider === "groq"
+                ? (settings.groqApiKey || process.env.GROQ_API_KEY || "")
+                : (settings.openaiApiKey || process.env.OPENAI_API_KEY || ""));
         const language: string | undefined = body.language || settings.whisperLanguage || undefined;
 
         if (!apiKey) {
             return NextResponse.json(
-                { error: "No OpenAI API key provided. Add it in Settings." },
+                {
+                    error:
+                        provider === "groq"
+                            ? "No Groq API key provided. Add it in Settings."
+                            : "No OpenAI API key provided. Add it in Settings.",
+                },
                 { status: 400 }
             );
         }
@@ -74,7 +85,7 @@ export async function POST(
         }
 
         // Run in background — don't await, respond immediately
-        transcribeAndSave(id, apiKey, language).catch((err) => {
+        transcribeAndSave(id, apiKey, language, provider).catch((err) => {
             console.error(`[Transcription] Failed for ${id}:`, err.message);
         });
 

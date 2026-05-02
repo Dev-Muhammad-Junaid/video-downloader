@@ -25,6 +25,15 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Profile name is required" }, { status: 400 });
         }
 
+        // If user marks this as default, demote any existing default (priority -1) first.
+        const isDefault = !!data.isDefault || parseInt(data.priority || "0") === -1;
+        if (isDefault) {
+            await prisma.downloadProfile.updateMany({
+                where: { priority: -1 },
+                data: { priority: 0 },
+            });
+        }
+
         const profile = await prisma.downloadProfile.create({
             data: {
                 name: data.name,
@@ -32,14 +41,20 @@ export async function POST(req: Request) {
                 maxResolution: data.maxResolution || "best",
                 preferredFormat: data.preferredFormat || "mp4",
                 autoCloudSync: !!data.autoCloudSync,
+                requireManualFormat: !!data.requireManualFormat,
+                strictResolution: !!data.strictResolution,
                 isActive: data.isActive !== false,
-                priority: parseInt(data.priority || "0"),
+                priority: isDefault ? -1 : parseInt(data.priority || "0"),
             }
         });
 
         return NextResponse.json(profile);
     } catch (error: any) {
         console.error("Failed to create profile:", error);
-        return NextResponse.json({ error: "Failed to create profile" }, { status: 500 });
+        // Surface Prisma's actual message (e.g. unique constraint on name) so the UI can show it.
+        const message = error?.code === "P2002"
+            ? `A profile named "${error?.meta?.target ? error.meta.target.join(", ") : "this"}" already exists`
+            : (error?.message || "Failed to create profile");
+        return NextResponse.json({ error: message, code: error?.code }, { status: 500 });
     }
 }

@@ -191,6 +191,19 @@ export function MediaPlayerModal({
                                 alt={video.title}
                                 className="w-full h-full object-contain"
                             />
+                        ) : video.mediaType === "audio" ? (
+                            <div className="flex flex-col items-center justify-center gap-4 p-8">
+                                <div className="w-24 h-24 rounded-full bg-muted/30 flex items-center justify-center">
+                                    <Mic className="w-12 h-12 text-muted-foreground/40" />
+                                </div>
+                                <audio
+                                    key={video.id}
+                                    src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
+                                    controls
+                                    autoPlay
+                                    className="w-full max-w-md"
+                                />
+                            </div>
                         ) : (
                             <video
                                 ref={videoRef}
@@ -257,7 +270,7 @@ export function MediaPlayerModal({
                             )}
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Badge variant="secondary" className="text-[10px]">
-                                    {video.mediaType === "image" ? "Image" : "Video"}
+                                    {video.mediaType === "image" ? "Image" : video.mediaType === "audio" ? "Audio" : "Video"}
                                 </Badge>
                                 {video.cloudKey && (
                                     <Badge variant="secondary" className="text-[10px] text-emerald-500">
@@ -364,13 +377,38 @@ export function MediaPlayerModal({
                             )}
 
                             {(!video.mediaType || video.mediaType === "video") ? (
-                                <Button
-                                    variant="outline"
-                                    className="w-full h-9 text-xs"
-                                    onClick={() => setIsEditingMedia(true)}
-                                >
-                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Video
-                                </Button>
+                                <>
+                                    <Button
+                                        variant="outline"
+                                        className="w-full h-9 text-xs"
+                                        onClick={() => setIsEditingMedia(true)}
+                                    >
+                                        <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Video
+                                    </Button>
+                                    {video.localPath && !video.localPath.toLowerCase().endsWith(".mp4") && (
+                                        <Button
+                                            variant="outline"
+                                            className="w-full h-9 text-xs"
+                                            onClick={async () => {
+                                                const toastId = toast.loading("Converting to MP4...");
+                                                try {
+                                                    const res = await fetch("/api/library/edit", {
+                                                        method: "POST",
+                                                        headers: { "Content-Type": "application/json" },
+                                                        body: JSON.stringify({ videoId: video.id, action: "convert-mp4", params: {} }),
+                                                    });
+                                                    if (!res.ok) throw new Error((await res.json()).error || "Conversion failed");
+                                                    toast.success("Converted to MP4!", { id: toastId });
+                                                    onRefreshLibrary?.();
+                                                } catch (err: any) {
+                                                    toast.error(err.message, { id: toastId });
+                                                }
+                                            }}
+                                        >
+                                            <FileText className="w-3.5 h-3.5 mr-1.5" /> Convert to MP4
+                                        </Button>
+                                    )}
+                                </>
                             ) : video.mediaType === "image" ? (
                                 <Button
                                     variant="outline"
@@ -379,15 +417,15 @@ export function MediaPlayerModal({
                                 >
                                     <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Image (Coming Soon)
                                 </Button>
-                            ) : (
+                            ) : video.mediaType === "audio" ? (
                                 <Button
                                     variant="outline"
-                                    className="w-full h-9 text-xs opacity-50 cursor-not-allowed"
-                                    disabled
+                                    className="w-full h-9 text-xs"
+                                    onClick={() => setIsEditingMedia(true)}
                                 >
-                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Audio (Coming Soon)
+                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Trim Audio
                                 </Button>
-                            )}
+                            ) : null}
                             <div className="grid grid-cols-2 gap-2">
                                 <Button
                                     variant="outline"

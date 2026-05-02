@@ -14,6 +14,8 @@ interface ServerSettings {
         storageLimit?: number; // in GB, default 10
     };
     openaiApiKey?: string;
+    groqApiKey?: string;
+    transcriptionProvider?: "openai" | "groq";
     whisperLanguage?: string;
     watchFolder?: string;
 }

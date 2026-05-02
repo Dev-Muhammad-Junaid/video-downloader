@@ -2,16 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { transcribeAndSave } from "@/lib/transcription";
 import fs from "fs";
+import { getServerSettings } from "@/lib/settings";
 
 // POST /api/transcription/backfill — transcribe all videos that don't have a transcript yet
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json().catch(() => ({}));
-        const apiKey: string = body.apiKey || process.env.OPENAI_API_KEY || "";
+        const settings = getServerSettings();
+        const provider = body.provider || settings.transcriptionProvider || "openai";
+        const apiKey: string =
+            body.apiKey ||
+            (provider === "groq"
+                ? (settings.groqApiKey || process.env.GROQ_API_KEY || "")
+                : (settings.openaiApiKey || process.env.OPENAI_API_KEY || ""));
+        const language: string | undefined = body.language || settings.whisperLanguage || undefined;
 
         if (!apiKey) {
             return NextResponse.json(
-                { error: "No OpenAI API key provided. Add it in Settings." },
+                {
+                    error:
+                        provider === "groq"
+                            ? "No Groq API key provided. Add it in Settings."
+                            : "No OpenAI API key provided. Add it in Settings.",
+                },
                 { status: 400 }
             );
         }
@@ -50,7 +63,7 @@ export async function POST(req: NextRequest) {
         (async () => {
             for (const video of existing) {
                 try {
-                    await transcribeAndSave(video.id, apiKey);
+                    await transcribeAndSave(video.id, apiKey, language, provider);
                     console.log(`[Backfill] Transcribed: ${video.title}`);
                 } catch (err: any) {
                     console.error(`[Backfill] Failed ${video.id}: ${err.message}`);

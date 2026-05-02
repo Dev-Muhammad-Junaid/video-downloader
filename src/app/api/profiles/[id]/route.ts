@@ -7,6 +7,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         const data = await req.json();
         const { id } = await params;
 
+        const isDefault = !!data.isDefault || (data.priority != null && parseInt(data.priority) === -1);
+        if (isDefault) {
+            await prisma.downloadProfile.updateMany({
+                where: { priority: -1, NOT: { id } },
+                data: { priority: 0 },
+            });
+        }
+
         const profile = await prisma.downloadProfile.update({
             where: { id },
             data: {
@@ -15,15 +23,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
                 maxResolution: data.maxResolution,
                 preferredFormat: data.preferredFormat,
                 autoCloudSync: data.autoCloudSync,
+                requireManualFormat: data.requireManualFormat,
+                strictResolution: data.strictResolution,
                 isActive: data.isActive,
-                priority: data.priority != null ? parseInt(data.priority) : undefined,
+                priority: isDefault ? -1 : (data.priority != null ? parseInt(data.priority) : undefined),
             }
         });
 
         return NextResponse.json(profile);
     } catch (error: any) {
         console.error("Failed to update profile:", error);
-        return NextResponse.json({ error: "Failed to update profile" }, { status: 500 });
+        const message = error?.code === "P2002"
+            ? "A profile with that name already exists"
+            : (error?.message || "Failed to update profile");
+        return NextResponse.json({ error: message, code: error?.code }, { status: 500 });
     }
 }
 
@@ -32,12 +45,6 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     try {
         const { id } = await params;
         
-        // Don't allow deleting the default profile if it's named "Default Profile"
-        const check = await prisma.downloadProfile.findUnique({ where: { id } });
-        if (check?.name === "Default Profile") {
-            return NextResponse.json({ error: "Cannot delete the default profile" }, { status: 400 });
-        }
-
         await prisma.downloadProfile.delete({ where: { id } });
         return NextResponse.json({ success: true });
     } catch (error: any) {

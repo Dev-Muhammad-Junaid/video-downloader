@@ -3,23 +3,35 @@ import { getServerSettings, updateServerSetting } from "@/lib/settings";
 
 export async function GET() {
     const settings = getServerSettings();
-    // Mask the API key for display — only show last 4 chars
-    const maskedKey = settings.openaiApiKey
+    // Mask API keys for display — only show last 4 chars
+    const maskedOpenAiKey = settings.openaiApiKey
         ? `sk-...${settings.openaiApiKey.slice(-4)}`
         : "";
+    const maskedGroqKey = settings.groqApiKey
+        ? `gsk_...${settings.groqApiKey.slice(-4)}`
+        : "";
     return NextResponse.json({
-        openaiApiKey: maskedKey,
-        hasKey: !!settings.openaiApiKey,
+        provider: settings.transcriptionProvider || "openai",
+        openaiApiKey: maskedOpenAiKey,
+        groqApiKey: maskedGroqKey,
+        hasOpenAiKey: !!settings.openaiApiKey,
+        hasGroqKey: !!settings.groqApiKey,
         whisperLanguage: settings.whisperLanguage || "",
     });
 }
 
 export async function POST(req: Request) {
     try {
-        const { openaiApiKey, whisperLanguage } = await req.json();
+        const { openaiApiKey, groqApiKey, provider, whisperLanguage } = await req.json();
 
         if (openaiApiKey !== undefined) {
             updateServerSetting("openaiApiKey", openaiApiKey);
+        }
+        if (groqApiKey !== undefined) {
+            updateServerSetting("groqApiKey", groqApiKey);
+        }
+        if (provider !== undefined) {
+            updateServerSetting("transcriptionProvider", provider);
         }
         if (whisperLanguage !== undefined) {
             updateServerSetting("whisperLanguage", whisperLanguage);

@@ -15,10 +15,12 @@ import {
     X,
     ChevronUp,
     ChevronDown,
+    Download,
 } from "lucide-react";
 import {
     Subtitle,
     parseSrtTime,
+    formatSrtTime,
     displayTime,
     shiftTime,
     subtitlesToSrt,
@@ -48,6 +50,7 @@ export function SubtitleEditor({
     const [findText, setFindText] = useState("");
     const [replaceText, setReplaceText] = useState("");
     const [showTimingOffset, setShowTimingOffset] = useState(false);
+    const [timingOffsetMs, setTimingOffsetMs] = useState(0);
     const [copied, setCopied] = useState(false);
     const [activeId, setActiveId] = useState<number | null>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -158,6 +161,29 @@ export function SubtitleEditor({
         return () => document.removeEventListener("keydown", handler);
     }, [activeId, filteredSubtitles, onSeek]);
 
+    // Edit per-cue timing
+    const handleTimeChange = useCallback(
+        (id: number, field: "start" | "end", value: string) => {
+            const updated = subtitles.map((s) =>
+                s.id === id ? { ...s, [field]: value } : s
+            );
+            onSubtitlesChange(updated);
+        },
+        [subtitles, onSubtitlesChange]
+    );
+
+    // Export subtitles as SRT file download
+    const handleExportSrt = useCallback(() => {
+        const srt = subtitlesToSrt(subtitles);
+        const blob = new Blob([srt], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "subtitles.srt";
+        a.click();
+        URL.revokeObjectURL(url);
+    }, [subtitles]);
+
     // Edit subtitle text
     const handleTextChange = useCallback(
         (id: number, newText: string) => {
@@ -199,12 +225,13 @@ export function SubtitleEditor({
             end: shiftTime(s.end, deltaMs),
         }));
         onSubtitlesChange(updated);
+        setTimingOffsetMs((prev) => prev + deltaMs);
     };
 
     return (
-        <div className="flex flex-col h-full bg-neutral-950 border-l border-white/10">
+        <div className="flex flex-col h-full bg-background border-l border-border">
             {/* Toolbar */}
-            <div className="border-b border-white/10 bg-neutral-900/80 backdrop-blur-sm shrink-0">
+            <div className="border-b border-border bg-card/90 backdrop-blur-sm shrink-0">
                 <div className="h-12 flex items-center justify-between px-3 gap-2">
                     <div className="flex items-center gap-1.5">
                         <button
@@ -214,8 +241,8 @@ export function SubtitleEditor({
                             className={cn(
                                 "px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors",
                                 showReviewQueue
-                                    ? "bg-white text-black"
-                                    : "bg-white/10 text-white/70 hover:bg-white/15 hover:text-white"
+                                    ? "bg-primary text-primary-foreground"
+                                    : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
                             )}
                         >
                             <ListTodo className="w-3.5 h-3.5" />
@@ -226,7 +253,7 @@ export function SubtitleEditor({
                                 </span>
                             )}
                         </button>
-                        <span className="text-[10px] text-white/30 font-mono tabular-nums ml-1 hidden lg:inline">
+                        <span className="text-[10px] text-muted-foreground font-mono tabular-nums ml-1 hidden lg:inline">
                             {subtitles.length} subs · {totalWords}w ·{" "}
                             {statsMins}m {String(statsSecs).padStart(2, "0")}s
                         </span>
@@ -241,8 +268,8 @@ export function SubtitleEditor({
                             className={cn(
                                 "p-1.5 rounded-md transition-colors",
                                 showTimingOffset
-                                    ? "bg-white/15 text-white"
-                                    : "text-white/40 hover:text-white/70 hover:bg-white/10"
+                                    ? "bg-muted text-foreground"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
                             )}
                             title="Timing offset"
                         >
@@ -257,8 +284,8 @@ export function SubtitleEditor({
                             className={cn(
                                 "p-1.5 rounded-md transition-colors",
                                 showFindReplace
-                                    ? "bg-white/15 text-white"
-                                    : "text-white/40 hover:text-white/70 hover:bg-white/10"
+                                    ? "bg-muted text-foreground"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
                             )}
                             title="Find & Replace"
                         >
@@ -268,7 +295,7 @@ export function SubtitleEditor({
                         {/* Copy transcript */}
                         <button
                             onClick={handleCopyTranscript}
-                            className="p-1.5 rounded-md text-white/40 hover:text-white/70 hover:bg-white/10 transition-colors"
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                             title="Copy transcript"
                         >
                             {copied ? (
@@ -277,24 +304,33 @@ export function SubtitleEditor({
                                 <Copy className="w-3.5 h-3.5" />
                             )}
                         </button>
+
+                        {/* Export SRT */}
+                        <button
+                            onClick={handleExportSrt}
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            title="Export as .srt file"
+                        >
+                            <Download className="w-3.5 h-3.5" />
+                        </button>
                     </div>
                 </div>
 
                 {/* Search bar */}
                 <div className="px-3 pb-2">
                     <div className="relative">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                         <input
                             type="text"
                             placeholder="Search subtitles..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full pl-8 pr-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder:text-white/25 outline-none focus:border-white/25 focus:bg-white/8 transition-all"
+                            className="w-full pl-8 pr-3 py-1.5 bg-muted/50 border border-border rounded-lg text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-1 focus:ring-ring transition-all"
                         />
                         {searchQuery && (
                             <button
                                 onClick={() => setSearchQuery("")}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                             >
                                 <X className="w-3 h-3" />
                             </button>
@@ -310,23 +346,35 @@ export function SubtitleEditor({
                             animate={{ height: "auto", opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
                             transition={{ duration: 0.2 }}
-                            className="overflow-hidden border-t border-white/10"
+                            className="overflow-hidden border-t border-border"
                         >
                             <div className="px-3 py-2.5 flex items-center gap-2 flex-wrap">
-                                <span className="text-[10px] text-white/40 font-medium uppercase tracking-wider">
+                                <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
                                     Shift All:
+                                </span>
+                                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-background border border-border text-foreground">
+                                    Current: {timingOffsetMs > 0 ? `+${timingOffsetMs}` : timingOffsetMs}ms
                                 </span>
                                 {[-1000, -500, -100, 100, 500, 1000].map(
                                     (ms) => (
                                         <button
                                             key={ms}
                                             onClick={() => shiftAllTimings(ms)}
-                                            className="px-2 py-0.5 rounded text-[10px] font-mono bg-white/5 border border-white/10 text-white/60 hover:bg-white/10 hover:text-white transition-colors"
+                                            className="px-2 py-0.5 rounded text-[10px] font-mono bg-muted/60 border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
                                         >
                                             {ms > 0 ? `+${ms}` : ms}ms
                                         </button>
                                     )
                                 )}
+                                <button
+                                    onClick={() => {
+                                        if (timingOffsetMs !== 0) shiftAllTimings(-timingOffsetMs);
+                                    }}
+                                    disabled={timingOffsetMs === 0}
+                                    className="px-2 py-0.5 rounded text-[10px] font-mono bg-primary/10 border border-primary/20 text-primary hover:bg-primary/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Reset
+                                </button>
                             </div>
                         </motion.div>
                     )}
@@ -340,7 +388,7 @@ export function SubtitleEditor({
                             animate={{ height: "auto", opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
                             transition={{ duration: 0.2 }}
-                            className="overflow-hidden border-t border-white/10"
+                            className="overflow-hidden border-t border-border"
                         >
                             <div className="px-3 py-2.5 space-y-2">
                                 <div className="flex gap-2 items-center">
@@ -351,10 +399,10 @@ export function SubtitleEditor({
                                         onChange={(e) =>
                                             setFindText(e.target.value)
                                         }
-                                        className="flex-1 px-2.5 py-1 bg-white/5 border border-white/10 rounded text-xs text-white placeholder:text-white/25 outline-none focus:border-white/25 transition-all"
+                                        className="flex-1 px-2.5 py-1 bg-muted/50 border border-border rounded text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring transition-all"
                                     />
                                     {findText && (
-                                        <span className="text-[10px] text-white/40 tabular-nums shrink-0">
+                                        <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
                                             {findMatchCount} found
                                         </span>
                                     )}
@@ -367,14 +415,14 @@ export function SubtitleEditor({
                                         onChange={(e) =>
                                             setReplaceText(e.target.value)
                                         }
-                                        className="flex-1 px-2.5 py-1 bg-white/5 border border-white/10 rounded text-xs text-white placeholder:text-white/25 outline-none focus:border-white/25 transition-all"
+                                        className="flex-1 px-2.5 py-1 bg-muted/50 border border-border rounded text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring transition-all"
                                     />
                                     <button
                                         onClick={handleReplaceAll}
                                         disabled={
                                             !findText || findMatchCount === 0
                                         }
-                                        className="px-3 py-1 rounded text-xs font-medium bg-white text-black hover:bg-white/90 disabled:opacity-30 disabled:cursor-not-allowed transition-all shrink-0"
+                                        className="px-3 py-1 rounded text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed transition-all shrink-0"
                                     >
                                         Replace All
                                     </button>
@@ -392,17 +440,17 @@ export function SubtitleEditor({
             >
                 {filteredSubtitles.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-center px-6 py-12">
-                        <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center mb-3">
-                            <ListTodo className="w-6 h-6 text-white/20" />
+                        <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+                            <ListTodo className="w-6 h-6 text-muted-foreground/50" />
                         </div>
-                        <p className="text-sm text-white/40 font-medium">
+                        <p className="text-sm text-muted-foreground font-medium">
                             {searchQuery
                                 ? "No subtitles match your search"
                                 : showReviewQueue
                                   ? "No subtitles need review"
                                   : "No subtitles available"}
                         </p>
-                        <p className="text-xs text-white/20 mt-1">
+                        <p className="text-xs text-muted-foreground/70 mt-1">
                             {!searchQuery && !showReviewQueue
                                 ? "Transcribe the video first to generate subtitles"
                                 : ""}
@@ -428,23 +476,52 @@ export function SubtitleEditor({
                                     className={cn(
                                         "group rounded-lg p-2.5 cursor-pointer transition-all duration-200 border",
                                         isActive
-                                            ? "bg-white/10 border-white/20 shadow-sm"
-                                            : "bg-transparent border-transparent hover:bg-white/5 hover:border-white/10"
+                                            ? "bg-muted border-border shadow-sm"
+                                            : "bg-transparent border-transparent hover:bg-muted/50 hover:border-border/60"
                                     )}
                                 >
-                                    {/* Time range */}
+                                    {/* Time range — click to edit */}
                                     <div className="flex items-center justify-between mb-1.5">
-                                        <span className="text-[10px] font-mono text-white/40 tabular-nums">
-                                            {displayTime(subtitle.start)} →{" "}
-                                            {displayTime(subtitle.end)}
-                                        </span>
+                                        <div className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground tabular-nums">
+                                            <input
+                                                type="text"
+                                                value={displayTime(subtitle.start)}
+                                                onChange={(e) => {
+                                                    const parts = e.target.value.split(":");
+                                                    if (parts.length === 2) {
+                                                        const m = parseInt(parts[0]) || 0;
+                                                        const s = parseInt(parts[1]) || 0;
+                                                        handleTimeChange(subtitle.id, "start", formatSrtTime(m * 60 + s));
+                                                    }
+                                                }}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="w-10 bg-transparent text-center outline-none border-b border-transparent hover:border-border focus:border-primary rounded-none transition-colors"
+                                                title="Edit start time (M:SS)"
+                                            />
+                                            <span>→</span>
+                                            <input
+                                                type="text"
+                                                value={displayTime(subtitle.end)}
+                                                onChange={(e) => {
+                                                    const parts = e.target.value.split(":");
+                                                    if (parts.length === 2) {
+                                                        const m = parseInt(parts[0]) || 0;
+                                                        const s = parseInt(parts[1]) || 0;
+                                                        handleTimeChange(subtitle.id, "end", formatSrtTime(m * 60 + s));
+                                                    }
+                                                }}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="w-10 bg-transparent text-center outline-none border-b border-transparent hover:border-border focus:border-primary rounded-none transition-colors"
+                                                title="Edit end time (M:SS)"
+                                            />
+                                        </div>
                                         <div className="flex items-center gap-1.5">
                                             {isLowConfidence && (
                                                 <span className="flex items-center gap-0.5 text-amber-400/80" title="Low confidence — review recommended">
                                                     <AlertTriangle className="w-3 h-3" />
                                                 </span>
                                             )}
-                                            <span className="text-[9px] text-white/20 font-mono">
+                                            <span className="text-[9px] text-muted-foreground/60 font-mono">
                                                 #{subtitle.id}
                                             </span>
                                         </div>
@@ -467,10 +544,10 @@ export function SubtitleEditor({
                                             )
                                         )}
                                         className={cn(
-                                            "w-full bg-transparent text-xs leading-relaxed text-white/80 resize-none outline-none rounded px-1.5 py-1 -mx-1.5 transition-all",
+                                            "w-full bg-transparent text-xs leading-relaxed text-foreground/90 resize-none outline-none rounded px-1.5 py-1 -mx-1.5 transition-all",
                                             isActive
-                                                ? "bg-white/5 focus:bg-white/8"
-                                                : "hover:bg-white/5 focus:bg-white/5"
+                                                ? "bg-muted/40 focus:bg-muted/60"
+                                                : "hover:bg-muted/30 focus:bg-muted/40"
                                         )}
                                     />
                                 </div>
@@ -481,27 +558,27 @@ export function SubtitleEditor({
             </div>
 
             {/* Keyboard shortcut hints */}
-            <div className="px-3 py-2 text-[9px] text-white/20 text-center border-t border-white/10 flex items-center justify-center gap-2 shrink-0 bg-neutral-900/60">
+            <div className="px-3 py-2 text-[9px] text-muted-foreground text-center border-t border-border flex items-center justify-center gap-2 shrink-0 bg-muted/40">
                 <span>
-                    <kbd className="bg-white/10 px-1 py-0.5 rounded font-mono text-[8px]">
+                    <kbd className="bg-muted px-1 py-0.5 rounded font-mono text-[8px] border border-border/60">
                         ↑↓
                     </kbd>{" "}
                     Nav
                 </span>
                 <span>
-                    <kbd className="bg-white/10 px-1 py-0.5 rounded font-mono text-[8px]">
+                    <kbd className="bg-muted px-1 py-0.5 rounded font-mono text-[8px] border border-border/60">
                         Space
                     </kbd>{" "}
                     Play
                 </span>
                 <span>
-                    <kbd className="bg-white/10 px-1 py-0.5 rounded font-mono text-[8px]">
+                    <kbd className="bg-muted px-1 py-0.5 rounded font-mono text-[8px] border border-border/60">
                         J
                     </kbd>{" "}
                     -5s
                 </span>
                 <span>
-                    <kbd className="bg-white/10 px-1 py-0.5 rounded font-mono text-[8px]">
+                    <kbd className="bg-muted px-1 py-0.5 rounded font-mono text-[8px] border border-border/60">
                         L
                     </kbd>{" "}
                     +5s
