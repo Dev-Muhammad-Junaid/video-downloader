@@ -91,16 +91,16 @@ export function parseSrt(srtContent: string): Subtitle[] {
     if (!srtContent?.trim()) return [];
     const blocks = srtContent.trim().split(/\n\s*\n/);
     return blocks
-        .map((block) => {
-            const lines = block.split("\n");
-            if (lines.length < 3) return null;
-            const id = parseInt(lines[0]);
-            if (isNaN(id)) return null;
-            const timeParts = lines[1].split(" --> ");
+        .map((block, blockIdx) => {
+            const lines = block.split("\n").filter((l) => l.trim());
+            if (lines.length < 2) return null;
+            const timeLineIdx = lines.findIndex((l) => l.includes("-->"));
+            if (timeLineIdx === -1) return null;
+            const timeParts = lines[timeLineIdx].split(" --> ");
             if (timeParts.length !== 2) return null;
-            const text = lines.slice(2).join("\n");
-            // Random confidence for demo — in production, pull from Whisper segments
-            const confidence = Math.random() > 0.9 ? 0.7 : 0.95;
+            const id = timeLineIdx > 0 ? (parseInt(lines[0]) || blockIdx + 1) : blockIdx + 1;
+            const text = lines.slice(timeLineIdx + 1).join("\n");
+            const confidence = 1.0;
             return {
                 id,
                 start: timeParts[0].trim(),
@@ -130,7 +130,7 @@ export function parseVtt(vttContent: string): Subtitle[] {
             const start = timeParts[0].trim().replace(".", ",");
             const end = timeParts[1].trim().replace(".", ",");
             const text = lines.slice(timeLineIdx + 1).join("\n");
-            const confidence = Math.random() > 0.9 ? 0.7 : 0.95;
+            const confidence = 1.0;
             return { id: idx + 1, start, end, text, confidence };
         })
         .filter(Boolean) as Subtitle[];
@@ -141,6 +141,31 @@ export function subtitlesToSrt(subtitles: Subtitle[]): string {
     return subtitles
         .map((s) => `${s.id}\n${s.start} --> ${s.end}\n${s.text}\n`)
         .join("\n");
+}
+
+/** Clip subtitles to a time range and shift timestamps so trimStart becomes 0 */
+export function clipAndShiftSubtitles(
+    subtitles: Subtitle[],
+    trimStartSec: number,
+    trimEndSec: number
+): Subtitle[] {
+    const result: Subtitle[] = [];
+    let newId = 1;
+    for (const sub of subtitles) {
+        const start = parseSrtTime(sub.start);
+        const end = parseSrtTime(sub.end);
+        if (end <= trimStartSec || start >= trimEndSec) continue;
+        const clampedStart = Math.max(start, trimStartSec) - trimStartSec;
+        const clampedEnd = Math.min(end, trimEndSec) - trimStartSec;
+        result.push({
+            id: newId++,
+            start: formatSrtTime(clampedStart),
+            end: formatSrtTime(clampedEnd),
+            text: sub.text,
+            confidence: sub.confidence,
+        });
+    }
+    return result;
 }
 
 /** Get highlighted word index for TikTok-style word-by-word animation */

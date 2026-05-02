@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Copy, FolderOpen, Play, Cloud, CloudOff, DownloadCloud, Loader2, CheckCircle2, AlertCircle, Video as VideoIcon, Image as ImageIcon, Search, Pencil, Filter, ExternalLink, HelpCircle, XCircle, Maximize2, Mic, BrainCircuit, Sparkles } from "lucide-react";
+import { Copy, FolderOpen, Play, Pause, RotateCcw, Cloud, CloudOff, DownloadCloud, Loader2, CheckCircle2, AlertCircle, Video as VideoIcon, Image as ImageIcon, Search, Pencil, Filter, ExternalLink, HelpCircle, XCircle, Maximize2, Mic, BrainCircuit, Sparkles, Ban } from "lucide-react";
 import {
     Card,
     CardContent,
@@ -38,10 +38,18 @@ import {
     CommandList
 } from "@/components/ui/command";
 import { toast } from "sonner";
-import { Trash2, Tags, PlusCircle } from "lucide-react";
+import { Trash2, Tags, PlusCircle, CheckSquare, Square, Music } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { MediaPlayerModal } from "@/components/media-player-modal";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 
 type Video = {
     id: string;
@@ -74,7 +82,7 @@ type QueueItem = {
     thumbnail?: string;
     sourcePlatform?: string;
     duration?: number;
-    status: 'parsing' | 'pending' | 'downloading' | 'completed' | 'error';
+    status: 'parsing' | 'pending' | 'queued' | 'downloading' | 'processing' | 'paused' | 'completed' | 'error' | 'cancelled';
     jobId?: string;
     progress?: number;
     errorText?: string;
@@ -82,6 +90,22 @@ type QueueItem = {
     imageUrl?: string;
     formats?: { formatId: string; label: string; ext: string; resolution: string | null; filesize: number | null; note: string }[];
     selectedFormat?: string;
+    needsReview?: boolean;
+    reviewReason?: string;
+    matchedProfileName?: string;
+    matchedFormatLabel?: string;
+};
+
+type DownloadProfile = {
+    id: string;
+    name: string;
+    sitePattern: string | null;
+    maxResolution: string | null;
+    preferredFormat: string | null;
+    priority: number;
+    isActive: boolean;
+    requireManualFormat?: boolean;
+    strictResolution?: boolean;
 };
 
 export default function LibraryPage() {
@@ -91,28 +115,23 @@ export default function LibraryPage() {
     // Bulk Downloader State
     const [urlText, setUrlText] = useState("");
     const [queue, setQueue] = useState<QueueItem[]>([]);
+    const [profiles, setProfiles] = useState<DownloadProfile[]>([]);
+    const [selectedQueueProfile, setSelectedQueueProfile] = useState<string>("default-auto");
+    const [queueFilter, setQueueFilter] = useState<"all" | "active" | "failed">("all");
 
     // Filter & Sort State
     const [searchQuery, setSearchQuery] = useState("");
     const [sortBy, setSortBy] = useState<"newest" | "oldest" | "size-desc" | "size-asc">("newest");
     const [platformFilter, setPlatformFilter] = useState("all");
-    const [groupByDate, setGroupByDate] = useState(() => {
-        if (typeof window !== "undefined") {
-            const saved = localStorage.getItem("ui_groupByDate");
-            return saved !== null ? saved === "true" : true;
-        }
-        return true;
-    });
-    const [mediaTypeFilter, setMediaTypeFilter] = useState<"all" | "video" | "image">(() => {
-        if (typeof window !== "undefined") {
-            return (localStorage.getItem("ui_mediaTypeFilter") as "all" | "video" | "image") || "all";
-        }
-        return "all";
-    });
+    // Keep SSR and first client render identical; hydrate localStorage prefs after mount.
+    const [groupByDate, setGroupByDate] = useState(true);
+    const [mediaTypeFilter, setMediaTypeFilter] = useState<"all" | "video" | "image" | "audio">("all");
 
     // Renaming state
     const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
     const [editTitle, setEditTitle] = useState("");
+
+    const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
 
     // Labels State
     const [globalLabels, setGlobalLabels] = useState<{ id: string; name: string; color: string | null }[]>([]);
@@ -127,8 +146,150 @@ export default function LibraryPage() {
     const [deepSearchResults, setDeepSearchResults] = useState<Video[] | null>(null);
     const [deepSearchLoading, setDeepSearchLoading] = useState(false);
     const [transcribingIds, setTranscribingIds] = useState<Set<string>>(new Set());
+    const [transcriptionProvider, setTranscriptionProvider] = useState<"openai" | "groq">("openai");
+    const [retryingQueueIds, setRetryingQueueIds] = useState<Set<string>>(new Set());
+
+    // Bulk Selection State
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [selectionMode, setSelectionMode] = useState(false);
 
     const pollingRefs = React.useRef<{ [key: string]: NodeJS.Timeout }>({});
+    const sseRef = React.useRef<EventSource | null>(null);
+
+    const matchProfileForUrl = useCallback((url: string) => {
+        for (const profile of profiles.filter((p) => p.isActive)) {
+            if (!profile.sitePattern || profile.sitePattern === "*") continue;
+            try {
+                const regex = new RegExp(profile.sitePattern.replace(/\*/g, ".*"), "i");
+                if (regex.test(url)) return profile;
+            } catch {
+                if (url.includes(profile.sitePattern)) return profile;
+            }
+        }
+        return profiles.find((p) => p.sitePattern === "*" || p.priority === -1);
+    }, [profiles]);
+
+    const pickFormatForProfile = useCallback((item: QueueItem, profile: DownloadProfile) => {
+        const formats = item.formats || [];
+
+        // Audio-only profile: always match if the source can produce audio.
+        // yt-dlp's -x flag extracts audio from any video, so this always works unless it's an image.
+        if (profile.preferredFormat === "mp3") {
+            if (item.mediaType === "image") {
+                return { formatId: undefined, needsReview: true, reviewReason: `"${profile.name}" is audio-only but this link is an image` };
+            }
+            return { formatId: "audio", needsReview: false, reviewReason: "" };
+        }
+
+        // Images don't have "formats" in the traditional sense — a direct URL download works.
+        if (item.mediaType === "image") {
+            return { formatId: undefined, needsReview: false, reviewReason: "" };
+        }
+
+        // "best" means: pick the highest-quality available, no ceiling. Always matches.
+        const maxResRaw = (profile.maxResolution || "best").toString();
+        const isBest = maxResRaw === "best" || maxResRaw === "";
+        const maxRes = isBest ? 0 : parseInt(maxResRaw.replace(/[^0-9]/g, ""), 10);
+        const preferredExt = (profile.preferredFormat || "mp4").toLowerCase();
+        const strict = !!profile.strictResolution && !isBest;
+        const resOp = strict ? "=" : "≤";
+
+        // If no formats were extracted, we can only safely auto-start for the
+        // "Best Quality" profile (no ceiling). For resolution-constrained profiles
+        // we'd risk silently downloading the wrong quality — force manual review.
+        if (formats.length === 0) {
+            if (isBest) {
+                return { formatId: undefined, needsReview: false, reviewReason: "" };
+            }
+            return {
+                formatId: undefined,
+                needsReview: true,
+                reviewReason: `Couldn't read available formats for "${profile.name}" — pick one manually`,
+            };
+        }
+
+        // Resolution predicate: strict = exact match; otherwise ≤ ceiling.
+        const matchesRes = (f: typeof formats[number]) => {
+            const resolution = f.resolution ? parseInt(f.resolution.replace("p", ""), 10) : 0;
+            if (isBest) return true;
+            if (!maxRes) return true;
+            if (strict) return resolution === maxRes;
+            return resolution <= maxRes || resolution === 0;
+        };
+
+        // First pass: match by resolution AND preferred ext.
+        const exactMatches = formats.filter((f) => {
+            const extOk = preferredExt === "best" || !f.ext || f.ext.toLowerCase() === preferredExt;
+            return matchesRes(f) && extOk;
+        });
+        if (exactMatches.length > 0) {
+            const sorted = [...exactMatches].sort((a, b) => (parseInt(b.resolution || "0", 10) - parseInt(a.resolution || "0", 10)));
+            return { formatId: sorted[0].formatId, needsReview: false, reviewReason: "" };
+        }
+
+        // Second pass: match by resolution only (ignore ext preference — server will remux).
+        const resOnly = formats.filter(matchesRes);
+        if (resOnly.length > 0) {
+            const sorted = [...resOnly].sort((a, b) => (parseInt(b.resolution || "0", 10) - parseInt(a.resolution || "0", 10)));
+            return { formatId: sorted[0].formatId, needsReview: false, reviewReason: "" };
+        }
+
+        // Nothing matches — user must pick.
+        const maxAvailable = formats.reduce((max, f) => Math.max(max, parseInt(f.resolution || "0", 10)), 0);
+        return {
+            formatId: undefined,
+            needsReview: true,
+            reviewReason: strict
+                ? `"${profile.name}" needs exactly ${maxResRaw}p, but that resolution isn't available (max: ${maxAvailable}p)`
+                : `"${profile.name}" wants ${resOp}${maxResRaw}p but highest available is ${maxAvailable}p`,
+        };
+    }, []);
+
+    const applyQueueProfileToItem = useCallback((item: QueueItem): QueueItem => {
+        if (item.status === "downloading" || item.status === "completed" || item.status === "error" || item.status === "cancelled") {
+            return item;
+        }
+        const profile = selectedQueueProfile === "default-auto"
+            ? matchProfileForUrl(item.originalUrl)
+            : profiles.find((p) => p.id === selectedQueueProfile);
+        if (!profile) {
+            return { ...item, needsReview: true, reviewReason: "No profile available", matchedProfileName: undefined };
+        }
+        if (profile.requireManualFormat) {
+            return {
+                ...item,
+                matchedProfileName: profile.name,
+                needsReview: !item.selectedFormat,
+                reviewReason: !item.selectedFormat ? `"${profile.name}" requires manual format selection` : undefined,
+            };
+        }
+        const picked = pickFormatForProfile(item, profile);
+        const matchedLabel = picked.formatId === "audio"
+            ? "Audio (MP3)"
+            : picked.formatId && item.formats
+                ? item.formats.find(f => f.formatId === picked.formatId)?.label
+                : profile.maxResolution === "best" ? "Best available" : `≤${profile.maxResolution}p ${(profile.preferredFormat || "mp4").toUpperCase()}`;
+        return {
+            ...item,
+            selectedFormat: picked.formatId ?? item.selectedFormat ?? "",
+            needsReview: picked.needsReview,
+            reviewReason: picked.reviewReason || undefined,
+            matchedProfileName: profile.name,
+            matchedFormatLabel: picked.needsReview ? undefined : matchedLabel,
+        };
+    }, [matchProfileForUrl, pickFormatForProfile, profiles, selectedQueueProfile]);
+
+    useEffect(() => {
+        const savedGroupByDate = localStorage.getItem("ui_groupByDate");
+        if (savedGroupByDate !== null) {
+            setGroupByDate(savedGroupByDate === "true");
+        }
+
+        const savedMediaType = localStorage.getItem("ui_mediaTypeFilter");
+        if (savedMediaType === "all" || savedMediaType === "video" || savedMediaType === "image" || savedMediaType === "audio") {
+            setMediaTypeFilter(savedMediaType);
+        }
+    }, []);
 
     useEffect(() => {
         const init = async () => {
@@ -149,6 +310,26 @@ export default function LibraryPage() {
             fetchLibrary();
             fetchQueue();
             fetchLabels();
+            // Resume any interrupted jobs from a previous server session
+            fetch("/api/download/queue", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "resumeInterrupted" }),
+            }).catch(() => {});
+            fetch("/api/profiles")
+                .then((r) => r.json())
+                .then((data) => {
+                    if (Array.isArray(data)) setProfiles(data);
+                })
+                .catch(() => {});
+            fetch("/api/settings/ai")
+                .then((r) => r.json())
+                .then((data) => {
+                    if (data?.provider === "openai" || data?.provider === "groq") {
+                        setTranscriptionProvider(data.provider);
+                    }
+                })
+                .catch(() => {});
 
             // Auto-backfill thumbnails for old videos that don't have one
             fetch("/api/thumbnail/backfill", { method: "POST" })
@@ -163,15 +344,25 @@ export default function LibraryPage() {
         };
         init();
 
-        // WID-300: Global Queue Sync for Chrome Extension interactions
+        // SSE for real-time progress
+        setupSSE();
+
+        // Global queue sync for Chrome Extension interactions (less frequent now with SSE)
         const globalPoll = setInterval(fetchQueue, 5000);
 
         return () => {
             clearInterval(globalPoll);
-            // Cleanup active polling on unmount
             Object.values(pollingRefs.current).forEach(clearInterval);
+            if (sseRef.current) {
+                sseRef.current.close();
+                sseRef.current = null;
+            }
         };
     }, []);
+
+    useEffect(() => {
+        setQueue((prev) => prev.map((item) => applyQueueProfileToItem(item)));
+    }, [selectedQueueProfile, applyQueueProfileToItem]);
 
     // WID-300: Bookmarklet Auto-Ingestion
     useEffect(() => {
@@ -284,30 +475,60 @@ export default function LibraryPage() {
             const res = await fetch("/api/download/queue");
             if (res.ok) {
                 const jobs = await res.json();
-                if (jobs && jobs.length > 0) {
-                    const activeJobs: QueueItem[] = jobs.map((j: any) => ({
-                        id: j.id,
-                        jobId: j.id,
-                        originalUrl: j.url,
-                        title: j.title,
-                        status: j.status === 'processing' ? 'downloading' : j.status,
-                        progress: j.progress,
-                        errorText: j.error,
-                    }));
+                const activeJobs: QueueItem[] = (Array.isArray(jobs) ? jobs : []).map((j: any) => ({
+                    id: j.id,
+                    jobId: j.id,
+                    originalUrl: j.url,
+                    title: j.title,
+                    status: j.status,
+                    progress: j.progress,
+                    thumbnail: j.thumbnailUrl || j.imageUrl,
+                    sourcePlatform: j.sourcePlatform,
+                    duration: j.duration,
+                    errorText: j.error,
+                    mediaType: j.mediaType,
+                    imageUrl: j.imageUrl,
+                    matchedProfileName: j.profileName,
+                    matchedFormatLabel: j.formatLabel,
+                }));
 
-                    setQueue(prev => {
-                        const localOnly = prev.filter(p => !p.jobId && (p.status === 'parsing' || p.status === 'pending'));
-                        const activeUrls = new Set(activeJobs.map((j: any) => j.originalUrl));
-                        const uniqueLocal = localOnly.filter(p => !activeUrls.has(p.originalUrl));
-                        return [...uniqueLocal, ...activeJobs];
+                setQueue(prev => {
+                    const localOnly = prev.filter(p => !p.jobId && (p.status === 'parsing' || p.status === 'pending'));
+                    if (activeJobs.length === 0) return localOnly;
+                    const prevById = new Map(prev.filter(p => p.jobId).map(p => [p.jobId as string, p]));
+                    const merged = activeJobs.map(job => {
+                        const existing = prevById.get(job.jobId as string);
+                        if (!existing) return job;
+                        return {
+                            ...existing,
+                            ...job,
+                            id: existing.id,
+                            thumbnail: existing.thumbnail || job.thumbnail,
+                            title: job.title || existing.title,
+                            sourcePlatform: existing.sourcePlatform || job.sourcePlatform,
+                            duration: existing.duration || job.duration,
+                            formats: existing.formats,
+                            selectedFormat: existing.selectedFormat,
+                            mediaType: existing.mediaType || job.mediaType,
+                            imageUrl: existing.imageUrl || job.imageUrl,
+                            matchedProfileName: existing.matchedProfileName || job.matchedProfileName,
+                            matchedFormatLabel: existing.matchedFormatLabel || job.matchedFormatLabel,
+                            progress: (job.status === "downloading" || job.status === "processing" || job.status === "paused")
+                                ? Math.max(existing.progress || 0, job.progress || 0)
+                                : (job.progress ?? existing.progress),
+                            errorText: (job.status === "error" || job.status === "cancelled")
+                                ? (job.errorText || existing.errorText)
+                                : undefined,
+                        } satisfies QueueItem;
                     });
+                    return [...localOnly, ...merged];
+                });
 
-                    activeJobs.forEach(q => {
-                        if (q.status !== 'completed' && q.status !== 'error' && q.jobId) {
-                            pollProgress(q.id, q.jobId);
-                        }
-                    });
-                }
+                activeJobs.forEach(q => {
+                    if (q.status !== 'completed' && q.status !== 'error' && q.status !== 'cancelled' && q.jobId) {
+                        pollProgress(q.id, q.jobId);
+                    }
+                });
             }
         } catch (error) {
             console.error("Failed to restore queue", error);
@@ -343,11 +564,36 @@ export default function LibraryPage() {
         const links = [...new Set(urlText.split('\n').map(l => l.trim()).filter(l => l.length > 0))];
         if (links.length === 0) return;
 
-        const newItems: QueueItem[] = links.map(url => ({
-            id: Math.random().toString(36).substring(7),
-            originalUrl: url,
-            status: 'parsing'
-        }));
+        // Only block links that are CURRENTLY active in the queue (parsing/pending/downloading/etc).
+        // Completed/cancelled queue items AND library items are allowed back in — user may want
+        // to re-download with a different format/profile.
+        const activeInQueue = new Set(
+            queue
+                .filter(q => !["completed", "error", "cancelled"].includes(q.status))
+                .map(q => q.originalUrl)
+        );
+
+        let skippedCount = 0;
+        const newItems: QueueItem[] = [];
+        for (const url of links) {
+            if (activeInQueue.has(url)) {
+                skippedCount++;
+                continue;
+            }
+            newItems.push({
+                id: Math.random().toString(36).substring(7),
+                originalUrl: url,
+                status: 'parsing',
+            });
+        }
+
+        if (skippedCount > 0) {
+            toast.info(`Skipped ${skippedCount} link${skippedCount > 1 ? "s" : ""} — already being processed`);
+        }
+        if (newItems.length === 0) {
+            setUrlText("");
+            return;
+        }
 
         setQueue(prev => [...newItems, ...prev]);
         setUrlText("");
@@ -392,18 +638,34 @@ export default function LibraryPage() {
                 return;
             }
 
-            setQueue(prev => prev.map(q => q.id === id ? {
-                ...q,
-                title: metadata.title,
-                thumbnail: metadata.thumbnail,
-                sourcePlatform: metadata.sourcePlatform,
-                duration: metadata.duration ?? null,
-                mediaType: metadata.mediaType || "video",
-                imageUrl: metadata.imageUrl,
-                formats: metadata.formats || [],
-                selectedFormat: "",
-                status: 'pending'
-            } : q));
+            let autoItem: QueueItem | null = null;
+            setQueue(prev => prev.map(q => {
+                if (q.id !== id) return q;
+                const updated = applyQueueProfileToItem({
+                    ...q,
+                    title: metadata.title,
+                    thumbnail: metadata.thumbnail,
+                    sourcePlatform: metadata.sourcePlatform,
+                    duration: metadata.duration ?? null,
+                    mediaType: metadata.mediaType || "video",
+                    imageUrl: metadata.imageUrl,
+                    formats: metadata.formats || [],
+                    selectedFormat: "",
+                    status: 'pending',
+                });
+                if (!updated.needsReview) {
+                    autoItem = updated;
+                }
+                return updated;
+            }));
+
+            // Auto-start download when profile matches cleanly — no manual click required.
+            if (autoItem) {
+                const ai = autoItem as QueueItem;
+                const label = ai.matchedFormatLabel ? ` · ${ai.matchedFormatLabel}` : "";
+                toast.success(`Auto-downloading "${ai.title?.slice(0, 40)}${(ai.title?.length || 0) > 40 ? "…" : ""}" with ${ai.matchedProfileName || "default"}${label}`);
+                setTimeout(() => startDownloadJobForItem(ai), 0);
+            }
 
         } catch (error: any) {
             setQueue(prev => prev.map(q => q.id === id ? {
@@ -414,11 +676,18 @@ export default function LibraryPage() {
         }
     };
 
-    const startDownloadJob = async (id: string) => {
-        const item = queue.find(q => q.id === id);
-        if (!item) return;
+    const startDownloadJobForItem = async (item: QueueItem) => {
+        const id = item.id;
+        if (retryingQueueIds.has(id)) return;
+        if (item.needsReview && !item.selectedFormat) {
+            toast.error(item.reviewReason || "This item needs format review before download");
+            return;
+        }
+
+        const selectedProfile = selectedQueueProfile === "default-auto" ? undefined : selectedQueueProfile;
 
         try {
+            setRetryingQueueIds((prev) => new Set(prev).add(id));
             setQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'pending' as const, errorText: undefined } : q));
 
             const dlRes = await fetch("/api/download", {
@@ -430,7 +699,13 @@ export default function LibraryPage() {
                     sourcePlatform: item.sourcePlatform,
                     mediaType: item.mediaType || "video",
                     imageUrl: item.imageUrl,
+                    thumbnail: item.thumbnail,
                     formatId: item.selectedFormat || undefined,
+                    profileId: selectedProfile,
+                    retryJobId: item.jobId || undefined,
+                    duration: item.duration,
+                    profileName: item.matchedProfileName,
+                    formatLabel: item.matchedFormatLabel,
                 }),
             });
 
@@ -451,11 +726,77 @@ export default function LibraryPage() {
                 status: 'error',
                 errorText: error.message
             } : q));
+        } finally {
+            setRetryingQueueIds((prev) => {
+                const next = new Set(prev);
+                next.delete(id);
+                return next;
+            });
         }
     };
 
+    const startDownloadJob = (id: string) => {
+        const item = queue.find(q => q.id === id);
+        if (!item) return;
+        return startDownloadJobForItem(item);
+    };
+
+    // SSE-based progress: single connection streams all active job progress
+    const setupSSE = useCallback(() => {
+        if (sseRef.current) return;
+        const es = new EventSource("/api/download/events");
+        sseRef.current = es;
+        let prevCompletedSet = new Set<string>();
+
+        es.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data._heartbeat || data._connected) return;
+
+                const completedNow = new Set<string>();
+                setQueue(prev => {
+                    let changed = false;
+                    const next = prev.map(q => {
+                        if (!q.jobId || !data[q.jobId]) return q;
+                        const live = data[q.jobId];
+                        if (live.status === q.status && Math.abs((live.progress || 0) - (q.progress || 0)) < 0.5) return q;
+                        changed = true;
+                        const updated = { ...q };
+                        updated.status = live.status;
+                        updated.progress = live.progress ?? q.progress;
+                        if (live.status === "error" || live.status === "cancelled") {
+                            updated.errorText = live.error || q.errorText;
+                        } else {
+                            updated.errorText = undefined;
+                        }
+                        if (live.status === "completed") completedNow.add(q.jobId!);
+                        return updated;
+                    });
+                    return changed ? next : prev;
+                });
+
+                // Check for newly completed downloads
+                for (const jobId of completedNow) {
+                    if (!prevCompletedSet.has(jobId)) {
+                        toast.success("Download complete!");
+                        fetchLibrary();
+                    }
+                }
+                prevCompletedSet = completedNow;
+            } catch { /* ignore parse errors */ }
+        };
+
+        es.onerror = () => {
+            es.close();
+            sseRef.current = null;
+            // Reconnect after 3s
+            setTimeout(() => setupSSE(), 3000);
+        };
+    }, []);
+
+    // Legacy per-job polling as fallback for when SSE is not yet connected
     const pollProgress = (itemId: string, jobId: string) => {
-        if (pollingRefs.current[jobId]) return; // Already polling
+        if (pollingRefs.current[jobId]) return;
 
         const interval = setInterval(async () => {
             try {
@@ -471,7 +812,7 @@ export default function LibraryPage() {
                         progress: 100
                     } : q));
                     toast.success("Download complete!");
-                    fetchLibrary(); // refresh library to show new video
+                    fetchLibrary();
                 } else if (data.status === "error") {
                     clearInterval(interval);
                     delete pollingRefs.current[jobId];
@@ -480,9 +821,24 @@ export default function LibraryPage() {
                         status: 'error',
                         errorText: data.error || "Download failed"
                     } : q));
+                } else if (data.status === "paused") {
+                    setQueue(prev => prev.map(q => q.id === itemId ? {
+                        ...q,
+                        status: 'paused',
+                        progress: data.progress || q.progress || 0,
+                    } : q));
+                } else if (data.status === "cancelled") {
+                    clearInterval(interval);
+                    delete pollingRefs.current[jobId];
+                    setQueue(prev => prev.map(q => q.id === itemId ? {
+                        ...q,
+                        status: 'cancelled',
+                        errorText: data.error || "Cancelled by user",
+                    } : q));
                 } else {
                     setQueue(prev => prev.map(q => q.id === itemId ? {
                         ...q,
+                        status: (data.status || q.status),
                         progress: data.progress || 0
                     } : q));
                 }
@@ -593,8 +949,14 @@ export default function LibraryPage() {
         }
     };
 
-    const handleDelete = async (videoId: string, title: string) => {
-        if (!confirm(`Are you sure you want to completely delete "${title}"? This will remove the file from your computer.`)) return;
+    const openDeleteDialog = (videoId: string, title: string) => {
+        setDeleteTarget({ id: videoId, title });
+    };
+
+    const performDelete = async () => {
+        if (!deleteTarget) return;
+        const { id: videoId } = deleteTarget;
+        setDeleteTarget(null);
 
         const toastId = toast.loading("Deleting video...");
         try {
@@ -609,6 +971,25 @@ export default function LibraryPage() {
             toast.error("Deletion error", { id: toastId });
         }
     };
+
+    const providerLabel = transcriptionProvider === "groq" ? "Groq" : "OpenAI";
+
+    const toggleSelection = useCallback((videoId: string) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(videoId)) next.delete(videoId);
+            else next.add(videoId);
+            return next;
+        });
+    }, []);
+
+    const selectAll = useCallback(() => {
+        setSelectedIds(new Set(videos.map(v => v.id)));
+    }, [videos]);
+
+    const deselectAll = useCallback(() => {
+        setSelectedIds(new Set());
+    }, []);
 
     const attachLabel = async (videoId: string, labelId: string) => {
         try {
@@ -701,6 +1082,14 @@ export default function LibraryPage() {
         return result;
     }, [videos, searchQuery, sortBy, platformFilter, mediaTypeFilter, deepSearchResults]);
 
+    const filteredQueue = useMemo(() => {
+        if (queueFilter === "all") return queue;
+        if (queueFilter === "active") {
+            return queue.filter((q) => ["parsing", "pending", "queued", "downloading", "processing", "paused"].includes(q.status));
+        }
+        return queue.filter((q) => q.status === "error" || q.status === "cancelled" || (q.status === "completed" && !!q.errorText));
+    }, [queue, queueFilter]);
+
     // Get unique platforms for filter
     const platforms = useMemo(() => {
         const set = new Set(videos.map(v => v.sourcePlatform || "Unknown"));
@@ -708,7 +1097,20 @@ export default function LibraryPage() {
     }, [videos]);
 
     const renderVideoCard = (video: Video) => (
-        <Card key={video.id} className="flex flex-col group overflow-hidden border-border/40 hover:border-primary/30 transition-all hover:shadow-lg bg-card/50 backdrop-blur-sm">
+        <Card key={video.id} className={cn("flex flex-col group overflow-hidden border-border/40 hover:border-primary/30 transition-all hover:shadow-lg bg-card/50 backdrop-blur-sm relative", selectedIds.has(video.id) && "ring-2 ring-primary border-primary/50")}>
+            {/* Selection checkbox */}
+            {selectionMode && (
+                <button
+                    className="absolute top-2 left-2 z-20 w-6 h-6 flex items-center justify-center rounded bg-background/80 backdrop-blur-sm border border-border/60 hover:bg-background transition-colors"
+                    onClick={(e) => { e.stopPropagation(); toggleSelection(video.id); }}
+                >
+                    {selectedIds.has(video.id) ? (
+                        <CheckSquare className="w-4 h-4 text-primary" />
+                    ) : (
+                        <Square className="w-4 h-4 text-muted-foreground" />
+                    )}
+                </button>
+            )}
             <CardHeader className="p-4 z-10 bg-gradient-to-b from-card to-transparent border-b border-border/10 relative">
                 {editingVideoId === video.id ? (
                     <div className="flex items-center gap-2 mb-1.5">
@@ -837,6 +1239,16 @@ export default function LibraryPage() {
                         className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                         loading="lazy"
                     />
+                ) : video.mediaType === "audio" ? (
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-3 p-4 bg-gradient-to-b from-muted/30 to-muted/60">
+                        <Music className="w-10 h-10 text-muted-foreground/40" />
+                        <audio
+                            src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
+                            controls
+                            preload="metadata"
+                            className="w-full max-w-[240px]"
+                        />
+                    </div>
                 ) : (
                     <video
                         src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
@@ -891,11 +1303,14 @@ export default function LibraryPage() {
                                         size="sm"
                                         className="h-5 text-[10px] px-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full border border-dashed border-border/50"
                                         onClick={() => handleTranscribe(video.id)}
-                                        title="Generate AI transcript"
+                                        title={`Generate AI transcript (${providerLabel})`}
                                     >
                                         <Mic className="w-2.5 h-2.5 mr-0.5" /> Transcribe
                                     </Button>
                                 )}
+                                <span className="inline-flex items-center rounded-full border border-border/60 bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                                    {providerLabel}
+                                </span>
                             </>
                         )}
                     </div>
@@ -916,7 +1331,7 @@ export default function LibraryPage() {
                                 <Cloud className="h-3.5 w-3.5" />
                             </Button>
                         )}
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-destructive/20 hover:text-destructive shadow-sm ml-1" onClick={() => handleDelete(video.id, video.title)} title="Delete Video">
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-destructive/20 hover:text-destructive shadow-sm ml-1" onClick={() => openDeleteDialog(video.id, video.title)} title="Delete Video">
                             <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                     </div>
@@ -979,118 +1394,425 @@ export default function LibraryPage() {
                 </motion.div>
 
                 {/* Right Panel: Active Queue */}
-                <div className="w-full xl:w-2/3 flex flex-col gap-4">
-                    <div className="flex justify-between items-end mb-1">
-                        <h2 className="text-xl font-bold tracking-tight text-foreground/90">
-                            Active Queue
-                            {queue.length > 0 && <span className="ml-2 text-sm font-normal text-muted-foreground px-2 py-0.5 bg-muted rounded-full">{queue.length} jobs</span>}
-                        </h2>
+                <div className="w-full xl:w-2/3 flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <h2 className="text-xl font-bold tracking-tight text-foreground/90">
+                                Active Queue
+                            </h2>
+                            {queue.length > 0 && <span className="text-xs font-normal text-muted-foreground px-2 py-0.5 bg-muted rounded-full">{queue.length}</span>}
+                            {profiles.length > 0 && (
+                                <select
+                                    value={selectedQueueProfile}
+                                    onChange={(e) => setSelectedQueueProfile(e.target.value)}
+                                    className="h-7 rounded-md border border-input bg-transparent px-2 text-xs ml-1"
+                                >
+                                    <option value="default-auto">Auto (match by URL)</option>
+                                    {profiles.map((profile) => {
+                                        const tags: string[] = [];
+                                        if (profile.priority === -1) tags.push("default");
+                                        if (profile.requireManualFormat) tags.push("manual");
+                                        if (profile.strictResolution) tags.push("strict");
+                                        return (
+                                            <option key={profile.id} value={profile.id}>
+                                                {profile.name}{tags.length ? ` · ${tags.join(", ")}` : ""}
+                                            </option>
+                                        );
+                                    })}
+                                </select>
+                            )}
+                        </div>
                         {queue.length > 0 && (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 text-xs text-muted-foreground hover:text-destructive gap-1.5"
-                                onClick={async () => {
-                                    try {
-                                        await fetch("/api/download/queue?mode=all", { method: "DELETE" });
-                                        setQueue([]);
-                                        toast.success("Queue cleared");
-                                    } catch {
-                                        toast.error("Failed to clear queue");
-                                    }
-                                }}
-                            >
-                                <XCircle className="w-3.5 h-3.5" />
-                                Clear Queue
-                            </Button>
+                            <div className="flex items-center gap-1">
+                                {queue.some(q => q.status === "pending") && (
+                                    <Tooltip>
+                                        <TooltipTrigger
+                                            className={cn(buttonVariants({ variant: "default", size: "icon" }), "h-7 w-7")}
+                                            onClick={() => {
+                                                const pending = queue.filter(q => q.status === "pending");
+                                                pending.forEach(item => startDownloadJob(item.id));
+                                                toast.info(`Starting ${pending.length} downloads...`);
+                                            }}
+                                        >
+                                            <DownloadCloud className="w-3.5 h-3.5" />
+                                        </TooltipTrigger>
+                                        <TooltipContent>Download All ({queue.filter(q => q.status === "pending").length})</TooltipContent>
+                                    </Tooltip>
+                                )}
+                                {queue.some(q => q.status === "downloading" && q.jobId) && (
+                                    <Tooltip>
+                                        <TooltipTrigger
+                                            className={cn(buttonVariants({ variant: "outline", size: "icon" }), "h-7 w-7")}
+                                            onClick={async () => {
+                                                const active = queue.filter(q => q.status === "downloading" && q.jobId);
+                                                for (const item of active) {
+                                                    await fetch(`/api/download/${item.jobId}`, {
+                                                        method: "PATCH",
+                                                        headers: { "Content-Type": "application/json" },
+                                                        body: JSON.stringify({ action: "pause" }),
+                                                    });
+                                                }
+                                                setQueue(prev => prev.map(q => active.find(a => a.id === q.id) ? { ...q, status: "paused" as const } : q));
+                                                toast.info(`Paused ${active.length} downloads`);
+                                            }}
+                                        >
+                                            <Pause className="w-3.5 h-3.5" />
+                                        </TooltipTrigger>
+                                        <TooltipContent>Pause All</TooltipContent>
+                                    </Tooltip>
+                                )}
+                                {queue.some(q => q.status === "paused" && q.jobId) && (
+                                    <Tooltip>
+                                        <TooltipTrigger
+                                            className={cn(buttonVariants({ variant: "outline", size: "icon" }), "h-7 w-7")}
+                                            onClick={async () => {
+                                                const paused = queue.filter(q => q.status === "paused" && q.jobId);
+                                                for (const item of paused) {
+                                                    await fetch(`/api/download/${item.jobId}`, {
+                                                        method: "PATCH",
+                                                        headers: { "Content-Type": "application/json" },
+                                                        body: JSON.stringify({ action: "resume" }),
+                                                    });
+                                                }
+                                                setQueue(prev => prev.map(q => paused.find(a => a.id === q.id) ? { ...q, status: "downloading" as const } : q));
+                                                toast.info(`Resumed ${paused.length} downloads`);
+                                            }}
+                                        >
+                                            <Play className="w-3.5 h-3.5" />
+                                        </TooltipTrigger>
+                                        <TooltipContent>Resume All</TooltipContent>
+                                    </Tooltip>
+                                )}
+                                {queue.some(q => q.status === "error" || q.status === "cancelled") && (
+                                    <Tooltip>
+                                        <TooltipTrigger
+                                            className={cn(buttonVariants({ variant: "outline", size: "icon" }), "h-7 w-7")}
+                                            onClick={async () => {
+                                                try {
+                                                    const res = await fetch("/api/download/queue", {
+                                                        method: "PATCH",
+                                                        headers: { "Content-Type": "application/json" },
+                                                        body: JSON.stringify({ action: "retryFailed" }),
+                                                    });
+                                                    const data = await res.json();
+                                                    if (!res.ok) throw new Error(data.error || "Retry failed");
+                                                    toast.success(`Retried ${data.retried || 0} jobs`);
+                                                    fetchQueue();
+                                                } catch (error: any) {
+                                                    toast.error(error.message || "Failed to retry");
+                                                }
+                                            }}
+                                        >
+                                            <RotateCcw className="w-3.5 h-3.5" />
+                                        </TooltipTrigger>
+                                        <TooltipContent>Retry Failed</TooltipContent>
+                                    </Tooltip>
+                                )}
+                                {queue.some(q => (q.status === "downloading" || q.status === "paused") && q.jobId) && (
+                                    <Tooltip>
+                                        <TooltipTrigger
+                                            className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "h-7 w-7 text-destructive hover:text-destructive")}
+                                            onClick={async () => {
+                                                const active = queue.filter(q => (q.status === "downloading" || q.status === "paused") && q.jobId);
+                                                for (const item of active) {
+                                                    await fetch(`/api/download/${item.jobId}`, {
+                                                        method: "PATCH",
+                                                        headers: { "Content-Type": "application/json" },
+                                                        body: JSON.stringify({ action: "cancel" }),
+                                                    });
+                                                }
+                                                setQueue(prev => prev.map(q => active.find(a => a.id === q.id) ? { ...q, status: "cancelled" as const, errorText: "Cancelled by user" } : q));
+                                                toast.info(`Cancelled ${active.length} downloads`);
+                                            }}
+                                        >
+                                            <Ban className="w-3.5 h-3.5" />
+                                        </TooltipTrigger>
+                                        <TooltipContent>Cancel All</TooltipContent>
+                                    </Tooltip>
+                                )}
+                                <div className="w-px h-5 bg-border/40 mx-0.5" />
+                                <Tooltip>
+                                    <TooltipTrigger
+                                        className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "h-7 w-7 text-muted-foreground hover:text-destructive")}
+                                        onClick={async () => {
+                                            try {
+                                                await fetch("/api/download/queue?mode=all", { method: "DELETE" });
+                                                setQueue([]);
+                                                toast.success("Queue cleared");
+                                            } catch {
+                                                toast.error("Failed to clear queue");
+                                            }
+                                        }}
+                                    >
+                                        <XCircle className="w-3.5 h-3.5" />
+                                    </TooltipTrigger>
+                                    <TooltipContent>Clear Queue</TooltipContent>
+                                </Tooltip>
+                            </div>
                         )}
+                    </div>
+                    <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
+                        <Button
+                            variant={queueFilter === "all" ? "secondary" : "ghost"}
+                            size="sm"
+                            className="h-8 rounded-none text-xs px-3"
+                            onClick={() => setQueueFilter("all")}
+                        >
+                            All
+                        </Button>
+                        <Button
+                            variant={queueFilter === "active" ? "secondary" : "ghost"}
+                            size="sm"
+                            className="h-8 rounded-none text-xs px-3"
+                            onClick={() => setQueueFilter("active")}
+                        >
+                            Active
+                        </Button>
+                        <Button
+                            variant={queueFilter === "failed" ? "secondary" : "ghost"}
+                            size="sm"
+                            className="h-8 rounded-none text-xs px-3"
+                            onClick={() => setQueueFilter("failed")}
+                        >
+                            Failed
+                        </Button>
                     </div>
 
                     <div className="flex-1 min-h-[220px] max-h-[300px] overflow-y-auto space-y-3 pr-2 scrollbar-thin">
-                        {queue.length === 0 ? (
+                        {filteredQueue.length === 0 ? (
                             <div className="h-full min-h-[220px] flex flex-col gap-3 items-center justify-center text-muted-foreground border-2 border-dashed border-muted rounded-2xl bg-muted/10">
                                 <DownloadCloud className="w-10 h-10 opacity-20" />
-                                <span className="text-sm opacity-60">No active downloads</span>
+                                <span className="text-sm opacity-60">No queue items for this filter</span>
                             </div>
                         ) : (
-                            queue.map(item => (
-                                <div key={item.id} className="relative flex items-center gap-4 p-4 rounded-xl border border-border/60 bg-card/60 backdrop-blur-md shadow-sm transition-all hover:bg-card/80 animate-in slide-in-from-right-4">
+                            filteredQueue.map(item => {
+                                const matchedVideo = item.status === 'completed'
+                                    ? videos.find(v => (v.originalUrl && v.originalUrl === item.originalUrl))
+                                    : null;
+                                const isClickable = !!matchedVideo;
+                                const openInPlayer = () => {
+                                    if (!matchedVideo) return;
+                                    const idx = displayedVideos.findIndex(v => v.id === matchedVideo.id);
+                                    if (idx >= 0) {
+                                        setPlayerIndex(idx);
+                                    } else {
+                                        const fallbackIdx = videos.findIndex(v => v.id === matchedVideo.id);
+                                        setPlayerIndex(fallbackIdx >= 0 ? fallbackIdx : 0);
+                                    }
+                                    setPlayerOpen(true);
+                                };
+                                const iconBtn = cn(buttonVariants({ variant: "ghost", size: "icon" }), "h-7 w-7 flex-shrink-0");
+                                const iconBtnOutline = cn(buttonVariants({ variant: "outline", size: "icon" }), "h-7 w-7 flex-shrink-0");
+                                const iconBtnDestructive = cn(buttonVariants({ variant: "ghost", size: "icon" }), "h-7 w-7 flex-shrink-0 text-destructive hover:text-destructive");
+                                const stop = (e: React.MouseEvent) => e.stopPropagation();
+                                return (
+                                <div
+                                    key={item.id}
+                                    onClick={isClickable ? openInPlayer : undefined}
+                                    role={isClickable ? "button" : undefined}
+                                    tabIndex={isClickable ? 0 : undefined}
+                                    onKeyDown={isClickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openInPlayer(); } } : undefined}
+                                    className={cn(
+                                        "relative flex items-start gap-3 p-3 rounded-xl border border-border/60 bg-card/60 backdrop-blur-md shadow-sm transition-all hover:bg-card/80",
+                                        isClickable && "cursor-pointer hover:border-primary/40 hover:shadow-md"
+                                    )}
+                                >
                                     {item.thumbnail ? (
-                                        <div className="w-20 h-14 rounded-md overflow-hidden flex-shrink-0 relative bg-muted shadow-inner">
+                                        <div className="w-16 h-12 sm:w-20 sm:h-14 rounded-md overflow-hidden flex-shrink-0 relative bg-muted shadow-inner group">
                                             <img src={item.thumbnail} className="object-cover w-full h-full" alt="thumb" />
+                                            {isClickable && (
+                                                <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <Play className="w-5 h-5 text-white fill-white" />
+                                                </div>
+                                            )}
                                         </div>
                                     ) : (
-                                        <div className="w-20 h-14 rounded-md flex items-center justify-center flex-shrink-0 bg-muted/50 border border-dashed">
+                                        <div className="w-16 h-12 sm:w-20 sm:h-14 rounded-md flex items-center justify-center flex-shrink-0 bg-muted/50 border border-dashed">
                                             <VideoIcon className="w-5 h-5 text-muted-foreground/30" />
                                         </div>
                                     )}
 
-                                    <div className="flex-1 min-w-0 pr-4">
-                                        <p className="text-sm font-semibold truncate text-foreground/90">
+                                    <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                                        <p className={cn("text-sm font-semibold truncate text-foreground/90", isClickable && "group-hover:text-primary")}>
                                             {item.title || item.originalUrl}
                                         </p>
-                                        {/* Format Selection Dropdown */}
-                                        {item.formats && item.formats.length > 0 && item.status !== 'downloading' && item.status !== 'completed' && (
-                                            <select
-                                                value={item.selectedFormat || ""}
-                                                onChange={(e) => {
-                                                    const val = e.target.value;
-                                                    setQueue(prev => prev.map(q => q.id === item.id ? { ...q, selectedFormat: val } : q));
-                                                }}
-                                                className="mt-1.5 flex h-7 w-full max-w-[240px] rounded-md border border-input bg-transparent px-2 py-1 text-[11px] shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            <motion.div
+                                                key={`${item.id}-${item.status}`}
+                                                initial={{ opacity: 0, scale: 0.95 }}
+                                                animate={{ opacity: 1, scale: 1 }}
+                                                transition={{ duration: 0.18 }}
                                             >
-                                                <option value="">Best Quality (default)</option>
-                                                <option value="audio">🎵 Audio Only (MP3)</option>
-                                                {item.formats.slice(0, 8).map(fmt => (
-                                                    <option key={fmt.formatId} value={fmt.formatId}>
-                                                        {fmt.label}{fmt.filesize ? ` (~${(fmt.filesize / (1024 * 1024)).toFixed(0)}MB)` : ''}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        )}
-                                        <div className="flex items-center gap-3 mt-2">
-                                            {item.status === 'parsing' && <><Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" /><span className="text-xs text-muted-foreground">Parsing metadata...</span></>}
-                                            {item.status === 'pending' && (
-                                                <div className="flex items-center gap-2">
-                                                    <Button
-                                                        size="sm"
-                                                        variant="default"
-                                                        className="h-7 px-3 text-[10px] gap-1.5 rounded-lg shadow-sm"
-                                                        onClick={() => startDownloadJob(item.id)}
-                                                    >
-                                                        <DownloadCloud className="w-3 h-3" />
-                                                        Download
-                                                    </Button>
-                                                    <span className="text-[10px] text-muted-foreground italic">← Select quality & start</span>
-                                                </div>
+                                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                                    {item.status}
+                                                </Badge>
+                                            </motion.div>
+                                            {item.matchedProfileName && !item.needsReview && (
+                                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-primary/40 text-primary/80 gap-1 max-w-full truncate">
+                                                    <Sparkles className="w-2.5 h-2.5 flex-shrink-0" />
+                                                    <span className="truncate">
+                                                        {item.matchedProfileName}
+                                                        {item.matchedFormatLabel && <span className="opacity-70"> · {item.matchedFormatLabel}</span>}
+                                                    </span>
+                                                </Badge>
                                             )}
-                                            {item.status === 'downloading' && (
-                                                <div className="flex-1 flex items-center gap-3">
-                                                    <Progress value={item.progress ?? 0} className="h-1.5 flex-1 bg-muted/80" />
-                                                    <span className="text-xs font-bold text-primary w-9">{Math.round(item.progress || 0)}%</span>
-                                                </div>
-                                            )}
-                                            {item.status === 'completed' && <><CheckCircle2 className="w-4 h-4 text-green-500" /><span className="text-xs font-medium text-green-500">Completed & Saved</span></>}
-                                            {item.status === 'error' && (
-                                                <div className="flex flex-col gap-1 w-full">
-                                                    <div className="flex items-center gap-2 text-destructive">
-                                                        <AlertCircle className="w-3.5 h-3.5" />
-                                                        <span className="text-xs font-medium truncate">{item.errorText}</span>
-                                                    </div>
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="h-6 w-fit text-[10px] px-2 self-start"
-                                                        onClick={() => startDownloadJob(item.id)}
-                                                    >
-                                                        Try Again
-                                                    </Button>
-                                                </div>
+                                            {item.errorText && (
+                                                <span className="text-[10px] text-muted-foreground truncate max-w-full" title={item.errorText}>
+                                                    {item.errorText}
+                                                </span>
                                             )}
                                         </div>
+                                        {item.status === "parsing" && (
+                                            <p className="text-[11px] text-muted-foreground">Parsing metadata…</p>
+                                        )}
+                                        {item.status === "queued" && (
+                                            <p className="text-[11px] text-muted-foreground">Queued, waiting for worker…</p>
+                                        )}
+                                        {(item.status === "downloading" || item.status === "paused" || item.status === "processing") && (
+                                            <div className="flex items-center gap-2">
+                                                <Progress value={item.status === "processing" ? 100 : (item.progress ?? 0)} className="h-1.5 flex-1 bg-muted/80" />
+                                                <motion.span
+                                                    key={`${item.id}-${item.status}-${Math.round(item.progress || 0)}`}
+                                                    initial={{ opacity: 0.55, y: 2 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    transition={{ duration: 0.16 }}
+                                                    className="text-[11px] font-bold text-primary w-10 text-right flex-shrink-0"
+                                                >
+                                                    {item.status === "processing" ? "100%" : `${Math.round(item.progress || 0)}%`}
+                                                </motion.span>
+                                            </div>
+                                        )}
+                                        {item.formats && item.formats.length > 0 && !['queued', 'downloading', 'processing', 'paused', 'completed', 'cancelled'].includes(item.status) && (
+                                            <div className="flex items-center gap-1.5 w-full" onClick={stop}>
+                                                {item.needsReview && item.status === "pending" && (
+                                                    <Tooltip>
+                                                        <TooltipTrigger className="flex-shrink-0 text-amber-500 hover:text-amber-400 cursor-help">
+                                                            <AlertCircle className="w-4 h-4" />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent className="max-w-[260px]">
+                                                            {item.reviewReason || "Pick a format manually"}
+                                                        </TooltipContent>
+                                                    </Tooltip>
+                                                )}
+                                                <select
+                                                    value={item.selectedFormat || ""}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        setQueue(prev => prev.map(q => q.id === item.id ? { ...q, selectedFormat: val, needsReview: false, reviewReason: undefined } : q));
+                                                    }}
+                                                    className="h-7 flex-1 min-w-0 rounded-md border border-input bg-transparent px-2 py-1 text-[11px] shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                                >
+                                                    <option value="">Best available (auto)</option>
+                                                    <option value="audio">🎵 Audio Only (MP3)</option>
+                                                    {item.formats.slice(0, 8).map(fmt => (
+                                                        <option key={fmt.formatId} value={fmt.formatId}>
+                                                            {fmt.label}{fmt.filesize ? ` (~${(fmt.filesize / (1024 * 1024)).toFixed(0)}MB)` : ''}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="flex items-center gap-1 flex-shrink-0 self-start" onClick={stop}>
+                                            {item.status === 'pending' && (
+                                                <Tooltip>
+                                                    <TooltipTrigger
+                                                        className={cn(buttonVariants({ variant: "default", size: "icon" }), "h-7 w-7 flex-shrink-0", retryingQueueIds.has(item.id) && "opacity-50 pointer-events-none")}
+                                                        onClick={() => startDownloadJob(item.id)}
+                                                    >
+                                                        <DownloadCloud className="w-3.5 h-3.5" />
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>Download</TooltipContent>
+                                                </Tooltip>
+                                            )}
+                                            {item.status === 'downloading' && item.jobId && (
+                                                <>
+                                                    <Tooltip>
+                                                        <TooltipTrigger
+                                                            className={iconBtnOutline}
+                                                            onClick={async () => {
+                                                                await fetch(`/api/download/${item.jobId}`, {
+                                                                    method: "PATCH",
+                                                                    headers: { "Content-Type": "application/json" },
+                                                                    body: JSON.stringify({ action: "pause" }),
+                                                                });
+                                                                setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "paused" } : q));
+                                                            }}
+                                                        >
+                                                            <Pause className="w-3.5 h-3.5" />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>Pause</TooltipContent>
+                                                    </Tooltip>
+                                                    <Tooltip>
+                                                        <TooltipTrigger
+                                                            className={iconBtnDestructive}
+                                                            onClick={async () => {
+                                                                await fetch(`/api/download/${item.jobId}`, {
+                                                                    method: "PATCH",
+                                                                    headers: { "Content-Type": "application/json" },
+                                                                    body: JSON.stringify({ action: "cancel" }),
+                                                                });
+                                                                setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "cancelled", errorText: "Cancelled by user" } : q));
+                                                            }}
+                                                        >
+                                                            <Ban className="w-3.5 h-3.5" />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>Cancel</TooltipContent>
+                                                    </Tooltip>
+                                                </>
+                                            )}
+                                            {item.status === 'paused' && item.jobId && (
+                                                <>
+                                                    <Tooltip>
+                                                        <TooltipTrigger
+                                                            className={cn(buttonVariants({ variant: "default", size: "icon" }), "h-7 w-7 flex-shrink-0")}
+                                                            onClick={async () => {
+                                                                await fetch(`/api/download/${item.jobId}`, {
+                                                                    method: "PATCH",
+                                                                    headers: { "Content-Type": "application/json" },
+                                                                    body: JSON.stringify({ action: "resume" }),
+                                                                });
+                                                                setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "downloading" } : q));
+                                                            }}
+                                                        >
+                                                            <Play className="w-3.5 h-3.5" />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>Resume</TooltipContent>
+                                                    </Tooltip>
+                                                    <Tooltip>
+                                                        <TooltipTrigger
+                                                            className={iconBtnDestructive}
+                                                            onClick={async () => {
+                                                                await fetch(`/api/download/${item.jobId}`, {
+                                                                    method: "PATCH",
+                                                                    headers: { "Content-Type": "application/json" },
+                                                                    body: JSON.stringify({ action: "cancel" }),
+                                                                });
+                                                                setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "cancelled", errorText: "Cancelled by user" } : q));
+                                                            }}
+                                                        >
+                                                            <Ban className="w-3.5 h-3.5" />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>Cancel</TooltipContent>
+                                                    </Tooltip>
+                                                </>
+                                            )}
+                                            {(item.status === 'error' || item.status === 'cancelled') && (
+                                                <Tooltip>
+                                                    <TooltipTrigger
+                                                        className={cn(iconBtnOutline, retryingQueueIds.has(item.id) && "opacity-50 pointer-events-none")}
+                                                        onClick={() => startDownloadJob(item.id)}
+                                                    >
+                                                        <RotateCcw className="w-3.5 h-3.5" />
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>{retryingQueueIds.has(item.id) ? "Retrying…" : "Retry"}</TooltipContent>
+                                                </Tooltip>
+                                            )}
                                     </div>
                                 </div>
-                            ))
+                                );
+                            })
                         )}
                     </div>
                 </div>
@@ -1105,13 +1827,98 @@ export default function LibraryPage() {
                 transition={{ type: "spring" as const, damping: 22, stiffness: 160, delay: 0.2 }}
                 className="space-y-6 pt-4"
             >
-                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 px-1">
-                    <div>
-                        <h2 className="text-2xl font-bold tracking-tight">Saved Media</h2>
-                        <div className="text-sm text-muted-foreground mt-1">
-                            {displayedVideos.length} {displayedVideos.length === 1 ? 'item' : 'items'}
+                <div className="flex flex-col gap-3 px-1">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                            <div>
+                                <h2 className="text-2xl font-bold tracking-tight">Saved Media</h2>
+                                <div className="text-sm text-muted-foreground mt-0.5">
+                                    {displayedVideos.length} {displayedVideos.length === 1 ? 'item' : 'items'}
+                                    {selectedIds.size > 0 && ` · ${selectedIds.size} selected`}
+                                </div>
+                            </div>
+                            <Button
+                                variant={selectionMode ? "secondary" : "ghost"}
+                                size="sm"
+                                className="h-8 text-xs gap-1.5"
+                                onClick={() => { setSelectionMode(!selectionMode); if (selectionMode) deselectAll(); }}
+                            >
+                                <CheckSquare className="w-3.5 h-3.5" />
+                                {selectionMode ? "Done" : "Select"}
+                            </Button>
                         </div>
                     </div>
+
+                    {selectionMode && (
+                        <div className="flex flex-wrap items-center gap-2 py-2 px-3 rounded-lg bg-muted/40 border border-border/50">
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={selectAll}>Select All</Button>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={deselectAll}>Deselect All</Button>
+                            {selectedIds.size > 0 && (
+                                <>
+                                    <div className="w-px h-5 bg-border/50 mx-1" />
+                                    <Button
+                                        variant="destructive"
+                                        size="sm"
+                                        className="h-7 text-xs gap-1.5"
+                                        onClick={async () => {
+                                            if (!confirm(`Delete ${selectedIds.size} selected items? This cannot be undone.`)) return;
+                                            const toastId = toast.loading(`Deleting ${selectedIds.size} items...`);
+                                            try {
+                                                const res = await fetch("/api/library/bulk", {
+                                                    method: "DELETE",
+                                                    headers: { "Content-Type": "application/json" },
+                                                    body: JSON.stringify({ ids: Array.from(selectedIds) }),
+                                                });
+                                                if (res.ok) {
+                                                    const data = await res.json();
+                                                    toast.success(`Deleted ${data.deleted} items`, { id: toastId });
+                                                    setVideos(prev => prev.filter(v => !selectedIds.has(v.id)));
+                                                    deselectAll();
+                                                } else {
+                                                    toast.error("Bulk delete failed", { id: toastId });
+                                                }
+                                            } catch { toast.error("Bulk delete error", { id: toastId }); }
+                                        }}
+                                    >
+                                        <Trash2 className="w-3.5 h-3.5" /> Delete ({selectedIds.size})
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 text-xs gap-1.5"
+                                        onClick={async () => {
+                                            const toastId = toast.loading(`Uploading ${selectedIds.size} items to cloud...`);
+                                            try {
+                                                const res = await fetch("/api/sync/bulk", {
+                                                    method: "POST",
+                                                    headers: { "Content-Type": "application/json" },
+                                                    body: JSON.stringify({ ids: Array.from(selectedIds) }),
+                                                });
+                                                const data = await res.json();
+                                                if (res.ok) {
+                                                    const uploaded = data.uploaded || 0;
+                                                    const errCount = data.errors?.length || 0;
+                                                    if (errCount > 0) {
+                                                        toast.warning(`Uploaded ${uploaded}, failed ${errCount}: ${data.errors[0]?.error}`, { id: toastId, duration: 6000 });
+                                                    } else if (uploaded === 0) {
+                                                        toast.info("No new items to upload (already synced or missing credentials)", { id: toastId, duration: 5000 });
+                                                    } else {
+                                                        toast.success(`Uploaded ${uploaded} items to cloud`, { id: toastId });
+                                                    }
+                                                    fetchLibrary();
+                                                    deselectAll();
+                                                } else {
+                                                    toast.error(`Cloud upload failed: ${data.error || "Unknown error"}${data.details ? ` — ${data.details}` : ""}`, { id: toastId, duration: 6000 });
+                                                }
+                                            } catch (err: any) { toast.error(`Cloud upload error: ${err.message}`, { id: toastId }); }
+                                        }}
+                                    >
+                                        <Cloud className="w-3.5 h-3.5" /> Cloud Upload
+                                    </Button>
+                                </>
+                            )}
+                        </div>
+                    )}
 
                     <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
                         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full md:w-auto">
@@ -1199,6 +2006,15 @@ export default function LibraryPage() {
                             >
                                 <ImageIcon className="w-4 h-4" />
                             </Button>
+                            <Button
+                                variant={mediaTypeFilter === "audio" ? "secondary" : "ghost"}
+                                size="sm"
+                                className="h-9 rounded-none border-none px-3"
+                                onClick={() => { const next = "audio"; setMediaTypeFilter(next); localStorage.setItem("ui_mediaTypeFilter", next); }}
+                                title="Audio only"
+                            >
+                                <Music className="w-4 h-4" />
+                            </Button>
                         </div>
 
                         <Button
@@ -1272,12 +2088,38 @@ export default function LibraryPage() {
             </motion.div>
 
             {/* Media Player Modal */}
+            <Dialog
+                open={deleteTarget !== null}
+                onOpenChange={(open) => {
+                    if (!open) setDeleteTarget(null);
+                }}
+            >
+                <DialogContent showCloseButton className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Delete video?</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to completely delete{" "}
+                            <span className="font-medium text-foreground">&quot;{deleteTarget?.title}&quot;</span>? This
+                            will remove the file from your computer. This cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end pt-2">
+                        <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+                            Cancel
+                        </Button>
+                        <Button variant="destructive" onClick={() => void performDelete()}>
+                            Delete
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
             <MediaPlayerModal
                 open={playerOpen}
                 onOpenChange={setPlayerOpen}
                 videos={displayedVideos}
                 initialIndex={playerIndex}
-                onDelete={handleDelete}
+                onDelete={openDeleteDialog}
                 onCloudUpload={handleCloudUpload}
                 onCloudRemove={handleCloudRemove}
                 onRefreshLibrary={fetchLibrary}

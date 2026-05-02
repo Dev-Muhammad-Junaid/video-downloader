@@ -8,8 +8,9 @@ import { prisma } from "@/lib/prisma";
 const execAsync = promisify(exec);
 
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mkv", ".webm", ".mov", ".avi"]);
-const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp"]);
-const ALL_MEDIA_EXTENSIONS = new Set([...VIDEO_EXTENSIONS, ...IMAGE_EXTENSIONS]);
+const AUDIO_EXTENSIONS = new Set([".mp3", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".wav", ".wma"]);
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp"]);
+const ALL_MEDIA_EXTENSIONS = new Set([...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS, ...IMAGE_EXTENSIONS]);
 
 async function getDuration(filePath: string): Promise<number | null> {
     try {
@@ -87,8 +88,10 @@ export async function POST(req: Request) {
 
             const ext = path.extname(filePath).toLowerCase();
             const isImage = IMAGE_EXTENSIONS.has(ext);
+            const isAudio = AUDIO_EXTENSIONS.has(ext);
             const stats = await fs.stat(filePath);
             const duration = isImage ? null : await getDuration(filePath);
+            const mediaType = isImage ? "image" : isAudio ? "audio" : "video";
 
             const video = await prisma.video.create({
                 data: {
@@ -96,7 +99,7 @@ export async function POST(req: Request) {
                     localPath: filePath,
                     fileSize: stats.size,
                     duration,
-                    mediaType: isImage ? "image" : "video",
+                    mediaType,
                     sourcePlatform: "Local Import",
                 },
             });
