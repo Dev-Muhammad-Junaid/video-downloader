@@ -5,6 +5,7 @@ export type PresetProfile = {
     sitePattern: string;
     maxResolution: string;
     preferredFormat: string;
+    preferredImageFormat: string;
     priority: number;
     requireManualFormat: boolean;
     autoCloudSync: boolean;
@@ -21,6 +22,7 @@ export const PRESET_PROFILES: PresetProfile[] = [
         maxResolution: "best",
         preferredFormat: "mp4",
         priority: -1,
+        preferredImageFormat: "original",
         requireManualFormat: false,
         autoCloudSync: false,
         isActive: true,

@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { VideoEditorModal } from "./video-editor/video-editor-modal";
+import { ImageEditorModal } from "./image-editor/image-editor-modal";
 
 type Video = {
     id: string;
@@ -77,32 +78,35 @@ export function MediaPlayerModal({
     onTranscribe,
     onRefreshLibrary,
 }: MediaPlayerModalProps) {
-    const [currentIndex, setCurrentIndex] = useState(initialIndex);
+    // Track by ID so library refreshes (which shift array indices) don't swap the displayed item
+    const [currentId, setCurrentId] = useState<string>(videos[initialIndex]?.id ?? "");
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [editTitle, setEditTitle] = useState("");
-    
+
     // Edit Media Mode State
     const [isEditingMedia, setIsEditingMedia] = useState(false);
 
     const videoRef = useRef<HTMLVideoElement>(null);
 
     useEffect(() => {
-        setCurrentIndex(initialIndex);
+        setCurrentId(videos[initialIndex]?.id ?? "");
         setIsEditingMedia(false);
-    }, [initialIndex]);
+    }, [initialIndex, videos]);
 
-    const video = videos[currentIndex];
+    const currentIndex = videos.findIndex(v => v.id === currentId);
+    const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+    const video = videos[safeIndex];
     if (!video) return null;
 
-    const hasPrev = currentIndex > 0;
-    const hasNext = currentIndex < videos.length - 1;
+    const hasPrev = safeIndex > 0;
+    const hasNext = safeIndex < videos.length - 1;
 
     const handlePrev = () => {
-        if (hasPrev) setCurrentIndex(currentIndex - 1);
+        if (hasPrev) setCurrentId(videos[safeIndex - 1].id);
     };
 
     const handleNext = () => {
-        if (hasNext) setCurrentIndex(currentIndex + 1);
+        if (hasNext) setCurrentId(videos[safeIndex + 1].id);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -235,12 +239,13 @@ export function MediaPlayerModal({
                                     />
                                 </div>
                             ) : (
-                                <div className="flex items-start gap-2 group/title">
-                                    <h3 className="font-semibold text-sm flex-1 leading-snug break-words">{video.title}</h3>
-                                    <Button size="icon" variant="ghost" className="h-7 w-7 flex-shrink-0 opacity-0 group-hover/title:opacity-100 transition-opacity" onClick={startEditTitle}>
-                                        <Pencil className="w-3.5 h-3.5" />
-                                    </Button>
-                                </div>
+                                <h3
+                                    className="font-semibold text-sm leading-snug break-words cursor-text select-none rounded px-1 -mx-1 hover:bg-muted/50 transition-colors"
+                                    onDoubleClick={startEditTitle}
+                                    title="Double-click to rename"
+                                >
+                                    {video.title}
+                                </h3>
                             )}
                         </div>
 
@@ -412,10 +417,10 @@ export function MediaPlayerModal({
                             ) : video.mediaType === "image" ? (
                                 <Button
                                     variant="outline"
-                                    className="w-full h-9 text-xs opacity-50 cursor-not-allowed"
-                                    disabled
+                                    className="w-full h-9 text-xs"
+                                    onClick={() => setIsEditingMedia(true)}
                                 >
-                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Image (Coming Soon)
+                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Image
                                 </Button>
                             ) : video.mediaType === "audio" ? (
                                 <Button
@@ -481,9 +486,16 @@ export function MediaPlayerModal({
                 </div>
             </DialogContent>
 
-            {isEditingMedia && (
-                <VideoEditorModal 
-                    video={video} 
+            {isEditingMedia && video.mediaType === "image" && (
+                <ImageEditorModal
+                    image={video}
+                    onClose={() => setIsEditingMedia(false)}
+                    onRefreshLibrary={onRefreshLibrary}
+                />
+            )}
+            {isEditingMedia && (!video.mediaType || video.mediaType === "video" || video.mediaType === "audio") && (
+                <VideoEditorModal
+                    video={video}
                     onClose={() => setIsEditingMedia(false)}
                     onRefreshLibrary={onRefreshLibrary}
                 />

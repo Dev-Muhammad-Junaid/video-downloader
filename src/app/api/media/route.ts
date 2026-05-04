@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { getDownloadsDir } from "@/lib/download-manager";
+import { getServerSettings } from "@/lib/settings";
 
 const MIME_TYPES: Record<string, string> = {
     ".mp4": "video/mp4",
@@ -51,13 +52,10 @@ export async function GET(req: Request) {
         "/tmp",
     ];
 
-    // Also allow paths from the watch folder setting
+    // Allow paths from the watch folder setting (stored in .server_settings.json)
     try {
-        const settingsPath = path.join(process.cwd(), "watch_folder");
-        if (fs.existsSync(settingsPath)) {
-            const watchFolder = fs.readFileSync(settingsPath, "utf-8").trim();
-            if (watchFolder) allowedRoots.push(path.resolve(watchFolder));
-        }
+        const { watchFolder } = getServerSettings();
+        if (watchFolder) allowedRoots.push(path.resolve(watchFolder));
     } catch { }
 
     const isAllowed = allowedRoots.some(root => absolutePath.startsWith(root));
