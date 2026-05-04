@@ -40,6 +40,7 @@ export async function POST(req: Request) {
                 sitePattern: data.sitePattern || "*",
                 maxResolution: data.maxResolution || "best",
                 preferredFormat: data.preferredFormat || "mp4",
+                preferredImageFormat: data.preferredImageFormat || "original",
                 autoCloudSync: !!data.autoCloudSync,
                 requireManualFormat: !!data.requireManualFormat,
                 strictResolution: !!data.strictResolution,

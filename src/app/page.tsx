@@ -41,6 +41,7 @@ import { toast } from "sonner";
 import { Trash2, Tags, PlusCircle, CheckSquare, Square, Music } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { MediaPlayerModal } from "@/components/media-player-modal";
+import { ImageEditorModal } from "@/components/image-editor/image-editor-modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
     Dialog,
@@ -131,6 +132,9 @@ export default function LibraryPage() {
     const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
     const [editTitle, setEditTitle] = useState("");
 
+    // Image editor state
+    const [editingImageId, setEditingImageId] = useState<string | null>(null);
+
     const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
 
     // Labels State
@@ -152,6 +156,9 @@ export default function LibraryPage() {
     // Bulk Selection State
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [selectionMode, setSelectionMode] = useState(false);
+
+    // Dev seed state (only meaningful in development)
+    const [seeding, setSeeding] = useState(false);
 
     const pollingRefs = React.useRef<{ [key: string]: NodeJS.Timeout }>({});
     const sseRef = React.useRef<EventSource | null>(null);
@@ -1111,36 +1118,8 @@ export default function LibraryPage() {
                     )}
                 </button>
             )}
-            <CardHeader className="p-4 z-10 bg-gradient-to-b from-card to-transparent border-b border-border/10 relative">
-                {editingVideoId === video.id ? (
-                    <div className="flex items-center gap-2 mb-1.5">
-                        <Input
-                            autoFocus
-                            value={editTitle}
-                            onChange={e => setEditTitle(e.target.value)}
-                            className="h-7 text-xs px-2 py-1"
-                            onKeyDown={e => e.key === 'Enter' && handleRename(video.id)}
-                        />
-                        <Button size="sm" variant="default" className="h-7 px-2" onClick={() => handleRename(video.id)}>
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                        </Button>
-                    </div>
-                ) : (
-                    <div className="flex items-start justify-between gap-1 group/title">
-                        <CardTitle className="text-base line-clamp-2 leading-snug pr-4" title={video.title}>{video.title}</CardTitle>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="w-6 h-6 shrink-0 opacity-0 group-hover/title:opacity-100 transition-opacity absolute right-2 top-3"
-                            onClick={() => {
-                                setEditTitle(video.title);
-                                setEditingVideoId(video.id);
-                            }}
-                        >
-                            <Pencil className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground" />
-                        </Button>
-                    </div>
-                )}
+            <CardHeader className="p-3 z-10 bg-gradient-to-b from-card to-transparent border-b border-border/10 relative">
+                <CardTitle className="text-sm font-medium line-clamp-2 leading-snug" title={video.title}>{video.title}</CardTitle>
 
                 {/* Labels Area */}
                 <div className="flex flex-wrap gap-1.5 mt-2">
@@ -1213,7 +1192,16 @@ export default function LibraryPage() {
                 </CardDescription>
             </CardHeader>
             <CardContent
-                className="p-0 flex-1 flex items-center justify-center bg-black relative min-h-[140px] overflow-hidden group"
+                className={cn(
+                    "p-0 flex items-center justify-center relative h-[180px] overflow-hidden group",
+                    video.mediaType === "image" ? "" : "bg-black"
+                )}
+                style={video.mediaType === "image" ? {
+                    backgroundColor: "hsl(var(--background))",
+                    backgroundImage: "linear-gradient(45deg, hsl(var(--muted)) 25%, transparent 25%), linear-gradient(-45deg, hsl(var(--muted)) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, hsl(var(--muted)) 75%), linear-gradient(-45deg, transparent 75%, hsl(var(--muted)) 75%)",
+                    backgroundSize: "16px 16px",
+                    backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
+                } : undefined}
             >
                 {/* Expand Button for Media Player Modal */}
                 <Button
@@ -1236,7 +1224,7 @@ export default function LibraryPage() {
                     <img
                         src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
                         alt={video.title}
-                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-105"
                         loading="lazy"
                     />
                 ) : video.mediaType === "audio" ? (
@@ -1275,17 +1263,16 @@ export default function LibraryPage() {
                                 {video.transcriptStatus === "completed" ? (
                                     <Tooltip>
                                         <TooltipTrigger>
-                                            <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-1.5 py-0.5 cursor-default">
+                                            <span className="inline-flex items-center justify-center text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 rounded-full w-5 h-5 cursor-default">
                                                 <Mic className="w-2.5 h-2.5" />
-                                                Transcribed
                                             </span>
                                         </TooltipTrigger>
-                                        <TooltipContent>Transcript available for deep search</TooltipContent>
+                                        <TooltipContent>Transcribed — available for deep search</TooltipContent>
                                     </Tooltip>
                                 ) : video.transcriptStatus === "processing" || transcribingIds.has(video.id) ? (
                                     <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-full px-1.5 py-0.5">
                                         <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                        Transcribing...
+                                        Processing…
                                     </span>
                                 ) : video.transcriptStatus === "error" ? (
                                     <Button
@@ -1308,9 +1295,6 @@ export default function LibraryPage() {
                                         <Mic className="w-2.5 h-2.5 mr-0.5" /> Transcribe
                                     </Button>
                                 )}
-                                <span className="inline-flex items-center rounded-full border border-border/60 bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">
-                                    {providerLabel}
-                                </span>
                             </>
                         )}
                     </div>
@@ -1322,6 +1306,11 @@ export default function LibraryPage() {
                         <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => handleOpenFolder(video.localPath)} title="View in Explorer">
                             <FolderOpen className="h-3.5 w-3.5" />
                         </Button>
+                        {video.mediaType === "image" && (
+                            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-primary/10 hover:text-primary shadow-sm" onClick={() => setEditingImageId(video.id)} title="Edit Image">
+                                <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                        )}
                         {video.cloudKey ? (
                             <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-orange-500/10 hover:text-orange-500 shadow-sm" onClick={() => handleCloudRemove(video)} title="Remove from Cloud">
                                 <CloudOff className="h-3.5 w-3.5" />
@@ -1829,7 +1818,7 @@ export default function LibraryPage() {
             >
                 <div className="flex flex-col gap-3 px-1">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-wrap">
                             <div>
                                 <h2 className="text-2xl font-bold tracking-tight">Saved Media</h2>
                                 <div className="text-sm text-muted-foreground mt-0.5">
@@ -1846,6 +1835,59 @@ export default function LibraryPage() {
                                 <CheckSquare className="w-3.5 h-3.5" />
                                 {selectionMode ? "Done" : "Select"}
                             </Button>
+                            {/* Dev-only seed controls */}
+                            {process.env.NODE_ENV !== "production" && (
+                                <div className="flex items-center gap-1.5 ml-2 px-2 py-1 rounded-lg border border-dashed border-amber-500/40 bg-amber-500/5">
+                                    <Sparkles className="w-3 h-3 text-amber-500/70" />
+                                    <span className="text-[10px] text-amber-600/70 font-medium">Dev</span>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        disabled={seeding}
+                                        className="h-6 text-[11px] px-2 text-amber-700 hover:bg-amber-500/10"
+                                        onClick={async () => {
+                                            setSeeding(true);
+                                            const toastId = toast.loading("Seeding test images…");
+                                            try {
+                                                const res = await fetch("/api/dev/seed", { method: "POST" });
+                                                const data = await res.json();
+                                                const seeded = data.results?.filter((r: any) => r.status === "seeded").length ?? 0;
+                                                const skipped = data.results?.filter((r: any) => r.status === "skipped").length ?? 0;
+                                                toast.success(`Seeded ${seeded} images${skipped ? `, ${skipped} already present` : ""}`, { id: toastId });
+                                                fetchLibrary();
+                                                // Optionally load test URLs into the download input
+                                                if (data.testUrls?.length) {
+                                                    setUrlText((prev) => {
+                                                        const existing = new Set(prev.split("\n").map((u: string) => u.trim()).filter(Boolean));
+                                                        const newUrls = data.testUrls.filter((u: string) => !existing.has(u));
+                                                        return [...Array.from(existing), ...newUrls].join("\n");
+                                                    });
+                                                }
+                                            } catch (err: any) {
+                                                toast.error(err.message || "Seed failed", { id: toastId });
+                                            } finally {
+                                                setSeeding(false);
+                                            }
+                                        }}
+                                    >
+                                        {seeding ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                                        Seed Test Data
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 text-[11px] px-2 text-red-500/70 hover:bg-red-500/10"
+                                        onClick={async () => {
+                                            const res = await fetch("/api/dev/seed", { method: "DELETE" });
+                                            const data = await res.json();
+                                            toast.success(`Removed ${data.removed} seed items`);
+                                            fetchLibrary();
+                                        }}
+                                    >
+                                        Clear Seed
+                                    </Button>
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -2113,6 +2155,17 @@ export default function LibraryPage() {
                     </div>
                 </DialogContent>
             </Dialog>
+
+            {editingImageId && (() => {
+                const img = videos.find(v => v.id === editingImageId);
+                return img ? (
+                    <ImageEditorModal
+                        image={img}
+                        onClose={() => setEditingImageId(null)}
+                        onRefreshLibrary={fetchLibrary}
+                    />
+                ) : null;
+            })()}
 
             <MediaPlayerModal
                 open={playerOpen}

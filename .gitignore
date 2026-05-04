@@ -48,3 +48,6 @@ next-env.d.ts
 /download_destination
 thumbnails/
 ytdlp_test.json
+
+# server settings (contains API keys — never commit)
+.server_settings.json

@@ -22,6 +22,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
                 sitePattern: data.sitePattern,
                 maxResolution: data.maxResolution,
                 preferredFormat: data.preferredFormat,
+                preferredImageFormat: data.preferredImageFormat,
                 autoCloudSync: data.autoCloudSync,
                 requireManualFormat: data.requireManualFormat,
                 strictResolution: data.strictResolution,

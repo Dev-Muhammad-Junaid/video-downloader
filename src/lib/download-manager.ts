@@ -546,8 +546,15 @@ export async function startDownload(
     if (mediaType === "image" && imageUrl) {
         // Queue the image download process
         limit(async () => {
-            const ext = path.extname(new URL(imageUrl).pathname) || ".jpg";
-            const fileName = `${safeTitle}_${id}${ext}`;
+            // Look up the matching profile so we can apply image format preference + autoCloudSync
+            const imageProfile = profileId
+                ? await prisma.downloadProfile.findUnique({ where: { id: profileId } })
+                : await getMatchingProfile(url);
+            const preferredImageFormat = imageProfile?.preferredImageFormat || "original";
+
+            const srcExt = path.extname(new URL(imageUrl).pathname).toLowerCase() || ".jpg";
+            const outExt = preferredImageFormat !== "original" ? `.${preferredImageFormat}` : srcExt;
+            const fileName = `${safeTitle}_${id}${outExt}`;
             const outputPath = path.join(downloadsDir, fileName);
             let logEntryId = "";
 
@@ -561,7 +568,23 @@ export async function startDownload(
                 });
                 logEntryId = logEntry.id;
 
-            await downloadFile(imageUrl, outputPath, id);
+            // Download to a temp path, then convert if needed
+            const needsConversion = preferredImageFormat !== "original" && srcExt !== outExt;
+            const downloadTarget = needsConversion
+                ? path.join(downloadsDir, `${safeTitle}_${id}_tmp${srcExt}`)
+                : outputPath;
+
+            await downloadFile(imageUrl, downloadTarget, id);
+
+            if (needsConversion) {
+                const sharp = (await import("sharp")).default;
+                let pipeline = sharp(downloadTarget);
+                if (outExt === ".jpg") pipeline = pipeline.jpeg({ quality: 90 });
+                else if (outExt === ".png") pipeline = pipeline.png();
+                else if (outExt === ".webp") pipeline = pipeline.webp({ quality: 85 });
+                await pipeline.toFile(outputPath);
+                fs.unlinkSync(downloadTarget);
+            }
 
             job.status = "completed";
             job.completedAt = Date.now();
@@ -604,7 +627,8 @@ export async function startDownload(
 
             const createdVideo = await prisma.video.create({ data: dbData });
 
-            if (forceCloudSync) {
+            const shouldSync = forceCloudSync || imageProfile?.autoCloudSync;
+            if (shouldSync) {
                 uploadToCloud(createdVideo.id).catch(err => {
                     console.error(`[AutoSync] Error uploading image ${createdVideo.id}:`, err);
                 });

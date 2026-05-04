@@ -656,7 +656,7 @@ export default function SettingsPage() {
                                             </Select>
                                         </div>
                                         <div className="grid gap-1.5">
-                                            <Label>Format</Label>
+                                            <Label>Video Format</Label>
                                             <Select value={editingProfile?.preferredFormat || "mp4"} onValueChange={v => setEditingProfile({...editingProfile, preferredFormat: v})}>
                                                 <SelectTrigger>
                                                     <SelectValue />
@@ -666,6 +666,20 @@ export default function SettingsPage() {
                                                     <SelectItem value="mkv">MKV</SelectItem>
                                                     <SelectItem value="webm">WebM</SelectItem>
                                                     <SelectItem value="mp3">MP3 (Audio Only)</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="grid gap-1.5">
+                                            <Label>Image Format</Label>
+                                            <Select value={editingProfile?.preferredImageFormat || "original"} onValueChange={v => setEditingProfile({...editingProfile, preferredImageFormat: v})}>
+                                                <SelectTrigger>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="original">Original (keep as-is)</SelectItem>
+                                                    <SelectItem value="jpg">JPG (smaller, lossy)</SelectItem>
+                                                    <SelectItem value="png">PNG (lossless)</SelectItem>
+                                                    <SelectItem value="webp">WebP (modern, best compression)</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                         </div>

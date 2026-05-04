@@ -52,9 +52,10 @@ model DownloadProfile {
   name            String   @unique
   sitePattern     String?  // e.g. "youtube.com", "twitter.com", "*"
   
-  maxResolution   String?  @default("best") // "720p", "1080p", "1440p", "2160p", "best"
-  preferredFormat String?  @default("mp4")  // "mp4", "mkv", "webm", "mp3"
-  
+  maxResolution        String?  @default("best") // "720p", "1080p", "1440p", "2160p", "best"
+  preferredFormat      String?  @default("mp4")  // "mp4", "mkv", "webm", "mp3"
+  preferredImageFormat String?  @default("original") // "original", "jpg", "png", "webp"
+
   autoCloudSync   Boolean  @default(false)
   requireManualFormat Boolean @default(false)
   strictResolution Boolean @default(false) // if true, require EXACT match on maxResolution (e.g. "4K Only" means only 2160p)

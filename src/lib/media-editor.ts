@@ -556,3 +556,111 @@ export async function burnSubtitles(
 
     return captionedVideo;
 }
+
+// ─── Image Editing ────────────────────────────────────────────────────────────
+
+export interface ImageEditOptions {
+    crop?: { w: number; h: number; x: number; y: number }; // pixel values
+    rotation?: "90cw" | "90ccw" | "180" | "fliph" | "flipv";
+    brightness?: number; // -1.0 to 1.0, default 0
+    contrast?: number;   // 0.0 to 3.0, default 1
+    saturation?: number; // 0.0 to 3.0, default 1
+    format?: "jpg" | "png" | "webp";
+    quality?: number;    // 0-100, for jpg/webp
+}
+
+/**
+ * Apply crop, rotation/flip, colour adjustments, and/or format conversion to
+ * an image using sharp. Always creates a new library item.
+ */
+export async function editImage(videoId: string, options: ImageEditOptions) {
+    const original = await prisma.video.findUnique({ where: { id: videoId } });
+    if (!original) throw new Error("Image not found");
+    if (!fs.existsSync(original.localPath)) throw new Error("Original file missing on disk");
+
+    const parsedPath = path.parse(original.localPath);
+    const newId = Math.random().toString(36).substring(2, 15);
+    const outExt = options.format ? `.${options.format}` : parsedPath.ext.toLowerCase() || ".jpg";
+    const newFileName = `${parsedPath.name}_edited_${newId}${outExt}`;
+    const newFilePath = path.join(parsedPath.dir, newFileName);
+
+    const sharp = (await import("sharp")).default;
+    let pipeline = sharp(original.localPath);
+
+    // Crop first so subsequent ops work on the final pixel dimensions
+    if (options.crop) {
+        const { x, y, w, h } = options.crop;
+        pipeline = pipeline.extract({ left: x, top: y, width: w, height: h });
+    }
+
+    // Rotation / flip
+    if (options.rotation) {
+        switch (options.rotation) {
+            case "90cw":  pipeline = pipeline.rotate(90);  break;
+            case "90ccw": pipeline = pipeline.rotate(-90); break;
+            case "180":   pipeline = pipeline.rotate(180); break;
+            case "fliph": pipeline = pipeline.flop();      break;
+            case "flipv": pipeline = pipeline.flip();      break;
+        }
+    }
+
+    // Colour adjustments via sharp's modulate / linear
+    const needsBrightness  = options.brightness !== undefined && options.brightness !== 0;
+    const needsContrast    = options.contrast   !== undefined && options.contrast   !== 1;
+    const needsSaturation  = options.saturation !== undefined && options.saturation !== 1;
+
+    if (needsBrightness || needsContrast) {
+        // linear(a, b): output = input * a + b  (values in 0-255 range)
+        const a = options.contrast   ?? 1;                              // contrast multiplier
+        const b = (options.brightness ?? 0) * 128;                     // brightness offset (-128..128)
+        pipeline = pipeline.linear(a, b);
+    }
+
+    if (needsSaturation) {
+        pipeline = pipeline.modulate({ saturation: options.saturation ?? 1 });
+    }
+
+    // Output format + quality
+    const q = options.quality ?? 85;
+    if (outExt === ".jpg" || outExt === ".jpeg") {
+        pipeline = pipeline.jpeg({ quality: q });
+    } else if (outExt === ".webp") {
+        pipeline = pipeline.webp({ quality: q });
+    } else if (outExt === ".png") {
+        pipeline = pipeline.png();
+    }
+
+    console.log(`[Sharp Image] Writing: ${newFilePath}`);
+    await pipeline.toFile(newFilePath);
+
+    let fileSize = 0;
+    try { fileSize = fs.statSync(newFilePath).size; } catch {}
+
+    const suffix = buildSuffix(options);
+    const edited = await prisma.video.create({
+        data: {
+            title: `${original.title} (${suffix})`,
+            originalUrl: original.originalUrl,
+            sourcePlatform: original.sourcePlatform,
+            localPath: newFilePath,
+            fileSize,
+            mediaType: "image",
+        },
+    });
+
+    generateThumbnail(newFilePath, edited.id, "image").then(async (tp) => {
+        if (tp) await prisma.video.update({ where: { id: edited.id }, data: { thumbnailPath: tp } });
+    }).catch(console.error);
+
+    return edited;
+}
+
+function buildSuffix(opts: ImageEditOptions): string {
+    const parts: string[] = [];
+    if (opts.crop)     parts.push("Cropped");
+    if (opts.rotation) parts.push({ "90cw": "Rotated 90°", "90ccw": "Rotated -90°", "180": "Rotated 180°", fliph: "Flipped H", flipv: "Flipped V" }[opts.rotation]);
+    const hasAdj = (opts.brightness ?? 0) !== 0 || (opts.contrast ?? 1) !== 1 || (opts.saturation ?? 1) !== 1;
+    if (hasAdj)        parts.push("Adjusted");
+    if (opts.format)   parts.push(opts.format.toUpperCase());
+    return parts.length > 0 ? parts.join(", ") : "Edited";
+}
