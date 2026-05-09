@@ -34,6 +34,9 @@ export async function POST(req: Request) {
             });
         }
 
+        // Derive resolutionMode: explicit value wins, else fall back to legacy strictResolution bool
+        const resolvedMode = data.resolutionMode || (data.strictResolution ? "strict" : "flexible");
+
         const profile = await prisma.downloadProfile.create({
             data: {
                 name: data.name,
@@ -43,7 +46,8 @@ export async function POST(req: Request) {
                 preferredImageFormat: data.preferredImageFormat || "original",
                 autoCloudSync: !!data.autoCloudSync,
                 requireManualFormat: !!data.requireManualFormat,
-                strictResolution: !!data.strictResolution,
+                strictResolution: resolvedMode === "strict",
+                resolutionMode: resolvedMode,
                 isActive: data.isActive !== false,
                 priority: isDefault ? -1 : parseInt(data.priority || "0"),
             }

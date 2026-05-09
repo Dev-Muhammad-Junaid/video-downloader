@@ -579,9 +579,10 @@ export async function startDownload(
             if (needsConversion) {
                 const sharp = (await import("sharp")).default;
                 let pipeline = sharp(downloadTarget);
-                if (outExt === ".jpg") pipeline = pipeline.jpeg({ quality: 90 });
+                if (outExt === ".jpg" || outExt === ".jpeg") pipeline = pipeline.jpeg({ quality: 90 });
                 else if (outExt === ".png") pipeline = pipeline.png();
                 else if (outExt === ".webp") pipeline = pipeline.webp({ quality: 85 });
+                else if (outExt === ".avif") pipeline = pipeline.avif({ quality: 60 });
                 await pipeline.toFile(outputPath);
                 fs.unlinkSync(downloadTarget);
             }
@@ -690,8 +691,8 @@ export async function startDownload(
             const selectedProfile = profileId ? await prisma.downloadProfile.findUnique({ where: { id: profileId } }) : null;
             const profile = selectedProfile || await getMatchingProfile(url);
             const { args: formatArgs, isAudio } = getYtDlpFormat(profile || { maxResolution: "best", preferredFormat: "mp4" }, formatId);
-            
-            const fileName = isAudio ? `${safeTitle}_${id}.mp3` : `${safeTitle}_${id}.mp4`;
+            const audioExt = profile?.preferredFormat === "m4a" ? "m4a" : "mp3";
+            const fileName = isAudio ? `${safeTitle}_${id}.${audioExt}` : `${safeTitle}_${id}.mp4`;
             const outputPath = path.join(downloadsDir, fileName);
 
             // Create download log entry
