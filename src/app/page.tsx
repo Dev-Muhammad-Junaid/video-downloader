@@ -103,10 +103,12 @@ type DownloadProfile = {
     sitePattern: string | null;
     maxResolution: string | null;
     preferredFormat: string | null;
+    preferredImageFormat: string | null;
     priority: number;
     isActive: boolean;
     requireManualFormat?: boolean;
     strictResolution?: boolean;
+    resolutionMode?: string | null; // "flexible" | "strict" | "minimum"
 };
 
 export default function LibraryPage() {
@@ -193,13 +195,15 @@ export default function LibraryPage() {
             return { formatId: undefined, needsReview: false, reviewReason: "" };
         }
 
+        // Derive effective resolution mode (backward compat: strictResolution bool → "strict")
+        const mode = profile.resolutionMode || (profile.strictResolution ? "strict" : "flexible");
+
         // "best" means: pick the highest-quality available, no ceiling. Always matches.
         const maxResRaw = (profile.maxResolution || "best").toString();
         const isBest = maxResRaw === "best" || maxResRaw === "";
         const maxRes = isBest ? 0 : parseInt(maxResRaw.replace(/[^0-9]/g, ""), 10);
         const preferredExt = (profile.preferredFormat || "mp4").toLowerCase();
-        const strict = !!profile.strictResolution && !isBest;
-        const resOp = strict ? "=" : "≤";
+        const resOp = mode === "strict" ? "=" : mode === "minimum" ? "≥" : "≤";
 
         // If no formats were extracted, we can only safely auto-start for the
         // "Best Quality" profile (no ceiling). For resolution-constrained profiles
@@ -215,13 +219,18 @@ export default function LibraryPage() {
             };
         }
 
-        // Resolution predicate: strict = exact match; otherwise ≤ ceiling.
+        // Resolution predicate. Excludes audio-only formats (resolution = 0/null) from
+        // video profiles — they would otherwise silently win the sort as resolution=0
+        // passes every numeric comparison.
         const matchesRes = (f: typeof formats[number]) => {
-            const resolution = f.resolution ? parseInt(f.resolution.replace("p", ""), 10) : 0;
+            const resNum = f.resolution ? parseInt(f.resolution.replace(/[^0-9]/g, ""), 10) : 0;
+            // Formats with no resolution are audio-only streams; skip them for video profiles.
+            if (resNum === 0) return false;
             if (isBest) return true;
             if (!maxRes) return true;
-            if (strict) return resolution === maxRes;
-            return resolution <= maxRes || resolution === 0;
+            if (mode === "strict") return resNum === maxRes;
+            if (mode === "minimum") return resNum >= maxRes;
+            return resNum <= maxRes; // flexible (≤ ceiling)
         };
 
         // First pass: match by resolution AND preferred ext.
@@ -241,14 +250,18 @@ export default function LibraryPage() {
             return { formatId: sorted[0].formatId, needsReview: false, reviewReason: "" };
         }
 
-        // Nothing matches — user must pick.
-        const maxAvailable = formats.reduce((max, f) => Math.max(max, parseInt(f.resolution || "0", 10)), 0);
+        // Nothing matches — user must pick manually.
+        const videoFormats = formats.filter(f => f.resolution && parseInt(f.resolution.replace(/[^0-9]/g, ""), 10) > 0);
+        const maxAvailable = videoFormats.reduce((max, f) => Math.max(max, parseInt(f.resolution?.replace(/[^0-9]/g, "") || "0", 10)), 0);
+        const minAvailable = videoFormats.reduce((min, f) => Math.min(min, parseInt(f.resolution?.replace(/[^0-9]/g, "") || "9999", 10)), 9999);
         return {
             formatId: undefined,
             needsReview: true,
-            reviewReason: strict
-                ? `"${profile.name}" needs exactly ${maxResRaw}p, but that resolution isn't available (max: ${maxAvailable}p)`
-                : `"${profile.name}" wants ${resOp}${maxResRaw}p but highest available is ${maxAvailable}p`,
+            reviewReason: mode === "strict"
+                ? `"${profile.name}" needs exactly ${maxResRaw}p but available: ${minAvailable}p–${maxAvailable}p`
+                : mode === "minimum"
+                    ? `"${profile.name}" wants ≥${maxResRaw}p but best available is ${maxAvailable}p`
+                    : `"${profile.name}" wants ≤${maxResRaw}p but lowest available is ${minAvailable}p`,
         };
     }, []);
 
@@ -271,11 +284,15 @@ export default function LibraryPage() {
             };
         }
         const picked = pickFormatForProfile(item, profile);
+        const effectiveMode = profile.resolutionMode || (profile.strictResolution ? "strict" : "flexible");
+        const resOp = effectiveMode === "strict" ? "=" : effectiveMode === "minimum" ? "≥" : "≤";
         const matchedLabel = picked.formatId === "audio"
             ? "Audio (MP3)"
             : picked.formatId && item.formats
-                ? item.formats.find(f => f.formatId === picked.formatId)?.label
-                : profile.maxResolution === "best" ? "Best available" : `≤${profile.maxResolution}p ${(profile.preferredFormat || "mp4").toUpperCase()}`;
+                ? (item.formats.find(f => f.formatId === picked.formatId)?.label ?? "Auto")
+                : profile.maxResolution === "best"
+                    ? "Best available"
+                    : `${resOp}${profile.maxResolution}p ${(profile.preferredFormat || "mp4").toUpperCase()}`;
         return {
             ...item,
             selectedFormat: picked.formatId ?? item.selectedFormat ?? "",
@@ -1401,7 +1418,9 @@ export default function LibraryPage() {
                                         const tags: string[] = [];
                                         if (profile.priority === -1) tags.push("default");
                                         if (profile.requireManualFormat) tags.push("manual");
-                                        if (profile.strictResolution) tags.push("strict");
+                                        const mode = profile.resolutionMode || (profile.strictResolution ? "strict" : "flexible");
+                                        if (mode === "strict") tags.push("strict");
+                                        if (mode === "minimum") tags.push("min");
                                         return (
                                             <option key={profile.id} value={profile.id}>
                                                 {profile.name}{tags.length ? ` · ${tags.join(", ")}` : ""}

@@ -58,8 +58,9 @@ model DownloadProfile {
 
   autoCloudSync   Boolean  @default(false)
   requireManualFormat Boolean @default(false)
-  strictResolution Boolean @default(false) // if true, require EXACT match on maxResolution (e.g. "4K Only" means only 2160p)
-  
+  strictResolution Boolean @default(false) // deprecated: use resolutionMode instead
+  resolutionMode  String   @default("flexible") // "flexible" (≤ max), "strict" (= exact), "minimum" (≥ floor)
+
   isActive        Boolean  @default(true)
   priority        Int      @default(0)
   

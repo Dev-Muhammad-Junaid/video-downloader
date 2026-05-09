@@ -15,6 +15,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
             });
         }
 
+        // Derive resolutionMode: explicit value wins, else fall back to legacy strictResolution bool
+        const resolvedMode = data.resolutionMode !== undefined
+            ? data.resolutionMode
+            : (data.strictResolution != null ? (data.strictResolution ? "strict" : "flexible") : undefined);
+
         const profile = await prisma.downloadProfile.update({
             where: { id },
             data: {
@@ -25,7 +30,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
                 preferredImageFormat: data.preferredImageFormat,
                 autoCloudSync: data.autoCloudSync,
                 requireManualFormat: data.requireManualFormat,
-                strictResolution: data.strictResolution,
+                strictResolution: resolvedMode !== undefined ? resolvedMode === "strict" : data.strictResolution,
+                resolutionMode: resolvedMode,
                 isActive: data.isActive,
                 priority: isDefault ? -1 : (data.priority != null ? parseInt(data.priority) : undefined),
             }
