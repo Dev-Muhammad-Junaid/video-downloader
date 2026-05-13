@@ -68,22 +68,6 @@ export function shiftTime(timeStr: string, deltaMs: number): string {
     return formatSrtTime(Math.max(0, seconds));
 }
 
-// ── VTT Parsing ──
-
-/** Parse VTT time "HH:MM:SS.mmm" to seconds */
-export function parseVttTime(timeStr: string): number {
-    if (!timeStr) return 0;
-    const [h, m, s_ms] = timeStr.split(":");
-    if (!s_ms) return 0;
-    const [s, ms] = s_ms.split(".");
-    return (
-        parseInt(h) * 3600 +
-        parseInt(m) * 60 +
-        parseInt(s) +
-        parseInt(ms || "0") / 1000
-    );
-}
-
 // ── SRT / VTT Content Parsing ──
 
 /** Parse SRT content string into Subtitle array */

@@ -149,6 +149,7 @@ export function ImageEditorModal({ image, onClose, onRefreshLibrary }: ImageEdit
             // Resolve combined rotation+flip into a single token the backend understands
             let rotationParam: string | undefined;
             if (rotation !== "none") rotationParam = rotation;
+            else if (flipH && flipV) rotationParam = "180"; // flipH + flipV = 180° rotation
             else if (flipH) rotationParam = "fliph";
             else if (flipV) rotationParam = "flipv";
 
@@ -503,11 +504,12 @@ function SliderRow({
     onReset: () => void; isDefault: boolean; disabled?: boolean;
 }) {
     return (
-        <div className={cn("flex items-center gap-3", disabled && "opacity-40 pointer-events-none")}>
+        <div className={cn("flex items-center gap-3", disabled && "opacity-40")}>
             <span className="text-xs text-muted-foreground w-20 shrink-0">{label}</span>
             <Slider
                 value={value}
                 min={min} max={max} step={step}
+                disabled={disabled}
                 onValueChange={(v) => onChange(v as number)}
                 className="flex-1"
             />

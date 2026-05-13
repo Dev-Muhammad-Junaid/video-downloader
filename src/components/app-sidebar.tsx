@@ -10,6 +10,7 @@ import {
     History,
 } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import { useTheme } from "next-themes";
 import {
     Sidebar,
@@ -68,10 +69,10 @@ export function AppSidebar() {
                             {items.map((item) => (
                                 <SidebarMenuItem key={item.title}>
                                     <SidebarMenuButton>
-                                        <a href={item.url} className="flex items-center gap-2">
+                                        <Link href={item.url} className="flex items-center gap-2">
                                             <item.icon className="w-4 h-4" />
                                             <span>{item.title}</span>
-                                        </a>
+                                        </Link>
                                     </SidebarMenuButton>
                                 </SidebarMenuItem>
                             ))}
