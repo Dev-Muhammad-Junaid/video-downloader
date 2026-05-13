@@ -135,11 +135,16 @@ export function MediaPlayerModal({
     };
 
     const handleOpenFolder = async (targetPath: string) => {
-        await fetch("/api/library/action", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "open", targetPath }),
-        });
+        try {
+            const res = await fetch("/api/library/action", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "open", targetPath }),
+            });
+            if (!res.ok) throw new Error("Failed to open folder");
+        } catch {
+            toast.error("Could not open folder");
+        }
     };
 
     const formatSize = (bytes: number | null) => {
@@ -381,7 +386,23 @@ export function MediaPlayerModal({
                                 </Button>
                             )}
 
-                            {(!video.mediaType || video.mediaType === "video") ? (
+                            {video.mediaType === "image" ? (
+                                <Button
+                                    variant="outline"
+                                    className="w-full h-9 text-xs"
+                                    onClick={() => setIsEditingMedia(true)}
+                                >
+                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Image
+                                </Button>
+                            ) : video.mediaType === "audio" ? (
+                                <Button
+                                    variant="outline"
+                                    className="w-full h-9 text-xs"
+                                    onClick={() => setIsEditingMedia(true)}
+                                >
+                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Trim Audio
+                                </Button>
+                            ) : (
                                 <>
                                     <Button
                                         variant="outline"
@@ -414,23 +435,7 @@ export function MediaPlayerModal({
                                         </Button>
                                     )}
                                 </>
-                            ) : video.mediaType === "image" ? (
-                                <Button
-                                    variant="outline"
-                                    className="w-full h-9 text-xs"
-                                    onClick={() => setIsEditingMedia(true)}
-                                >
-                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Image
-                                </Button>
-                            ) : video.mediaType === "audio" ? (
-                                <Button
-                                    variant="outline"
-                                    className="w-full h-9 text-xs"
-                                    onClick={() => setIsEditingMedia(true)}
-                                >
-                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Trim Audio
-                                </Button>
-                            ) : null}
+                            )}
                             <div className="grid grid-cols-2 gap-2">
                                 <Button
                                     variant="outline"

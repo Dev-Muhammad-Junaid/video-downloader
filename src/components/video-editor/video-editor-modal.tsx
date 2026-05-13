@@ -68,6 +68,9 @@ export function VideoEditorModal({
     // Ref that's always fresh, used inside rAF for trim bounds checking
     const currentTimeRef = useRef(0);
 
+    // Ref to track transcription polling interval so we can clear it on unmount
+    const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
     const [mode, setMode] = useState<"trim" | "crop" | "subtitles">("trim");
 
     const [trimStart, setTrimStart] = useState(0);
@@ -133,6 +136,13 @@ export function VideoEditorModal({
         return () => { document.body.style.overflow = ""; };
     }, []);
 
+    // Clean up transcription polling interval on unmount
+    useEffect(() => {
+        return () => {
+            if (pollRef.current) clearInterval(pollRef.current);
+        };
+    }, []);
+
     // Load subtitles from the video's existing transcript on mount
     useEffect(() => {
         const loadSubtitles = async () => {
@@ -153,7 +163,9 @@ export function VideoEditorModal({
                     setSubtitles(parseSrt(content));
                 }
             } catch (err) {
-                console.error("Failed to load subtitles:", err);
+                if (process.env.NODE_ENV !== "production") {
+                    console.error("Failed to load subtitles:", err);
+                }
             }
         };
         loadSubtitles();
@@ -224,7 +236,7 @@ export function VideoEditorModal({
             if (mode === "trim" && currentTimeRef.current >= trimEnd) {
                 videoRef.current.currentTime = trimStart;
             }
-            videoRef.current.play().catch(console.error);
+            videoRef.current.play().catch(() => { /* playback may be blocked by browser autoplay policy */ });
         } else {
             videoRef.current.pause();
         }
@@ -276,10 +288,14 @@ export function VideoEditorModal({
                 throw new Error(d.error || "Transcription request failed");
             }
             let pollCount = 0;
+            // Clear any previous poll before starting a new one
+            if (pollRef.current) clearInterval(pollRef.current);
             const poll = setInterval(async () => {
+                pollRef.current = poll;
                 pollCount++;
                 if (pollCount > 120) {
                     clearInterval(poll);
+                    pollRef.current = null;
                     setIsTranscribing(false);
                     toast.error("Transcription timed out", { id: toastId });
                     return;
@@ -289,6 +305,7 @@ export function VideoEditorModal({
                     const statusData = await statusRes.json();
                     if (statusData.status === "completed") {
                         clearInterval(poll);
+                        pollRef.current = null;
                         setIsTranscribing(false);
                         toast.success("Transcription complete! Subtitles loaded.", { id: toastId });
                         if (statusData.vttPath) {
@@ -300,11 +317,13 @@ export function VideoEditorModal({
                         onRefreshLibrary?.();
                     } else if (statusData.status === "error") {
                         clearInterval(poll);
+                        pollRef.current = null;
                         setIsTranscribing(false);
                         toast.error("Transcription failed", { id: toastId });
                     }
                 } catch { /* ignore */ }
             }, 3000);
+            pollRef.current = poll;
         } catch (err: any) {
             setIsTranscribing(false);
             toast.error(err.message, { id: toastId });
