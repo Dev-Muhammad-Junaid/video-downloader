@@ -1,9 +1,9 @@
 {
   "r2_credentials": {
-    "s3Endpoint": "https://2f49b9279385a9bc2d1de64302746c85.r2.cloudflarestorage.com/war-stuff",
-    "s3Bucket": "war-stuff",
-    "s3AccessKey": "2f49b9279385a9bc2d1de64302746c85",
-    "s3SecretKey": "cfat_xpCFJVSppR9MjG0vNbqIaKD8NIl1anmalQtEb3h5bee5423e",
+    "s3Endpoint": "https://2f49b9279385a9bc2d1de64302746c85.r2.cloudflarestorage.com",
+    "s3Bucket": "random",
+    "s3AccessKey": "988f6757c09833363a336ca4c13c6c74",
+    "s3SecretKey": "5eb270e49ccce4e84750bd9ff9ad1e118de9c264abdd1b5a4f592d16681be772",
     "s3Region": "auto",
     "urlExpiry": 604800,
     "storageLimit": 10
