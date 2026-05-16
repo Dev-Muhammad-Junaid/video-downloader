@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { trimVideo, cropVideo, trimAndCrop, burnSubtitles, trimBurnSubtitles, cropBurnSubtitles, trimCropBurnSubtitles, trimAudio, convertToMp4 } from "@/lib/media-editor";
+import { trimVideo, cropVideo, trimAndCrop, burnSubtitles, trimBurnSubtitles, cropBurnSubtitles, trimCropBurnSubtitles, trimAudio, convertToMp4, editImage } from "@/lib/media-editor";
 
 export async function POST(req: Request) {
     try {
@@ -63,6 +63,9 @@ export async function POST(req: Request) {
             result = await trimCropBurnSubtitles(videoId, startTime, endTime, w, h, x, y, srtContent, stylePreset || "classic", fontFamily);
         } else if (action === "convert-mp4") {
             result = await convertToMp4(videoId);
+        } else if (action === "image-edit") {
+            const { crop, rotation, brightness, contrast, saturation, format, quality } = params;
+            result = await editImage(videoId, { crop, rotation, brightness, contrast, saturation, format, quality });
         } else {
             return NextResponse.json({ error: "Invalid action." }, { status: 400 });
         }

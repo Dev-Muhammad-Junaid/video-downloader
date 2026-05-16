@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import path from "path";
 import os from "os";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const GALLERY_DL_PATH = path.join(os.homedir(), ".local", "bin", "gallery-dl");
 
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
             
             let playlistOut = "";
             if (!playlistItemMatch) {
-                const { stdout } = await execAsync(`yt-dlp --flat-playlist -j "${url}"`, { timeout: 15000 });
+                const { stdout } = await execFileAsync("yt-dlp", ["--flat-playlist", "-j", "--", url], { timeout: 15000 });
                 playlistOut = stdout;
             }
 
@@ -82,13 +82,12 @@ export async function POST(req: Request) {
         }
 
         // Check if we need to target a specific item index from our custom parameter
-        let targetItemArg = "";
+        let targetItemIndex = "";
         try {
             const parsedUrl = new URL(url);
             const playlistItem = parsedUrl.searchParams.get("snapdown_playlist_item");
             if (playlistItem) {
-                targetItemArg = `-I ${playlistItem}`;
-                // We should also remove the parameter from the actual URL sent to yt-dlp so it doesn't get confused
+                targetItemIndex = playlistItem;
                 parsedUrl.searchParams.delete("snapdown_playlist_item");
                 url = parsedUrl.toString();
             }
@@ -96,7 +95,12 @@ export async function POST(req: Request) {
 
         // Try yt-dlp first (works for videos)
         try {
-            const { stdout } = await execAsync(`yt-dlp ${targetItemArg} -j "${url}"`);
+            const ytdlpArgs: string[] = [];
+            if (targetItemIndex) {
+                ytdlpArgs.push("-I", targetItemIndex);
+            }
+            ytdlpArgs.push("-j", "--", url);
+            const { stdout } = await execFileAsync("yt-dlp", ytdlpArgs);
             const lines = stdout.trim().split("\n");
             // If we extracted multiple lines (e.g. still an array), take the first one since we used -I
             const metadata = JSON.parse(lines[0]);
@@ -173,7 +177,7 @@ export async function POST(req: Request) {
 
         // Fallback: gallery-dl for image-only posts
         try {
-            const { stdout } = await execAsync(`${GALLERY_DL_PATH} -j "${url}"`);
+            const { stdout } = await execFileAsync(GALLERY_DL_PATH, ["-j", "--", url]);
 
             // gallery-dl -j outputs a JSON array of entries:
             // [2, {directory_metadata}]  — directory/metadata info

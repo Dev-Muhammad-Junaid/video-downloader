@@ -52,7 +52,7 @@ export async function GET(req: Request) {
         });
     } catch (error: any) {
         console.error("Failed to fetch history:", error);
-        return NextResponse.json({ error: "Failed to fetch history" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to fetch history", details: error.message }, { status: 500 });
     }
 }
 
@@ -68,6 +68,6 @@ export async function DELETE(req: Request) {
         return NextResponse.json({ success: true });
     } catch (error: any) {
         console.error("Failed to clear history:", error);
-        return NextResponse.json({ error: "Failed to clear history" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to clear history", details: error.message }, { status: 500 });
     }
 }

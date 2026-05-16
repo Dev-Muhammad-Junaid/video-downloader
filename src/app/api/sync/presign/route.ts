@@ -1,19 +1,9 @@
 import { NextResponse } from "next/server";
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { prisma } from "@/lib/prisma";
 import { getServerSettings } from "@/lib/settings";
-
-function createS3Client(credentials: any) {
-    return new S3Client({
-        region: credentials.s3Region || "auto",
-        endpoint: credentials.s3Endpoint,
-        credentials: {
-            accessKeyId: credentials.s3AccessKey,
-            secretAccessKey: credentials.s3SecretKey,
-        },
-    });
-}
+import { createS3Client } from "@/lib/cloud";
 
 function getCredentials(bodyCredentials?: any) {
     const settings = getServerSettings();
@@ -47,8 +37,9 @@ export async function POST(req: Request) {
             Key: video.cloudKey,
         });
 
-        // Use requested expiry or default to 7 days, cap at 7 days max
-        const expiresIn = Math.min(requestedExpiry || 604800, 604800);
+        // Use requested expiry, or the configured urlExpiry from settings, capped at 7 days
+        const configuredExpiry = credentials?.urlExpiry || 604800;
+        const expiresIn = Math.min(requestedExpiry || configuredExpiry, 604800);
 
         const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn });
 

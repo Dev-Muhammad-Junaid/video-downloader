@@ -2,8 +2,15 @@ import { NextResponse } from "next/server";
 import { getServerSettings, updateServerSetting } from "@/lib/settings";
 
 export async function GET() {
-    const settings = getServerSettings();
-    return NextResponse.json({ watchFolder: settings.watchFolder || "" });
+    try {
+        const settings = getServerSettings();
+        return NextResponse.json({ watchFolder: settings.watchFolder || "" });
+    } catch (error: any) {
+        return NextResponse.json(
+            { error: "Failed to load settings", details: error.message },
+            { status: 500 }
+        );
+    }
 }
 
 export async function POST(req: Request) {

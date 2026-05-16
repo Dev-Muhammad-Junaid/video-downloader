@@ -7,9 +7,11 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { FolderOpen, Loader2, Download, Eye, Clock, FileDown, Database, BrainCircuit, Mic, Plus, Trash2, Edit2, Settings2, CloudSync, Tags, Check, X, ShieldCheck } from "lucide-react";
+import { FolderOpen, Loader2, Download, Eye, Clock, FileDown, Database, BrainCircuit, Mic, Plus, Trash2, Edit2, Settings2, CloudSync, Tags, Check, X, ShieldCheck, Film, ImageIcon, Music, CircleCheck, CircleX, CircleDashed, RefreshCw, Terminal, ChevronDown } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 export default function SettingsPage() {
@@ -35,6 +37,9 @@ export default function SettingsPage() {
     const [editingProfile, setEditingProfile] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [baseUrl, setBaseUrl] = useState('');
+    const [preflight, setPreflight] = useState<any>(null);
+    const [preflightLoading, setPreflightLoading] = useState(false);
+    const [healthExpanded, setHealthExpanded] = useState(false);
 
     useEffect(() => {
         setBaseUrl(window.location.origin);
@@ -66,6 +71,21 @@ export default function SettingsPage() {
             setIsLoading(false);
         });
     }, []);
+
+    const runPreflight = async () => {
+        setPreflightLoading(true);
+        try {
+            const res = await fetch("/api/settings/preflight", { method: "POST" });
+            if (res.ok) setPreflight(await res.json());
+            else toast.error("Preflight check failed");
+        } catch {
+            toast.error("Preflight check error");
+        } finally {
+            setPreflightLoading(false);
+        }
+    };
+
+    useEffect(() => { runPreflight(); }, []);
 
     const handleSaveCredentials = async () => {
         const creds = {
@@ -225,7 +245,7 @@ export default function SettingsPage() {
     };
 
     return (
-        <div className="flex-1 p-8 space-y-6">
+        <div className="flex-1 p-8 space-y-6 max-w-[1600px] mx-auto w-full">
             <motion.h1
                 initial={{ opacity: 0, x: -12 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -241,9 +261,62 @@ export default function SettingsPage() {
                 animate="show"
                 className="grid grid-cols-1 lg:grid-cols-2 gap-6"
             >
+                {/* System Health / Preflight — compact collapsible */}
+                <motion.div variants={fadeUp} className="lg:col-span-2">
+                <Card>
+                    <div
+                        className="flex items-center justify-between px-5 py-3 cursor-pointer select-none"
+                        onClick={() => setHealthExpanded(!healthExpanded)}
+                    >
+                        <div className="flex items-center gap-2.5">
+                            <Terminal className="w-4 h-4 text-primary" />
+                            <span className="text-sm font-semibold">System Health</span>
+                            {preflight && !preflightLoading && (
+                                <div className="flex items-center gap-1 ml-2">
+                                    {[...Object.values(preflight.binaries as Record<string, any>), ...Object.values(preflight.providers as Record<string, any>)].map((item: any, i) => {
+                                        const ok = item.available ?? (item.configured && item.reachable);
+                                        const skip = item.configured === false;
+                                        return <span key={i} className={cn("w-2 h-2 rounded-full", ok ? "bg-emerald-500" : skip ? "bg-muted-foreground/30" : "bg-destructive")} title={item.name} />;
+                                    })}
+                                </div>
+                            )}
+                            {preflightLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground ml-2" />}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5 text-muted-foreground" onClick={(e) => { e.stopPropagation(); runPreflight(); }} disabled={preflightLoading}>
+                                <RefreshCw className="w-3 h-3" /> Re-check
+                            </Button>
+                            <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform", healthExpanded && "rotate-180")} />
+                        </div>
+                    </div>
+                    {healthExpanded && preflight && (
+                        <div className="px-5 pb-4 pt-0">
+                            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+                                {[...Object.values(preflight.binaries as Record<string, any>), ...Object.values(preflight.providers as Record<string, any>)].map((item: any) => {
+                                    const ok = item.available ?? (item.configured && item.reachable);
+                                    const skip = item.configured === false;
+                                    return (
+                                        <div key={item.name} className={cn(
+                                            "flex items-center gap-2 px-2.5 py-2 rounded-lg border text-xs",
+                                            ok ? "border-emerald-500/20 bg-emerald-500/5" : skip ? "border-border/50 bg-muted/20" : "border-destructive/20 bg-destructive/5"
+                                        )}>
+                                            {ok ? <CircleCheck className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" /> : skip ? <CircleDashed className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" /> : <CircleX className="w-3.5 h-3.5 text-destructive flex-shrink-0" />}
+                                            <div className="min-w-0">
+                                                <div className="font-medium truncate">{item.name}</div>
+                                                <div className="text-[10px] text-muted-foreground truncate">{ok ? (item.version || "OK") : skip ? "Not set" : (item.error || "Error")}</div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+                </Card>
+                </motion.div>
+
                 {/* Destination Folder */}
                 <motion.div variants={fadeUp}>
-                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
+                <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                             <Download className="w-5 h-5 text-primary" />
@@ -287,7 +360,7 @@ export default function SettingsPage() {
 
                 {/* Watch Folder */}
                 <motion.div variants={fadeUp}>
-                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
+                <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                             <Eye className="w-5 h-5 text-primary" />
@@ -331,7 +404,7 @@ export default function SettingsPage() {
 
                 {/* Cloudflare R2 Credentials */}
                 <motion.div variants={fadeUp} className="lg:col-span-2">
-                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
+                <Card>
                     <CardHeader>
                         <CardTitle>Cloudflare R2 / S3 Credentials</CardTitle>
                         <CardDescription>
@@ -393,18 +466,21 @@ export default function SettingsPage() {
                                 <Clock className="w-3.5 h-3.5 text-muted-foreground" />
                                 Presigned URL Expiry
                             </Label>
-                            <select
-                                id="urlExpiry"
-                                value={settings.urlExpiry}
-                                onChange={(e) => setSettings({ ...settings, urlExpiry: Number(e.target.value) })}
-                                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                            <Select
+                                value={String(settings.urlExpiry)}
+                                onValueChange={(val) => setSettings({ ...settings, urlExpiry: Number(val) })}
                             >
-                                <option value={3600}>1 hour</option>
-                                <option value={21600}>6 hours</option>
-                                <option value={86400}>24 hours</option>
-                                <option value={259200}>3 days</option>
-                                <option value={604800}>7 days (default)</option>
-                            </select>
+                                <SelectTrigger id="urlExpiry">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="3600">1 hour</SelectItem>
+                                    <SelectItem value="21600">6 hours</SelectItem>
+                                    <SelectItem value="86400">24 hours</SelectItem>
+                                    <SelectItem value="259200">3 days</SelectItem>
+                                    <SelectItem value="604800">7 days (default)</SelectItem>
+                                </SelectContent>
+                            </Select>
                             <p className="text-xs text-muted-foreground">How long preview and download links stay valid before expiring.</p>
                         </div>
                         <div className="space-y-2">
@@ -429,7 +505,7 @@ export default function SettingsPage() {
 
                 {/* Export & Backup */}
                 <motion.div variants={fadeUp}>
-                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
+                <Card>
                     <CardHeader>
                         <CardTitle className="text-xl flex items-center gap-2">
                             <FileDown className="w-5 h-5 text-primary" />
@@ -483,7 +559,7 @@ export default function SettingsPage() {
 
                 {/* AI Transcription Settings (WID-307) */}
                 <motion.div variants={fadeUp}>
-                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
+                <Card>
                     <CardHeader>
                         <CardTitle className="text-xl flex items-center gap-2">
                             <BrainCircuit className="w-5 h-5 text-primary" />
@@ -580,7 +656,7 @@ export default function SettingsPage() {
 
                 {/* Quality & Format Profiles (WID-306) */}
                 <motion.div variants={fadeUp} className="lg:col-span-2">
-                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
+                <Card>
                     <CardHeader className="flex flex-row items-center justify-between gap-2">
                         <div>
                             <CardTitle className="text-xl flex items-center gap-2">
@@ -615,7 +691,19 @@ export default function SettingsPage() {
                             </Button>
                         <Dialog open={isProfileDialogOpen} onOpenChange={setIsProfileDialogOpen}>
                             <DialogTrigger render={
-                                <Button size="sm" className="gap-2" onClick={() => setEditingProfile({ name: "", sitePattern: "*", maxResolution: "best", preferredFormat: "mp4", autoCloudSync: false, requireManualFormat: false, priority: 0 })}>
+                                <Button size="sm" className="gap-2" onClick={() => setEditingProfile({
+                                    name: "",
+                                    sitePattern: "*",
+                                    maxResolution: "best",
+                                    preferredFormat: "mp4",
+                                    preferredImageFormat: "original",
+                                    resolutionMode: "flexible",
+                                    autoCloudSync: false,
+                                    requireManualFormat: false,
+                                    strictResolution: false,
+                                    isActive: true,
+                                    priority: 0,
+                                })}>
                                     <Plus className="w-4 h-4" /> Add Profile
                                 </Button>
                             } />
@@ -626,8 +714,9 @@ export default function SettingsPage() {
                                 </DialogHeader>
                                 <form
                                     onSubmit={handleSaveProfile}
-                                    className="space-y-4 py-3 max-h-[70vh] overflow-y-auto pr-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+                                    className="space-y-3 py-3 max-h-[72vh] overflow-y-auto pr-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                                 >
+                                    {/* Basic Info */}
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div className="grid gap-1.5">
                                             <Label htmlFor="prof-name">Profile Name</Label>
@@ -636,93 +725,190 @@ export default function SettingsPage() {
                                         <div className="grid gap-1.5">
                                             <Label htmlFor="prof-site">Site Pattern</Label>
                                             <Input id="prof-site" value={editingProfile?.sitePattern || ""} onChange={e => setEditingProfile({...editingProfile, sitePattern: e.target.value})} placeholder="youtube.com or *" />
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        <div className="grid gap-1.5">
-                                            <Label>Max Resolution</Label>
-                                            <Select value={editingProfile?.maxResolution || "best"} onValueChange={v => setEditingProfile({...editingProfile, maxResolution: v})}>
-                                                <SelectTrigger>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="best">Best Available</SelectItem>
-                                                    <SelectItem value="2160">4K (2160p)</SelectItem>
-                                                    <SelectItem value="1440">2K (1440p)</SelectItem>
-                                                    <SelectItem value="1080">1080p</SelectItem>
-                                                    <SelectItem value="720">720p</SelectItem>
-                                                    <SelectItem value="480">480p</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className="grid gap-1.5">
-                                            <Label>Format</Label>
-                                            <Select value={editingProfile?.preferredFormat || "mp4"} onValueChange={v => setEditingProfile({...editingProfile, preferredFormat: v})}>
-                                                <SelectTrigger>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="mp4">MP4 (Recommended)</SelectItem>
-                                                    <SelectItem value="mkv">MKV</SelectItem>
-                                                    <SelectItem value="webm">WebM</SelectItem>
-                                                    <SelectItem value="mp3">MP3 (Audio Only)</SelectItem>
-                                                </SelectContent>
-                                            </Select>
+                                            <p className="text-[11px] text-muted-foreground">Use <code>*</code> to match any site, or e.g. <code>youtube.com</code></p>
                                         </div>
                                     </div>
 
-                                    <div className="border-t border-border/40 pt-3">
-                                        <div className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold mb-2">Behaviour</div>
+                                    {/* VIDEO section */}
+                                    <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
+                                        <div className="flex items-center gap-2">
+                                            <Film className="w-3.5 h-3.5 text-primary" />
+                                            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Video</span>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                            <div className="grid gap-1.5">
+                                                <Label>Target Resolution</Label>
+                                                <Select
+                                                    value={editingProfile?.maxResolution || "best"}
+                                                    onValueChange={v => setEditingProfile((p: any) => ({
+                                                        ...p,
+                                                        maxResolution: v,
+                                                        resolutionMode: v === "best" ? "flexible" : (p?.resolutionMode || "flexible"),
+                                                    }))}
+                                                >
+                                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="best">Best Available (no limit)</SelectItem>
+                                                        <SelectItem value="2160">4K (2160p)</SelectItem>
+                                                        <SelectItem value="1440">2K (1440p)</SelectItem>
+                                                        <SelectItem value="1080">1080p</SelectItem>
+                                                        <SelectItem value="720">720p</SelectItem>
+                                                        <SelectItem value="480">480p</SelectItem>
+                                                        <SelectItem value="360">360p</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className={cn("grid gap-1.5", (editingProfile?.maxResolution === "best" || editingProfile?.preferredFormat === "mp3" || editingProfile?.preferredFormat === "m4a") && "opacity-40 pointer-events-none")}>
+                                                <Label>Resolution Mode</Label>
+                                                <Select
+                                                    value={editingProfile?.resolutionMode || "flexible"}
+                                                    onValueChange={v => setEditingProfile((p: any) => ({ ...p, resolutionMode: v, strictResolution: v === "strict" }))}
+                                                    disabled={editingProfile?.maxResolution === "best" || editingProfile?.preferredFormat === "mp3" || editingProfile?.preferredFormat === "m4a"}
+                                                >
+                                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="flexible">Flexible — up to target (≤)</SelectItem>
+                                                        <SelectItem value="strict">Strict — exactly target (=)</SelectItem>
+                                                        <SelectItem value="minimum">Minimum — at least target (≥)</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                                <p className="text-[11px] text-muted-foreground">
+                                                    {(editingProfile?.resolutionMode || "flexible") === "flexible" && "Best quality up to the target."}
+                                                    {editingProfile?.resolutionMode === "strict" && "Only downloads if exact resolution is available."}
+                                                    {editingProfile?.resolutionMode === "minimum" && "Best quality at or above the target."}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="grid gap-1.5">
+                                            <Label>Download Format</Label>
+                                            <Select
+                                                value={editingProfile?.preferredFormat || "mp4"}
+                                                onValueChange={v => setEditingProfile((p: any) => ({
+                                                    ...p,
+                                                    preferredFormat: v,
+                                                    resolutionMode: (v === "mp3" || v === "m4a") ? "flexible" : (p?.resolutionMode || "flexible"),
+                                                    maxResolution: (v === "mp3" || v === "m4a") ? "best" : (p?.maxResolution || "best"),
+                                                }))}
+                                            >
+                                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectGroup>
+                                                        <SelectLabel>Video</SelectLabel>
+                                                        <SelectItem value="mp4">MP4 (Recommended)</SelectItem>
+                                                        <SelectItem value="mkv">MKV (lossless container)</SelectItem>
+                                                        <SelectItem value="webm">WebM</SelectItem>
+                                                        <SelectItem value="best">Best (let yt-dlp decide)</SelectItem>
+                                                    </SelectGroup>
+                                                    <SelectGroup>
+                                                        <SelectLabel>Audio Only</SelectLabel>
+                                                        <SelectItem value="mp3">MP3 (extract audio)</SelectItem>
+                                                        <SelectItem value="m4a">M4A (AAC audio)</SelectItem>
+                                                    </SelectGroup>
+                                                </SelectContent>
+                                            </Select>
+                                            {(editingProfile?.preferredFormat === "mp3" || editingProfile?.preferredFormat === "m4a") && (
+                                                <p className="text-[11px] text-amber-600 dark:text-amber-400">Audio-only: resolution settings are ignored.</p>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* IMAGE section */}
+                                    <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
+                                        <div className="flex items-center gap-2">
+                                            <ImageIcon className="w-3.5 h-3.5 text-primary" />
+                                            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Image</span>
+                                        </div>
+                                        <div className="grid gap-1.5">
+                                            <Label>Output Format</Label>
+                                            <Select
+                                                value={editingProfile?.preferredImageFormat || "original"}
+                                                onValueChange={v => setEditingProfile((p: any) => ({...p, preferredImageFormat: v}))}
+                                            >
+                                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="original">Original (keep as-is)</SelectItem>
+                                                    <SelectItem value="jpg">JPG (smaller, lossy)</SelectItem>
+                                                    <SelectItem value="png">PNG (lossless)</SelectItem>
+                                                    <SelectItem value="webp">WebP (modern, efficient)</SelectItem>
+                                                    <SelectItem value="avif">AVIF (next-gen compression)</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            <p className="text-[11px] text-muted-foreground">Applies only to image posts (e.g. Twitter/Instagram photos). Videos are unaffected.</p>
+                                        </div>
+                                    </div>
+
+                                    {/* AUDIO section — Coming Soon */}
+                                    <div className="rounded-lg border border-dashed border-border/40 bg-muted/10 p-3 space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <Music className="w-3.5 h-3.5 text-muted-foreground" />
+                                                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Audio</span>
+                                            </div>
+                                            <span className="text-[10px] bg-muted text-muted-foreground px-2 py-0.5 rounded-full font-medium">Coming Soon</span>
+                                        </div>
+                                        <p className="text-[11px] text-muted-foreground">Per-profile audio bitrate, quality, and codec settings will be available here in a future update.</p>
+                                    </div>
+
+                                    {/* BEHAVIOUR section */}
+                                    <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
+                                        <div className="flex items-center gap-2">
+                                            <Settings2 className="w-3.5 h-3.5 text-primary" />
+                                            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Behaviour</span>
+                                        </div>
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                            <label htmlFor="prof-default" className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/50 bg-background/40 hover:bg-background/70 cursor-pointer transition-colors">
-                                                <input
-                                                    type="checkbox"
+                                            <label htmlFor="prof-default" className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/60 bg-muted/30 hover:bg-muted/60 cursor-pointer transition-colors">
+                                                <Checkbox
                                                     id="prof-default"
                                                     checked={editingProfile?.priority === -1 || !!editingProfile?.isDefault}
-                                                    onChange={e => setEditingProfile({ ...editingProfile, isDefault: e.target.checked, priority: e.target.checked ? -1 : 0 })}
-                                                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                                    onCheckedChange={(checked) => setEditingProfile({ ...editingProfile, isDefault: !!checked, priority: checked ? -1 : 0 })}
                                                 />
-                                                <span className="text-sm font-medium">Default profile</span>
+                                                <div>
+                                                    <span className="text-sm font-medium">Default profile</span>
+                                                    <p className="text-[10px] text-muted-foreground">Used when no site pattern matches</p>
+                                                </div>
                                             </label>
 
-                                            <label htmlFor="prof-manual" className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/50 bg-background/40 hover:bg-background/70 cursor-pointer transition-colors">
-                                                <input
-                                                    type="checkbox"
+                                            <label htmlFor="prof-manual" className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/60 bg-muted/30 hover:bg-muted/60 cursor-pointer transition-colors">
+                                                <Checkbox
                                                     id="prof-manual"
                                                     checked={!!editingProfile?.requireManualFormat}
-                                                    onChange={e => setEditingProfile({ ...editingProfile, requireManualFormat: e.target.checked })}
-                                                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                                    onCheckedChange={(checked) => setEditingProfile({ ...editingProfile, requireManualFormat: !!checked })}
                                                 />
-                                                <span className="text-sm font-medium">Manual select</span>
+                                                <div>
+                                                    <span className="text-sm font-medium">Manual format select</span>
+                                                    <p className="text-[10px] text-muted-foreground">Always prompt before downloading</p>
+                                                </div>
                                             </label>
 
                                             <label
                                                 htmlFor="prof-strict"
                                                 className={cn(
-                                                    "flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/50 bg-background/40 hover:bg-background/70 cursor-pointer transition-colors",
+                                                    "flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/60 bg-muted/30 hover:bg-muted/60 cursor-pointer transition-colors",
                                                     (editingProfile?.maxResolution === "best" || editingProfile?.preferredFormat === "mp3") && "opacity-50 cursor-not-allowed"
                                                 )}
                                             >
-                                                <input
-                                                    type="checkbox"
+                                                <Checkbox
                                                     id="prof-strict"
                                                     checked={!!editingProfile?.strictResolution}
-                                                    onChange={e => setEditingProfile({ ...editingProfile, strictResolution: e.target.checked })}
+                                                    onCheckedChange={(checked) => setEditingProfile({ ...editingProfile, strictResolution: !!checked })}
                                                     disabled={editingProfile?.maxResolution === "best" || editingProfile?.preferredFormat === "mp3"}
-                                                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary disabled:opacity-40"
                                                 />
-                                                <span className="text-sm font-medium">Strict resolution</span>
+                                                <div>
+                                                    <span className="text-sm font-medium">Strict resolution</span>
+                                                    <p className="text-[10px] text-muted-foreground">Fail if exact resolution unavailable</p>
+                                                </div>
                                             </label>
 
-                                            <label htmlFor="prof-sync" className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/50 bg-background/40 hover:bg-background/70 cursor-pointer transition-colors">
-                                                <input
-                                                    type="checkbox"
+                                            <label htmlFor="prof-sync" className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/60 bg-muted/30 hover:bg-muted/60 cursor-pointer transition-colors">
+                                                <Checkbox
                                                     id="prof-sync"
                                                     checked={!!editingProfile?.autoCloudSync}
-                                                    onChange={e => setEditingProfile({...editingProfile, autoCloudSync: e.target.checked})}
-                                                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                                    onCheckedChange={(checked) => setEditingProfile({...editingProfile, autoCloudSync: !!checked})}
                                                 />
-                                                <span className="text-sm font-medium">Auto-sync to Cloud</span>
+                                                <div>
+                                                    <span className="text-sm font-medium">Auto-sync to Cloud</span>
+                                                    <p className="text-[10px] text-muted-foreground">Upload automatically after download</p>
+                                                </div>
                                             </label>
                                         </div>
                                     </div>
@@ -752,14 +938,28 @@ export default function SettingsPage() {
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <span className="font-medium">{profile.name}</span>
                                                 {profile.priority === -1 && <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded font-medium">Default</span>}
+                                                {!profile.isActive && <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded font-medium">Inactive</span>}
                                                 {profile.requireManualFormat && <span className="text-[10px] bg-amber-500/20 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded font-medium">Manual</span>}
-                                                {profile.strictResolution && <span className="text-[10px] bg-purple-500/20 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded font-medium">Strict</span>}
+                                                {(profile.resolutionMode === 'strict' || (!profile.resolutionMode && profile.strictResolution)) && (
+                                                    <span className="text-[10px] bg-purple-500/20 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded font-medium">Strict</span>
+                                                )}
+                                                {profile.resolutionMode === 'minimum' && (
+                                                    <span className="text-[10px] bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded font-medium">Minimum</span>
+                                                )}
                                                 {profile.autoCloudSync && <CloudSync className="w-3.5 h-3.5 text-blue-500" />}
                                             </div>
                                             <div className="text-xs text-muted-foreground flex gap-3 flex-wrap">
-                                                <span>Pattern: <code className="bg-muted px-1 rounded">{profile.sitePattern}</code></span>
-                                                <span>Quality: {profile.maxResolution === 'best' ? 'Best' : (profile.strictResolution ? '=' : '≤') + profile.maxResolution + 'p'}</span>
-                                                <span>Format: {profile.preferredFormat?.toUpperCase()}</span>
+                                                <span>Pattern: <code className="bg-muted px-1 rounded">{profile.sitePattern || '*'}</code></span>
+                                                <span>Quality: {(() => {
+                                                    if (profile.maxResolution === 'best') return 'Best';
+                                                    const mode = profile.resolutionMode || (profile.strictResolution ? 'strict' : 'flexible');
+                                                    const op = mode === 'strict' ? '=' : mode === 'minimum' ? '≥' : '≤';
+                                                    return `${op}${profile.maxResolution}p`;
+                                                })()}</span>
+                                                <span>Video: <strong>{profile.preferredFormat?.toUpperCase()}</strong></span>
+                                                {profile.preferredImageFormat && profile.preferredImageFormat !== 'original' && (
+                                                    <span>Image: <strong>{profile.preferredImageFormat.toUpperCase()}</strong></span>
+                                                )}
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -780,7 +980,7 @@ export default function SettingsPage() {
 
                 {/* Auto Cloud-Sync by Label (WID-306) */}
                 <motion.div variants={fadeUp} className="lg:col-span-2">
-                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
+                <Card>
                     <CardHeader>
                         <CardTitle className="text-xl flex items-center gap-2">
                             <Tags className="w-5 h-5 text-primary" />
@@ -793,7 +993,7 @@ export default function SettingsPage() {
                             {labels.map(label => (
                                 <div 
                                     key={label.id} 
-                                    className={`p-3 rounded-xl border transition-all flex flex-col gap-3 ${label.autoCloudSync ? 'bg-blue-50/50 border-blue-200 dark:bg-blue-900/10 dark:border-blue-800' : 'bg-background/40 border-border/50'}`}
+                                    className={`p-3 rounded-xl border transition-all flex flex-col gap-3 ${label.autoCloudSync ? 'bg-blue-50/50 border-blue-200 dark:bg-blue-900/10 dark:border-blue-800' : 'bg-muted/30 border-border/60'}`}
                                 >
                                     <div className="flex items-center justify-between">
                                         <span className="text-sm font-medium">{label.name}</span>
@@ -807,12 +1007,10 @@ export default function SettingsPage() {
                                             {label.autoCloudSync ? <CloudSync className="w-3 h-3 text-blue-500" /> : <ShieldCheck className="w-3 h-3" />}
                                             {label.autoCloudSync ? 'Auto-syncing' : 'Local only'}
                                         </span>
-                                        <button
-                                            onClick={() => handleToggleLabelSync(label)}
-                                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${label.autoCloudSync ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-800'}`}
-                                        >
-                                            <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${label.autoCloudSync ? 'translate-x-5' : 'translate-x-1'}`} />
-                                        </button>
+                                        <Switch
+                                            checked={!!label.autoCloudSync}
+                                            onCheckedChange={() => handleToggleLabelSync(label)}
+                                        />
                                     </div>
                                 </div>
                             ))}
@@ -826,7 +1024,7 @@ export default function SettingsPage() {
 
                 {/* Browser Integration (WID-300) */}
                 <motion.div variants={fadeUp} className="lg:col-span-2">
-                <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
+                <Card>
                     <CardHeader>
                         <CardTitle className="text-xl flex items-center gap-2">
                             <Plus className="w-5 h-5 text-primary" />
@@ -838,7 +1036,7 @@ export default function SettingsPage() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             
                             {/* Bookmarklet */}
-                            <div className="space-y-4 p-4 rounded-xl bg-background/40 border border-border/50">
+                            <div className="space-y-4 p-4 rounded-xl bg-muted/30 border border-border/60">
                                 <h3 className="font-semibold text-lg">1. Universal Bookmarklet</h3>
                                 <p className="text-sm text-muted-foreground">Works on Desktop & Mobile (Safari/Chrome). Drag this button into your browser's bookmarks bar. Click it when watching a video to send it here!</p>
                                 
@@ -852,7 +1050,7 @@ export default function SettingsPage() {
                             </div>
 
                             {/* Chrome Extension */}
-                            <div className="space-y-4 p-4 rounded-xl bg-background/40 border border-border/50">
+                            <div className="space-y-4 p-4 rounded-xl bg-muted/30 border border-border/60">
                                 <h3 className="font-semibold text-lg">2. Chrome/Edge Extension</h3>
                                 <p className="text-sm text-muted-foreground">For desktop power users. Downloads without opening new tabs.</p>
                                 <ol className="text-sm text-muted-foreground list-decimal pl-5 space-y-2">

@@ -8,10 +8,11 @@ let localPrisma: PrismaClient;
 if (globalForPrisma.prisma) {
     localPrisma = globalForPrisma.prisma;
 } else {
-    const adapter = new PrismaBetterSqlite3({ url: "file:./dev.db" });
+    const dbUrl = process.env.DATABASE_URL ?? "file:./dev.db";
+    const adapter = new PrismaBetterSqlite3({ url: dbUrl });
     localPrisma = new PrismaClient({ adapter });
 }
 
 export const prisma = localPrisma;
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = localPrisma;

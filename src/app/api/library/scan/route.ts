@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
+import os from "os";
 import { prisma } from "@/lib/prisma";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mkv", ".webm", ".mov", ".avi"]);
 const AUDIO_EXTENSIONS = new Set([".mp3", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".wav", ".wma"]);
@@ -14,9 +15,12 @@ const ALL_MEDIA_EXTENSIONS = new Set([...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS, 
 
 async function getDuration(filePath: string): Promise<number | null> {
     try {
-        const { stdout } = await execAsync(
-            `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${filePath}"`
-        );
+        const { stdout } = await execFileAsync("ffprobe", [
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            filePath,
+        ]);
         const duration = parseFloat(stdout.trim());
         return isNaN(duration) ? null : duration;
     } catch {
@@ -50,7 +54,16 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Folder path required" }, { status: 400 });
         }
 
-        const videoFiles = await scanDirectory(folderPath);
+        const resolvedPath = path.resolve(folderPath);
+        const homeDir = os.homedir();
+        if (!resolvedPath.startsWith(homeDir) && !resolvedPath.startsWith("/Volumes")) {
+            return NextResponse.json(
+                { error: "Folder must be within your home directory or mounted volumes", details: `Resolved to: ${resolvedPath}` },
+                { status: 400 }
+            );
+        }
+
+        const videoFiles = await scanDirectory(resolvedPath);
         const imported: any[] = [];
 
         // Pre-fetch all existing entries for dedup and pruning

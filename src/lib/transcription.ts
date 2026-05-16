@@ -1,4 +1,4 @@
-import { spawn, execSync } from "child_process";
+import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
 import os from "os";
@@ -35,6 +35,9 @@ function extractAudio(videoPath: string): Promise<string> {
 
         let stderr = "";
         proc.stderr.on("data", (d) => { stderr += d.toString(); });
+        proc.on("error", (err) => {
+            reject(new Error(`Failed to start ffmpeg: ${err.message}`));
+        });
         proc.on("close", (code) => {
             if (code === 0) {
                 resolve(tmpPath);
