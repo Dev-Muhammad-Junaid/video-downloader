@@ -51,3 +51,7 @@ ytdlp_test.json
 
 # server settings (contains API keys — never commit)
 .server_settings.json
+
+# Claude Code sessions and transcripts
+.claude/
+transcripts/
