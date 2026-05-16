@@ -34,6 +34,12 @@ model Video {
   updatedAt         DateTime @updatedAt
   
   labels            Label[]  // Implicit m-to-n relation
+  downloadLogs      DownloadLog[]
+
+  @@index([originalUrl])
+  @@index([mediaType])
+  @@index([transcriptStatus])
+  @@index([sourceId])
 }
 
 model Label {
@@ -66,6 +72,9 @@ model DownloadProfile {
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  @@index([sitePattern])
+  @@index([isActive])
 }
 
 model DownloadLog {
@@ -77,6 +86,7 @@ model DownloadLog {
   errorMessage   String?
   fileSize       Int?
   videoId        String?   // Link to Video if successful
+  video          Video?    @relation(fields: [videoId], references: [id], onDelete: SetNull)
   duration       Float?    // Download/transcription duration in seconds
   startedAt      DateTime  @default(now())
   completedAt    DateTime?
@@ -84,6 +94,10 @@ model DownloadLog {
   // Transcription tracking (WID-307)
   type           String    @default("download")  // "download" | "transcription"
   output         String?   // Transcript snippet (first 500 chars) or error output
+
+  @@index([videoId])
+  @@index([status])
+  @@index([type])
 }
 
 model DownloadQueueJob {
@@ -108,4 +122,7 @@ model DownloadQueueJob {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   completedAt      DateTime?
+
+  @@index([status])
+  @@index([position])
 }

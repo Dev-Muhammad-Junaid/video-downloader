@@ -6,14 +6,27 @@ import { prisma } from "@/lib/prisma";
 import { generateThumbnail } from "@/lib/thumbnail";
 import { ensureFfmpegFilterSupported, getFfmpegPath } from "@/lib/ffmpeg";
 
+function parseTimeToSeconds(time: string): number {
+    if (time.includes(":")) {
+        const parts = time.split(":").map(Number);
+        if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+        if (parts.length === 2) return parts[0] * 60 + parts[1];
+    }
+    return parseFloat(time) || 0;
+}
+
 // Helper to spawn ffmpeg and return a promise
 function runFfmpeg(args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
         const ffmpeg = spawn(getFfmpegPath(), args);
-        
+
         let errorOutput = "";
         ffmpeg.stderr.on("data", (data) => {
             errorOutput += data.toString();
+        });
+
+        ffmpeg.on("error", (err) => {
+            reject(new Error(`Failed to start FFmpeg: ${err.message}`));
         });
 
         ffmpeg.on("close", (code) => {
@@ -80,7 +93,7 @@ export async function trimVideo(
             localPath: newFilePath,
             fileSize,
             mediaType: originalVideo.mediaType,
-            duration: parseFloat(endTime) - parseFloat(startTime),
+            duration: parseTimeToSeconds(endTime) - parseTimeToSeconds(startTime),
         }
     });
 
@@ -209,7 +222,7 @@ export async function trimAndCrop(
             localPath: newFilePath,
             fileSize,
             mediaType: originalVideo.mediaType,
-            duration: parseFloat(endTime) - parseFloat(startTime),
+            duration: parseTimeToSeconds(endTime) - parseTimeToSeconds(startTime),
         }
     });
 
@@ -323,7 +336,7 @@ export async function trimAudio(
             localPath: newFilePath,
             fileSize,
             mediaType: "audio",
-            duration: parseFloat(endTime) - parseFloat(startTime),
+            duration: parseTimeToSeconds(endTime) - parseTimeToSeconds(startTime),
         }
     });
 
@@ -372,7 +385,7 @@ export async function trimBurnSubtitles(
             localPath: newFilePath,
             fileSize,
             mediaType: originalVideo.mediaType,
-            duration: parseFloat(endTime) - parseFloat(startTime),
+            duration: parseTimeToSeconds(endTime) - parseTimeToSeconds(startTime),
         }
     });
     generateThumbnail(newFilePath, resultVideo.id, resultVideo.mediaType).then(async (tp) => { if (tp) await prisma.video.update({ where: { id: resultVideo.id }, data: { thumbnailPath: tp } }); }).catch(console.error);
@@ -469,7 +482,7 @@ export async function trimCropBurnSubtitles(
             localPath: newFilePath,
             fileSize,
             mediaType: originalVideo.mediaType,
-            duration: parseFloat(endTime) - parseFloat(startTime),
+            duration: parseTimeToSeconds(endTime) - parseTimeToSeconds(startTime),
         }
     });
     generateThumbnail(newFilePath, resultVideo.id, resultVideo.mediaType).then(async (tp) => { if (tp) await prisma.video.update({ where: { id: resultVideo.id }, data: { thumbnailPath: tp } }); }).catch(console.error);

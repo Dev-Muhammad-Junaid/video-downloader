@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
     Sidebar,
@@ -52,6 +53,7 @@ const items = [
 export function AppSidebar() {
     const { theme, setTheme } = useTheme();
     const [mounted, setMounted] = React.useState(false);
+    const pathname = usePathname();
 
     React.useEffect(() => setMounted(true), []);
 
@@ -66,16 +68,17 @@ export function AppSidebar() {
                     <SidebarGroupLabel>Application</SidebarGroupLabel>
                     <SidebarGroupContent>
                         <SidebarMenu>
-                            {items.map((item) => (
-                                <SidebarMenuItem key={item.title}>
-                                    <SidebarMenuButton>
-                                        <Link href={item.url} className="flex items-center gap-2">
+                            {items.map((item) => {
+                                const isActive = item.url === "/" ? pathname === "/" : pathname.startsWith(item.url);
+                                return (
+                                    <SidebarMenuItem key={item.title}>
+                                        <SidebarMenuButton isActive={isActive} render={<Link href={item.url} />}>
                                             <item.icon className="w-4 h-4" />
                                             <span>{item.title}</span>
-                                        </Link>
-                                    </SidebarMenuButton>
-                                </SidebarMenuItem>
-                            ))}
+                                        </SidebarMenuButton>
+                                    </SidebarMenuItem>
+                                );
+                            })}
                         </SidebarMenu>
                     </SidebarGroupContent>
                 </SidebarGroup>

@@ -14,6 +14,15 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Path is required" }, { status: 400 });
         }
 
+        const resolvedPath = path.resolve(targetPath);
+        const homeDir = os.homedir();
+        if (!resolvedPath.startsWith(homeDir) && !resolvedPath.startsWith("/Volumes")) {
+            return NextResponse.json(
+                { error: "Path must be within your home directory or mounted volumes", details: `Resolved to: ${resolvedPath}` },
+                { status: 400 }
+            );
+        }
+
         if (action === "open") {
             const platform = os.platform();
             const dir = path.dirname(targetPath);
@@ -32,6 +41,6 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Invalid action" }, { status: 400 });
     } catch (error: any) {
         console.error("Failed to execute native action:", error);
-        return NextResponse.json({ error: "Failed to open explorer" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to open explorer", details: error.message }, { status: 500 });
     }
 }

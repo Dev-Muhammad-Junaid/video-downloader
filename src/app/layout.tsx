@@ -38,7 +38,7 @@ export default function RootLayout({
           <TooltipProvider>
             <SidebarProvider>
               <AppSidebar />
-              <main className="w-full h-full flex flex-col flex-1 pb-16">
+              <main className="w-full h-full flex flex-col flex-1 pb-16 overflow-x-hidden">
                 <div className="w-full flex items-center p-2 border-b">
                   <SidebarTrigger />
                 </div>

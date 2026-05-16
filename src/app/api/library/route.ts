@@ -31,6 +31,6 @@ export async function GET() {
 
         return NextResponse.json(validVideos);
     } catch (error: any) {
-        return NextResponse.json({ error: "Failed to fetch library" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to fetch library", details: error.message }, { status: 500 });
     }
 }

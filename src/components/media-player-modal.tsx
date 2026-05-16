@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import { formatSize, formatDuration } from "@/lib/format";
 import {
     Dialog,
     DialogContent,
@@ -145,19 +146,6 @@ export function MediaPlayerModal({
         } catch {
             toast.error("Could not open folder");
         }
-    };
-
-    const formatSize = (bytes: number | null) => {
-        if (!bytes) return "-";
-        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    };
-
-    const formatDuration = (seconds: number | null) => {
-        if (!seconds) return null;
-        const m = Math.floor(seconds / 60);
-        const s = Math.round(seconds % 60);
-        return `${m}:${s.toString().padStart(2, "0")}`;
     };
 
     return (

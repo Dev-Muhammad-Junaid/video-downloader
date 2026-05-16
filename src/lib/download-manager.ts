@@ -84,12 +84,16 @@ export function getDownloadsDir() {
 }
 
 export function setDownloadsDir(newDir: string) {
-    downloadsDir = newDir;
+    const resolved = path.resolve(newDir);
+    const homeDir = os.homedir();
+    if (!resolved.startsWith(homeDir) && !resolved.startsWith("/Volumes")) {
+        throw new Error("Download directory must be within your home directory or mounted volumes");
+    }
+    downloadsDir = resolved;
     if (!fs.existsSync(downloadsDir)) {
         fs.mkdirSync(downloadsDir, { recursive: true });
     }
-    // Persist to file
-    fs.writeFileSync(settingsPath, newDir, "utf-8");
+    fs.writeFileSync(settingsPath, resolved, "utf-8");
 }
 
 const GALLERY_DL_PATH = path.join(os.homedir(), ".local", "bin", "gallery-dl");
@@ -716,11 +720,26 @@ export async function startDownload(
 
         ytdlpArgs.push(...formatArgs);
         ytdlpArgs.push("--ffmpeg-location", getFfmpegPath());
-        ytdlpArgs.push("-o", outputPath, "--write-info-json", "--newline", url);
+        ytdlpArgs.push("-o", outputPath, "--write-info-json", "--newline", "--", url);
 
         console.log(`[Download] Starting yt-dlp with args:`, ytdlpArgs.join(" "));
         const ytdlp = spawn("yt-dlp", ytdlpArgs);
         jobProcesses.set(id, ytdlp);
+
+    ytdlp.on("error", async (err) => {
+        job.status = "error";
+        job.completedAt = Date.now();
+        job.error = `Failed to start yt-dlp: ${err.message}`;
+        activeDownloads.set(id, job);
+        await persistJob(job);
+        jobProcesses.delete(id);
+        if (logId) {
+            prisma.downloadLog.update({
+                where: { id: logId },
+                data: { status: "error", errorMessage: job.error, completedAt: new Date() },
+            }).catch(console.error);
+        }
+    });
 
     ytdlp.stdout.on("data", (data) => {
         const output = data.toString();

@@ -2,19 +2,26 @@ import { NextResponse } from "next/server";
 import { getServerSettings, updateServerSetting } from "@/lib/settings";
 
 export async function GET() {
-    const settings = getServerSettings();
-    const r2: any = settings.r2_credentials || {};
-    
-    // Mask the secret key for display — only show last 4 chars if it exists
-    const maskedSecret = r2.s3SecretKey
-        ? `***...${r2.s3SecretKey.slice(-4)}`
-        : "";
+    try {
+        const settings = getServerSettings();
+        const r2: any = settings.r2_credentials || {};
 
-    return NextResponse.json({
-        ...r2,
-        s3SecretKey: maskedSecret,
-        hasKey: !!r2.s3SecretKey
-    });
+        // Mask the secret key for display — only show last 4 chars if it exists
+        const maskedSecret = r2.s3SecretKey
+            ? `***...${r2.s3SecretKey.slice(-4)}`
+            : "";
+
+        return NextResponse.json({
+            ...r2,
+            s3SecretKey: maskedSecret,
+            hasKey: !!r2.s3SecretKey
+        });
+    } catch (error: any) {
+        return NextResponse.json(
+            { error: "Failed to load settings", details: error.message },
+            { status: 500 }
+        );
+    }
 }
 
 export async function POST(req: Request) {
