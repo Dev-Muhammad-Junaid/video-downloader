@@ -84,6 +84,6 @@ export async function GET(req: Request) {
         });
     } catch (error: any) {
         console.error("Export failed:", error);
-        return NextResponse.json({ error: "Export failed" }, { status: 500 });
+        return NextResponse.json({ error: "Export failed", details: error.message }, { status: 500 });
     }
 }

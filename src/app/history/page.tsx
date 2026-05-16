@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
+import { formatSize, formatDuration } from "@/lib/format";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import {
@@ -162,18 +163,6 @@ export default function HistoryPage() {
         });
     };
 
-    const formatDuration = (seconds: number | null) => {
-        if (!seconds) return "-";
-        if (seconds < 60) return `${seconds.toFixed(1)}s`;
-        return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
-    };
-
-    const formatSize = (bytes: number | null) => {
-        if (!bytes) return "-";
-        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    };
-
     const TAB_CONFIG: { id: TabType; label: string; icon: React.ReactNode }[] = [
         { id: "all", label: "All Activity", icon: <History className="w-4 h-4" /> },
         { id: "download", label: "Downloads", icon: <Download className="w-4 h-4" /> },
@@ -194,7 +183,7 @@ export default function HistoryPage() {
             variants={stagger}
             initial="hidden"
             animate="show"
-            className="flex-1 w-full p-8 space-y-6 max-w-[1200px] mx-auto"
+            className="flex-1 w-full p-8 space-y-6 max-w-[1600px] mx-auto overflow-x-hidden"
         >
             {/* Header */}
             <motion.div variants={fadeUp} className="flex items-center justify-between">
@@ -229,7 +218,7 @@ export default function HistoryPage() {
             {loading ? (
                 <motion.div variants={fadeUp} className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {Array.from({ length: 4 }).map((_, i) => (
-                        <Card key={i} className="bg-background/60 backdrop-blur-xl border-border/50">
+                        <Card key={i}>
                             <CardContent className="p-4 flex items-center gap-3">
                                 <Skeleton className="w-9 h-9 rounded-lg bg-muted/30" />
                                 <div className="space-y-2 mt-1">
@@ -242,8 +231,9 @@ export default function HistoryPage() {
                 </motion.div>
             ) : stats && stats.totalDownloads > 0 ? (
                 <motion.div variants={fadeUp} className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <Card className="bg-background/60 backdrop-blur-xl border-border/50">
-                        <CardContent className="p-4 flex items-center gap-3">
+                    <Card className="overflow-hidden relative group hover:border-primary/30 transition-all">
+                        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <CardContent className="p-4 flex items-center gap-3 relative">
                             <div className="p-2 rounded-lg bg-primary/10">
                                 <Download className="w-5 h-5 text-primary" />
                             </div>
@@ -253,8 +243,9 @@ export default function HistoryPage() {
                             </div>
                         </CardContent>
                     </Card>
-                    <Card className="bg-background/60 backdrop-blur-xl border-border/50">
-                        <CardContent className="p-4 flex items-center gap-3">
+                    <Card className="overflow-hidden relative group hover:border-emerald-500/30 transition-all">
+                        <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <CardContent className="p-4 flex items-center gap-3 relative">
                             <div className="p-2 rounded-lg bg-emerald-500/10">
                                 <TrendingUp className="w-5 h-5 text-emerald-500" />
                             </div>
@@ -264,8 +255,9 @@ export default function HistoryPage() {
                             </div>
                         </CardContent>
                     </Card>
-                    <Card className="bg-background/60 backdrop-blur-xl border-border/50">
-                        <CardContent className="p-4 flex items-center gap-3">
+                    <Card className="overflow-hidden relative group hover:border-violet-500/30 transition-all">
+                        <div className="absolute inset-0 bg-gradient-to-br from-violet-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <CardContent className="p-4 flex items-center gap-3 relative">
                             <div className="p-2 rounded-lg bg-violet-500/10">
                                 <BrainCircuit className="w-5 h-5 text-violet-500" />
                             </div>
@@ -275,8 +267,9 @@ export default function HistoryPage() {
                             </div>
                         </CardContent>
                     </Card>
-                    <Card className="bg-background/60 backdrop-blur-xl border-border/50">
-                        <CardContent className="p-4 flex items-center gap-3">
+                    <Card className="overflow-hidden relative group hover:border-red-500/30 transition-all">
+                        <div className="absolute inset-0 bg-gradient-to-br from-red-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <CardContent className="p-4 flex items-center gap-3 relative">
                             <div className="p-2 rounded-lg bg-red-500/10">
                                 <XCircle className="w-5 h-5 text-red-500" />
                             </div>
@@ -296,7 +289,7 @@ export default function HistoryPage() {
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab.id
-                                ? "bg-background text-foreground shadow-sm border border-border/40"
+                                ? "bg-foreground text-background shadow-sm"
                                 : "text-muted-foreground hover:text-foreground"
                             }`}
                     >
@@ -308,7 +301,7 @@ export default function HistoryPage() {
 
             {/* Log Table */}
             <motion.div variants={fadeUp}>
-            <Card className="bg-background/60 backdrop-blur-xl border-border/50 shadow-lg">
+            <Card>
                 <CardHeader className="pb-3">
                     <CardTitle className="text-lg flex items-center gap-2">
                         {activeTab === "transcription" ? <Mic className="w-4 h-4 text-violet-500" /> : <History className="w-4 h-4" />}
@@ -373,8 +366,8 @@ export default function HistoryPage() {
 
                                             {/* Info */}
                                             <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2">
-                                                    <p className="text-sm font-medium truncate">{log.title}</p>
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <p className="text-sm font-medium truncate min-w-0">{log.title}</p>
                                                     {isTranscription && (
                                                         <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-violet-500/10 text-violet-500 border-violet-500/20 border shrink-0">
                                                             AI

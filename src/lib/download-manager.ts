@@ -84,12 +84,16 @@ export function getDownloadsDir() {
 }
 
 export function setDownloadsDir(newDir: string) {
-    downloadsDir = newDir;
+    const resolved = path.resolve(newDir);
+    const homeDir = os.homedir();
+    if (!resolved.startsWith(homeDir) && !resolved.startsWith("/Volumes")) {
+        throw new Error("Download directory must be within your home directory or mounted volumes");
+    }
+    downloadsDir = resolved;
     if (!fs.existsSync(downloadsDir)) {
         fs.mkdirSync(downloadsDir, { recursive: true });
     }
-    // Persist to file
-    fs.writeFileSync(settingsPath, newDir, "utf-8");
+    fs.writeFileSync(settingsPath, resolved, "utf-8");
 }
 
 const GALLERY_DL_PATH = path.join(os.homedir(), ".local", "bin", "gallery-dl");
@@ -546,8 +550,15 @@ export async function startDownload(
     if (mediaType === "image" && imageUrl) {
         // Queue the image download process
         limit(async () => {
-            const ext = path.extname(new URL(imageUrl).pathname) || ".jpg";
-            const fileName = `${safeTitle}_${id}${ext}`;
+            // Look up the matching profile so we can apply image format preference + autoCloudSync
+            const imageProfile = profileId
+                ? await prisma.downloadProfile.findUnique({ where: { id: profileId } })
+                : await getMatchingProfile(url);
+            const preferredImageFormat = imageProfile?.preferredImageFormat || "original";
+
+            const srcExt = path.extname(new URL(imageUrl).pathname).toLowerCase() || ".jpg";
+            const outExt = preferredImageFormat !== "original" ? `.${preferredImageFormat}` : srcExt;
+            const fileName = `${safeTitle}_${id}${outExt}`;
             const outputPath = path.join(downloadsDir, fileName);
             let logEntryId = "";
 
@@ -561,7 +572,24 @@ export async function startDownload(
                 });
                 logEntryId = logEntry.id;
 
-            await downloadFile(imageUrl, outputPath, id);
+            // Download to a temp path, then convert if needed
+            const needsConversion = preferredImageFormat !== "original" && srcExt !== outExt;
+            const downloadTarget = needsConversion
+                ? path.join(downloadsDir, `${safeTitle}_${id}_tmp${srcExt}`)
+                : outputPath;
+
+            await downloadFile(imageUrl, downloadTarget, id);
+
+            if (needsConversion) {
+                const sharp = (await import("sharp")).default;
+                let pipeline = sharp(downloadTarget);
+                if (outExt === ".jpg" || outExt === ".jpeg") pipeline = pipeline.jpeg({ quality: 90 });
+                else if (outExt === ".png") pipeline = pipeline.png();
+                else if (outExt === ".webp") pipeline = pipeline.webp({ quality: 85 });
+                else if (outExt === ".avif") pipeline = pipeline.avif({ quality: 60 });
+                await pipeline.toFile(outputPath);
+                fs.unlinkSync(downloadTarget);
+            }
 
             job.status = "completed";
             job.completedAt = Date.now();
@@ -604,7 +632,8 @@ export async function startDownload(
 
             const createdVideo = await prisma.video.create({ data: dbData });
 
-            if (forceCloudSync) {
+            const shouldSync = forceCloudSync || imageProfile?.autoCloudSync;
+            if (shouldSync) {
                 uploadToCloud(createdVideo.id).catch(err => {
                     console.error(`[AutoSync] Error uploading image ${createdVideo.id}:`, err);
                 });
@@ -666,8 +695,8 @@ export async function startDownload(
             const selectedProfile = profileId ? await prisma.downloadProfile.findUnique({ where: { id: profileId } }) : null;
             const profile = selectedProfile || await getMatchingProfile(url);
             const { args: formatArgs, isAudio } = getYtDlpFormat(profile || { maxResolution: "best", preferredFormat: "mp4" }, formatId);
-            
-            const fileName = isAudio ? `${safeTitle}_${id}.mp3` : `${safeTitle}_${id}.mp4`;
+            const audioExt = profile?.preferredFormat === "m4a" ? "m4a" : "mp3";
+            const fileName = isAudio ? `${safeTitle}_${id}.${audioExt}` : `${safeTitle}_${id}.mp4`;
             const outputPath = path.join(downloadsDir, fileName);
 
             // Create download log entry
@@ -691,11 +720,26 @@ export async function startDownload(
 
         ytdlpArgs.push(...formatArgs);
         ytdlpArgs.push("--ffmpeg-location", getFfmpegPath());
-        ytdlpArgs.push("-o", outputPath, "--write-info-json", "--newline", url);
+        ytdlpArgs.push("-o", outputPath, "--write-info-json", "--newline", "--", url);
 
         console.log(`[Download] Starting yt-dlp with args:`, ytdlpArgs.join(" "));
         const ytdlp = spawn("yt-dlp", ytdlpArgs);
         jobProcesses.set(id, ytdlp);
+
+    ytdlp.on("error", async (err) => {
+        job.status = "error";
+        job.completedAt = Date.now();
+        job.error = `Failed to start yt-dlp: ${err.message}`;
+        activeDownloads.set(id, job);
+        await persistJob(job);
+        jobProcesses.delete(id);
+        if (logId) {
+            prisma.downloadLog.update({
+                where: { id: logId },
+                data: { status: "error", errorMessage: job.error, completedAt: new Date() },
+            }).catch(console.error);
+        }
+    });
 
     ytdlp.stdout.on("data", (data) => {
         const output = data.toString();

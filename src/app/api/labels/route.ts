@@ -8,7 +8,7 @@ export async function GET() {
         });
         return NextResponse.json(labels);
     } catch (error: any) {
-        return NextResponse.json({ error: "Failed to fetch labels" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to fetch labels", details: error.message }, { status: 500 });
     }
 }
 
@@ -30,6 +30,6 @@ export async function POST(req: Request) {
         return NextResponse.json(label);
     } catch (error: any) {
         console.error("Failed to create label:", error);
-        return NextResponse.json({ error: "Failed to create label" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to create label", details: error.message }, { status: 500 });
     }
 }

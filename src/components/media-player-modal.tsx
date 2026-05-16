@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import { formatSize, formatDuration } from "@/lib/format";
 import {
     Dialog,
     DialogContent,
@@ -30,6 +31,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { VideoEditorModal } from "./video-editor/video-editor-modal";
+import { ImageEditorModal } from "./image-editor/image-editor-modal";
 
 type Video = {
     id: string;
@@ -77,32 +79,35 @@ export function MediaPlayerModal({
     onTranscribe,
     onRefreshLibrary,
 }: MediaPlayerModalProps) {
-    const [currentIndex, setCurrentIndex] = useState(initialIndex);
+    // Track by ID so library refreshes (which shift array indices) don't swap the displayed item
+    const [currentId, setCurrentId] = useState<string>(videos[initialIndex]?.id ?? "");
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [editTitle, setEditTitle] = useState("");
-    
+
     // Edit Media Mode State
     const [isEditingMedia, setIsEditingMedia] = useState(false);
 
     const videoRef = useRef<HTMLVideoElement>(null);
 
     useEffect(() => {
-        setCurrentIndex(initialIndex);
+        setCurrentId(videos[initialIndex]?.id ?? "");
         setIsEditingMedia(false);
-    }, [initialIndex]);
+    }, [initialIndex, videos]);
 
-    const video = videos[currentIndex];
+    const currentIndex = videos.findIndex(v => v.id === currentId);
+    const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+    const video = videos[safeIndex];
     if (!video) return null;
 
-    const hasPrev = currentIndex > 0;
-    const hasNext = currentIndex < videos.length - 1;
+    const hasPrev = safeIndex > 0;
+    const hasNext = safeIndex < videos.length - 1;
 
     const handlePrev = () => {
-        if (hasPrev) setCurrentIndex(currentIndex - 1);
+        if (hasPrev) setCurrentId(videos[safeIndex - 1].id);
     };
 
     const handleNext = () => {
-        if (hasNext) setCurrentIndex(currentIndex + 1);
+        if (hasNext) setCurrentId(videos[safeIndex + 1].id);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -131,24 +136,16 @@ export function MediaPlayerModal({
     };
 
     const handleOpenFolder = async (targetPath: string) => {
-        await fetch("/api/library/action", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "open", targetPath }),
-        });
-    };
-
-    const formatSize = (bytes: number | null) => {
-        if (!bytes) return "-";
-        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    };
-
-    const formatDuration = (seconds: number | null) => {
-        if (!seconds) return null;
-        const m = Math.floor(seconds / 60);
-        const s = Math.round(seconds % 60);
-        return `${m}:${s.toString().padStart(2, "0")}`;
+        try {
+            const res = await fetch("/api/library/action", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "open", targetPath }),
+            });
+            if (!res.ok) throw new Error("Failed to open folder");
+        } catch {
+            toast.error("Could not open folder");
+        }
     };
 
     return (
@@ -235,12 +232,13 @@ export function MediaPlayerModal({
                                     />
                                 </div>
                             ) : (
-                                <div className="flex items-start gap-2 group/title">
-                                    <h3 className="font-semibold text-sm flex-1 leading-snug break-words">{video.title}</h3>
-                                    <Button size="icon" variant="ghost" className="h-7 w-7 flex-shrink-0 opacity-0 group-hover/title:opacity-100 transition-opacity" onClick={startEditTitle}>
-                                        <Pencil className="w-3.5 h-3.5" />
-                                    </Button>
-                                </div>
+                                <h3
+                                    className="font-semibold text-sm leading-snug break-words cursor-text select-none rounded px-1 -mx-1 hover:bg-muted/50 transition-colors"
+                                    onDoubleClick={startEditTitle}
+                                    title="Double-click to rename"
+                                >
+                                    {video.title}
+                                </h3>
                             )}
                         </div>
 
@@ -376,7 +374,23 @@ export function MediaPlayerModal({
                                 </Button>
                             )}
 
-                            {(!video.mediaType || video.mediaType === "video") ? (
+                            {video.mediaType === "image" ? (
+                                <Button
+                                    variant="outline"
+                                    className="w-full h-9 text-xs"
+                                    onClick={() => setIsEditingMedia(true)}
+                                >
+                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Image
+                                </Button>
+                            ) : video.mediaType === "audio" ? (
+                                <Button
+                                    variant="outline"
+                                    className="w-full h-9 text-xs"
+                                    onClick={() => setIsEditingMedia(true)}
+                                >
+                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Trim Audio
+                                </Button>
+                            ) : (
                                 <>
                                     <Button
                                         variant="outline"
@@ -409,23 +423,7 @@ export function MediaPlayerModal({
                                         </Button>
                                     )}
                                 </>
-                            ) : video.mediaType === "image" ? (
-                                <Button
-                                    variant="outline"
-                                    className="w-full h-9 text-xs opacity-50 cursor-not-allowed"
-                                    disabled
-                                >
-                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Image (Coming Soon)
-                                </Button>
-                            ) : video.mediaType === "audio" ? (
-                                <Button
-                                    variant="outline"
-                                    className="w-full h-9 text-xs"
-                                    onClick={() => setIsEditingMedia(true)}
-                                >
-                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Trim Audio
-                                </Button>
-                            ) : null}
+                            )}
                             <div className="grid grid-cols-2 gap-2">
                                 <Button
                                     variant="outline"
@@ -481,9 +479,16 @@ export function MediaPlayerModal({
                 </div>
             </DialogContent>
 
-            {isEditingMedia && (
-                <VideoEditorModal 
-                    video={video} 
+            {isEditingMedia && video.mediaType === "image" && (
+                <ImageEditorModal
+                    image={video}
+                    onClose={() => setIsEditingMedia(false)}
+                    onRefreshLibrary={onRefreshLibrary}
+                />
+            )}
+            {isEditingMedia && (!video.mediaType || video.mediaType === "video" || video.mediaType === "audio") && (
+                <VideoEditorModal
+                    video={video}
                     onClose={() => setIsEditingMedia(false)}
                     onRefreshLibrary={onRefreshLibrary}
                 />

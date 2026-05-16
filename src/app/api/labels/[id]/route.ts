@@ -7,6 +7,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         const data = await req.json();
         const { id } = await params;
 
+        if (data.name !== undefined && (typeof data.name !== 'string' || data.name.trim() === '')) {
+            return NextResponse.json({ error: "Label name must be a non-empty string" }, { status: 400 });
+        }
+
         const label = await prisma.label.update({
             where: { id },
             data: {
@@ -19,7 +23,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         return NextResponse.json(label);
     } catch (error: any) {
         console.error("Failed to update label:", error);
-        return NextResponse.json({ error: "Failed to update label" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to update label", details: error.message }, { status: 500 });
     }
 }
 
@@ -31,6 +35,6 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
         return NextResponse.json({ success: true });
     } catch (error: any) {
         console.error("Failed to delete label:", error);
-        return NextResponse.json({ error: "Failed to delete label" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to delete label", details: error.message }, { status: 500 });
     }
 }

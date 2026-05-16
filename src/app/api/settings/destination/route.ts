@@ -3,7 +3,14 @@ import { getDownloadsDir, setDownloadsDir } from "@/lib/download-manager";
 
 // GET — return the current download destination
 export async function GET() {
-    return NextResponse.json({ path: getDownloadsDir() });
+    try {
+        return NextResponse.json({ path: getDownloadsDir() });
+    } catch (error: any) {
+        return NextResponse.json(
+            { error: "Failed to load settings", details: error.message },
+            { status: 500 }
+        );
+    }
 }
 
 // POST — update the download destination
