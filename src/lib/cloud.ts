@@ -58,8 +58,6 @@ export async function uploadToCloud(videoId: string): Promise<{ key: string; clo
     const ext = path.extname(video.localPath).toLowerCase();
     const contentType = UPLOAD_MIME[ext] || "application/octet-stream";
 
-    // Use multipart upload via lib-storage — streams the file without loading it into RAM.
-    // Automatically falls back to a single PUT for files under 5 MB.
     const upload = new Upload({
         client: s3Client,
         params: {
@@ -69,7 +67,6 @@ export async function uploadToCloud(videoId: string): Promise<{ key: string; clo
             ContentType: contentType,
             ContentLength: fileSize,
         },
-        // 10 MB parts, up to 4 concurrent part uploads
         partSize: 10 * 1024 * 1024,
         queueSize: 4,
     });

@@ -38,6 +38,6 @@ export async function POST() {
         });
     } catch (error: any) {
         console.error("Thumbnail backfill failed:", error);
-        return NextResponse.json({ error: "Backfill failed" }, { status: 500 });
+        return NextResponse.json({ error: "Backfill failed", details: error.message }, { status: 500 });
     }
 }

@@ -75,11 +75,30 @@ export function ImageEditorModal({ image, onClose, onRefreshLibrary }: ImageEdit
 
     const [isExporting, setIsExporting] = useState(false);
 
-    // Prevent body scroll while editor is open
+    const modalRef = useRef<HTMLDivElement>(null);
+
     React.useEffect(() => {
         document.body.style.overflow = "hidden";
-        return () => { document.body.style.overflow = ""; };
-    }, []);
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") { onClose(); return; }
+            if (e.key === "Tab" && modalRef.current) {
+                const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+                    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+                );
+                if (focusable.length === 0) return;
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+                else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+            }
+        };
+        document.addEventListener("keydown", handleKeyDown);
+        return () => {
+            document.body.style.overflow = "";
+            document.removeEventListener("keydown", handleKeyDown);
+        };
+    }, [onClose]);
 
     // ── Crop helpers ──────────────────────────────────────────────────────────
 
@@ -200,6 +219,10 @@ export function ImageEditorModal({ image, onClose, onRefreshLibrary }: ImageEdit
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 24, scale: 0.97 }}
             transition={{ type: "spring", damping: 26, stiffness: 220 }}
+            ref={modalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Edit image: ${image.title}`}
             className="fixed inset-0 z-[60] bg-background text-foreground flex flex-col"
         >
             {/* ── Header ── */}
@@ -222,7 +245,7 @@ export function ImageEditorModal({ image, onClose, onRefreshLibrary }: ImageEdit
                             className={cn(
                                 "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
                                 mode === id
-                                    ? "bg-background text-foreground shadow-sm border border-border/40"
+                                    ? "bg-foreground text-background shadow-sm"
                                     : "text-muted-foreground hover:text-foreground"
                             )}
                         >
@@ -291,7 +314,7 @@ export function ImageEditorModal({ image, onClose, onRefreshLibrary }: ImageEdit
                 </div>
 
                 {/* ── Bottom Controls ── */}
-                <AnimatePresence mode="wait">
+                <AnimatePresence mode="popLayout">
                     {mode === "crop" && (
                         <motion.div
                             key="crop-panel"

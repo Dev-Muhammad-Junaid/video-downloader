@@ -150,6 +150,6 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ results, total: results.length, query, mode });
     } catch (err: any) {
         console.error("[Search] Error:", err);
-        return NextResponse.json({ error: err.message }, { status: 500 });
+        return NextResponse.json({ error: "Search failed", details: err.message }, { status: 500 });
     }
 }

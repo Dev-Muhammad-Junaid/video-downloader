@@ -34,7 +34,7 @@ export async function GET(
             vttPath: video.transcriptPath ?? null,
         });
     } catch (err: any) {
-        return NextResponse.json({ error: err.message }, { status: 500 });
+        return NextResponse.json({ error: "Transcription failed", details: err.message }, { status: 500 });
     }
 }
 
@@ -91,6 +91,6 @@ export async function POST(
 
         return NextResponse.json({ message: "Transcription started", id });
     } catch (err: any) {
-        return NextResponse.json({ error: err.message }, { status: 500 });
+        return NextResponse.json({ error: "Transcription failed", details: err.message }, { status: 500 });
     }
 }

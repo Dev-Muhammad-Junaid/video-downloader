@@ -7,6 +7,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         const data = await req.json();
         const { id } = await params;
 
+        if (data.name !== undefined && (typeof data.name !== 'string' || data.name.trim() === '')) {
+            return NextResponse.json({ error: "Profile name must be a non-empty string" }, { status: 400 });
+        }
+
         const isDefault = !!data.isDefault || (data.priority != null && parseInt(data.priority) === -1);
         if (isDefault) {
             await prisma.downloadProfile.updateMany({

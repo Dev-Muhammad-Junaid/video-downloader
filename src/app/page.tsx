@@ -38,10 +38,11 @@ import {
     CommandList
 } from "@/components/ui/command";
 import { toast } from "sonner";
-import { Trash2, Tags, PlusCircle, CheckSquare, Square, Music } from "lucide-react";
+import { Trash2, Tags, PlusCircle, CheckSquare, Square, Music, X } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { MediaPlayerModal } from "@/components/media-player-modal";
 import { ImageEditorModal } from "@/components/image-editor/image-editor-modal";
+import { VideoEditorModal } from "@/components/video-editor/video-editor-modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
     Dialog,
@@ -134,8 +135,9 @@ export default function LibraryPage() {
     const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
     const [editTitle, setEditTitle] = useState("");
 
-    // Image editor state
+    // Editor state
     const [editingImageId, setEditingImageId] = useState<string | null>(null);
+    const [editingVideoForEditor, setEditingVideoForEditor] = useState<string | null>(null);
 
     const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
 
@@ -158,6 +160,7 @@ export default function LibraryPage() {
     // Bulk Selection State
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [selectionMode, setSelectionMode] = useState(false);
+    const lastSelectedIndex = React.useRef<number | null>(null);
 
     // Dev seed state (only meaningful in development)
     const [seeding, setSeeding] = useState(false);
@@ -998,15 +1001,6 @@ export default function LibraryPage() {
 
     const providerLabel = transcriptionProvider === "groq" ? "Groq" : "OpenAI";
 
-    const toggleSelection = useCallback((videoId: string) => {
-        setSelectedIds(prev => {
-            const next = new Set(prev);
-            if (next.has(videoId)) next.delete(videoId);
-            else next.add(videoId);
-            return next;
-        });
-    }, []);
-
     const selectAll = useCallback(() => {
         setSelectedIds(new Set(videos.map(v => v.id)));
     }, [videos]);
@@ -1106,6 +1100,31 @@ export default function LibraryPage() {
         return result;
     }, [videos, searchQuery, sortBy, platformFilter, mediaTypeFilter, deepSearchResults]);
 
+    const toggleSelection = useCallback((videoId: string, e?: React.MouseEvent) => {
+        const currentIndex = displayedVideos.findIndex(v => v.id === videoId);
+
+        if (e?.shiftKey && lastSelectedIndex.current !== null && currentIndex !== -1) {
+            const start = Math.min(lastSelectedIndex.current, currentIndex);
+            const end = Math.max(lastSelectedIndex.current, currentIndex);
+            setSelectedIds(prev => {
+                const next = new Set(prev);
+                for (let i = start; i <= end; i++) {
+                    next.add(displayedVideos[i].id);
+                }
+                return next;
+            });
+        } else {
+            setSelectedIds(prev => {
+                const next = new Set(prev);
+                if (next.has(videoId)) next.delete(videoId);
+                else next.add(videoId);
+                return next;
+            });
+        }
+
+        if (currentIndex !== -1) lastSelectedIndex.current = currentIndex;
+    }, [displayedVideos]);
+
     const filteredQueue = useMemo(() => {
         if (queueFilter === "all") return queue;
         if (queueFilter === "active") {
@@ -1120,231 +1139,263 @@ export default function LibraryPage() {
         return Array.from(set).sort();
     }, [videos]);
 
-    const renderVideoCard = (video: Video) => (
-        <Card key={video.id} className={cn("flex flex-col group overflow-hidden border-border/40 hover:border-primary/30 transition-all hover:shadow-lg bg-card/50 backdrop-blur-sm relative", selectedIds.has(video.id) && "ring-2 ring-primary border-primary/50")}>
-            {/* Selection checkbox */}
-            {selectionMode && (
-                <button
-                    className="absolute top-2 left-2 z-20 w-6 h-6 flex items-center justify-center rounded bg-background/80 backdrop-blur-sm border border-border/60 hover:bg-background transition-colors"
-                    onClick={(e) => { e.stopPropagation(); toggleSelection(video.id); }}
-                >
-                    {selectedIds.has(video.id) ? (
-                        <CheckSquare className="w-4 h-4 text-primary" />
-                    ) : (
-                        <Square className="w-4 h-4 text-muted-foreground" />
-                    )}
-                </button>
+    const renderVideoCard = (video: Video) => {
+        const isSelected = selectedIds.has(video.id);
+        return (
+        <Card
+            key={video.id}
+            className={cn(
+                "flex flex-col group overflow-hidden transition-all duration-200 relative rounded-xl",
+                "border-border/40 bg-card/50 backdrop-blur-sm",
+                "hover:shadow-xl hover:shadow-primary/5 hover:border-primary/25",
+                isSelected && "ring-2 ring-primary border-primary/50 shadow-lg shadow-primary/10",
+                selectionMode && "cursor-pointer"
             )}
-            <CardHeader className="p-3 z-10 bg-gradient-to-b from-card to-transparent border-b border-border/10 relative">
-                <CardTitle className="text-sm font-medium line-clamp-2 leading-snug" title={video.title}>{video.title}</CardTitle>
-
-                {/* Labels Area */}
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                    {video.labels?.map(label => (
-                        <Badge key={label.id} variant="secondary" className="text-[10px] px-1.5 py-0 hover:bg-destructive/10 hover:text-destructive cursor-pointer hover:line-through transition-all" onClick={() => detachLabel(video.id, label.id)} title="Click to remove">
-                            {label.name}
-                        </Badge>
-                    ))}
-
-                    <Popover>
-                        <PopoverTrigger className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-[18px] text-[10px] px-1.5 py-0 text-muted-foreground hover:text-foreground border border-dashed border-border/50 rounded-full")}>
-                            <PlusCircle className="w-3 h-3 mr-1" /> Add Label
-                        </PopoverTrigger>
-                        <PopoverContent className="w-52 p-0" align="start">
-                            <Command>
-                                <CommandInput placeholder="Search labels..." className="h-8 text-xs" />
-                                <CommandList>
-                                    <CommandEmpty className="py-2 px-2">
-                                        <div className="flex flex-col gap-2">
-                                            <span className="text-xs text-muted-foreground">No label found.</span>
-                                            <div className="flex bg-muted/40 p-1 rounded-md">
-                                                <Input placeholder="New label name" value={newLabelName} onChange={e => setNewLabelName(e.target.value)} className="h-7 text-xs border-r-0 rounded-r-none focus-visible:ring-0 shadow-none border -mr-px" onKeyDown={e => e.key === 'Enter' && createLabel()} />
-                                                <Button size="sm" onClick={createLabel} className="h-7 rounded-l-none text-xs px-2 shadow-none border">Add</Button>
-                                            </div>
-                                        </div>
-                                    </CommandEmpty>
-                                    <CommandGroup>
-                                        {globalLabels.filter(gl => !(video.labels || []).find(vl => vl.id === gl.id)).map(label => (
-                                            <CommandItem
-                                                key={label.id}
-                                                onSelect={() => attachLabel(video.id, label.id)}
-                                                className="text-xs py-1"
-                                            >
-                                                <Tags className="mr-2 h-3 w-3 opacity-50" />
-                                                {label.name}
-                                            </CommandItem>
-                                        ))}
-                                    </CommandGroup>
-                                </CommandList>
-                            </Command>
-                        </PopoverContent>
-                    </Popover>
-                </div>
-
-                <CardDescription className="text-xs mt-2.5 space-y-1.5">
-                    <div className="flex items-center gap-1.5">
-                        <span className="opacity-80">{new Date(video.createdAt).toLocaleDateString()}</span>
-                        <span className="w-1 h-1 rounded-full bg-muted-foreground/30"></span>
-                        <span className="opacity-80 truncate">{video.sourcePlatform || "Unknown"}</span>
-                        {video.originalUrl && (
-                            <a href={video.originalUrl} target="_blank" rel="noopener noreferrer" className="ml-0.5 text-primary hover:text-primary/80 transition-colors flex-shrink-0" title="Open source link">
-                                <ExternalLink className="w-3.5 h-3.5" />
-                            </a>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                        {video.fileSize && (
-                            <span className="opacity-80 font-medium text-foreground/60">{(video.fileSize / (1024 * 1024)).toFixed(1)} MB</span>
-                        )}
-                        {video.cloudKey && (
-                            <>
-                                {video.fileSize && <span className="w-1 h-1 rounded-full bg-muted-foreground/30"></span>}
-                                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-500">
-                                    <Cloud className="w-3 h-3" />
-                                    Synced
-                                </span>
-                            </>
-                        )}
-                    </div>
-                </CardDescription>
-            </CardHeader>
-            <CardContent
+            onClick={selectionMode ? (e) => toggleSelection(video.id, e) : undefined}
+        >
+            {/* Media Preview — thumbnail-first layout */}
+            <div
                 className={cn(
-                    "p-0 flex items-center justify-center relative h-[180px] overflow-hidden group",
-                    video.mediaType === "image" ? "" : "bg-black"
+                    "relative overflow-hidden",
+                    video.mediaType === "audio" ? "h-[140px]" : "h-[200px]"
                 )}
                 style={video.mediaType === "image" ? {
                     backgroundColor: "hsl(var(--background))",
                     backgroundImage: "linear-gradient(45deg, hsl(var(--muted)) 25%, transparent 25%), linear-gradient(-45deg, hsl(var(--muted)) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, hsl(var(--muted)) 75%), linear-gradient(-45deg, transparent 75%, hsl(var(--muted)) 75%)",
                     backgroundSize: "16px 16px",
                     backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
-                } : undefined}
+                } : video.mediaType !== "audio" ? { backgroundColor: "black" } : undefined}
             >
-                {/* Expand Button for Media Player Modal */}
-                <Button
-                    variant="secondary"
-                    size="icon"
-                    className="absolute top-2 right-2 z-10 w-8 h-8 opacity-0 group-hover:opacity-100 transition-opacity rounded-full bg-background/80 backdrop-blur-sm border border-border/50 hover:bg-background"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        const idx = displayedVideos.findIndex(v => v.id === video.id);
-                        setPlayerIndex(idx >= 0 ? idx : 0);
-                        setPlayerOpen(true);
-                    }}
-                    title="Open in Media Player"
-                >
-                    <Maximize2 className="w-4 h-4 text-foreground/80" />
-                </Button>
+                {/* Selection checkbox overlay */}
+                {selectionMode && (
+                    <div className={cn(
+                        "absolute top-2.5 left-2.5 z-20 w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-150",
+                        isSelected
+                            ? "bg-primary text-primary-foreground shadow-md scale-100"
+                            : "bg-background/70 backdrop-blur-md border border-border/60 text-muted-foreground hover:bg-background/90 hover:scale-105"
+                    )}>
+                        {isSelected
+                            ? <CheckSquare className="w-4 h-4" />
+                            : <Square className="w-4 h-4" />}
+                    </div>
+                )}
+
+                {/* Expand / Play button — hidden in selection mode */}
+                {!selectionMode && (
+                    <Button
+                        variant="secondary"
+                        size="icon"
+                        className="absolute top-2.5 right-2.5 z-10 w-8 h-8 opacity-0 group-hover:opacity-100 transition-all duration-200 rounded-full bg-background/70 backdrop-blur-md border border-border/50 hover:bg-background hover:scale-105"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            const idx = displayedVideos.findIndex(v => v.id === video.id);
+                            setPlayerIndex(idx >= 0 ? idx : 0);
+                            setPlayerOpen(true);
+                        }}
+                        title="Open in Media Player"
+                    >
+                        <Maximize2 className="w-4 h-4 text-foreground/80" />
+                    </Button>
+                )}
+
+                {/* Duration / size pill */}
+                {(video.duration || video.fileSize) && (
+                    <div className="absolute bottom-2 right-2 z-10 flex gap-1.5">
+                        {video.duration && video.duration > 0 && (
+                            <span className="text-[10px] font-medium bg-black/70 text-white backdrop-blur-sm px-1.5 py-0.5 rounded-md">
+                                {Math.floor(video.duration / 60)}:{String(Math.floor(video.duration % 60)).padStart(2, '0')}
+                            </span>
+                        )}
+                        {video.fileSize && (
+                            <span className="text-[10px] font-medium bg-black/70 text-white backdrop-blur-sm px-1.5 py-0.5 rounded-md">
+                                {(video.fileSize / (1024 * 1024)).toFixed(1)} MB
+                            </span>
+                        )}
+                    </div>
+                )}
+
 
                 {video.mediaType === "image" ? (
                     <img
                         src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
                         alt={video.title}
-                        className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-105"
+                        className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-[1.03]"
                         loading="lazy"
                     />
                 ) : video.mediaType === "audio" ? (
-                    <div className="w-full h-full flex flex-col items-center justify-center gap-3 p-4 bg-gradient-to-b from-muted/30 to-muted/60">
-                        <Music className="w-10 h-10 text-muted-foreground/40" />
-                        <audio
-                            src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
-                            controls
-                            preload="metadata"
-                            className="w-full max-w-[240px]"
-                        />
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-3 p-4 bg-gradient-to-br from-muted/20 via-muted/40 to-muted/60">
+                        <Music className="w-10 h-10 text-muted-foreground/30" />
+                        {!selectionMode && (
+                            <audio
+                                src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
+                                controls
+                                preload="metadata"
+                                className="w-full max-w-[240px]"
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                        )}
                     </div>
                 ) : (
-                    <video
-                        src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
-                        controls
-                        preload={video.thumbnailPath ? "none" : "metadata"}
-                        poster={video.thumbnailPath ? `/api/thumbnail/${video.id}` : undefined}
-                        className="w-full h-full object-cover"
-                    />
+                    selectionMode ? (
+                        video.thumbnailPath ? (
+                            <img src={`/api/thumbnail/${video.id}`} alt={video.title} className="w-full h-full object-cover" loading="lazy" />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-muted/30">
+                                <VideoIcon className="w-10 h-10 text-muted-foreground/30" />
+                            </div>
+                        )
+                    ) : (
+                        <video
+                            src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
+                            controls
+                            preload={video.thumbnailPath ? "none" : "metadata"}
+                            poster={video.thumbnailPath ? `/api/thumbnail/${video.id}` : undefined}
+                            className="w-full h-full object-cover"
+                        />
+                    )
                 )}
-            </CardContent>
-            <CardFooter className="p-3 border-t border-border/40 flex flex-col bg-card/80 backdrop-blur z-10">
+            </div>
+
+            {/* Card body */}
+            <div className="p-3 flex flex-col gap-2 flex-1">
+                <h3 className="text-sm font-medium line-clamp-2 leading-snug" title={video.title}>{video.title}</h3>
+
+                {/* Meta row */}
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span>{new Date(video.createdAt).toLocaleDateString()}</span>
+                    <span className="w-1 h-1 rounded-full bg-muted-foreground/30" />
+                    <span className="truncate">{video.sourcePlatform || "Unknown"}</span>
+                    {video.originalUrl && (
+                        <a href={video.originalUrl} target="_blank" rel="noopener noreferrer" className="ml-auto text-primary hover:text-primary/80 transition-colors flex-shrink-0" title="Open source link" onClick={(e) => e.stopPropagation()}>
+                            <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                    )}
+                </div>
+
+                {/* Labels */}
+                {((video.labels && video.labels.length > 0) || !selectionMode) && (
+                    <div className="flex flex-wrap gap-1 mt-0.5">
+                        {video.labels?.map(label => (
+                            <Badge key={label.id} variant="secondary" className="text-[10px] px-1.5 py-0 hover:bg-destructive/10 hover:text-destructive cursor-pointer hover:line-through transition-all" onClick={(e) => { e.stopPropagation(); detachLabel(video.id, label.id); }} title="Click to remove">
+                                {label.name}
+                            </Badge>
+                        ))}
+
+                        {!selectionMode && (
+                            <Popover>
+                                <PopoverTrigger className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-[18px] text-[10px] px-1.5 py-0 text-muted-foreground hover:text-foreground border border-dashed border-border/50 rounded-full")} onClick={(e) => e.stopPropagation()}>
+                                    <PlusCircle className="w-3 h-3 mr-1" /> Label
+                                </PopoverTrigger>
+                                <PopoverContent className="w-52 p-0" align="start">
+                                    <Command>
+                                        <CommandInput placeholder="Search labels..." className="h-8 text-xs" />
+                                        <CommandList>
+                                            <CommandEmpty className="py-2 px-2">
+                                                <div className="flex flex-col gap-2">
+                                                    <span className="text-xs text-muted-foreground">No label found.</span>
+                                                    <div className="flex bg-muted/40 p-1 rounded-md">
+                                                        <Input placeholder="New label name" value={newLabelName} onChange={e => setNewLabelName(e.target.value)} className="h-7 text-xs border-r-0 rounded-r-none focus-visible:ring-0 shadow-none border -mr-px" onKeyDown={e => e.key === 'Enter' && createLabel()} />
+                                                        <Button size="sm" onClick={createLabel} className="h-7 rounded-l-none text-xs px-2 shadow-none border">Add</Button>
+                                                    </div>
+                                                </div>
+                                            </CommandEmpty>
+                                            <CommandGroup>
+                                                {globalLabels.filter(gl => !(video.labels || []).find(vl => vl.id === gl.id)).map(label => (
+                                                    <CommandItem
+                                                        key={label.id}
+                                                        onSelect={() => attachLabel(video.id, label.id)}
+                                                        className="text-xs py-1"
+                                                    >
+                                                        <Tags className="mr-2 h-3 w-3 opacity-50" />
+                                                        {label.name}
+                                                    </CommandItem>
+                                                ))}
+                                            </CommandGroup>
+                                        </CommandList>
+                                    </Command>
+                                </PopoverContent>
+                            </Popover>
+                        )}
+                    </div>
+                )}
+
                 {/* Transcript snippet in deep search mode */}
                 {video.transcriptSnippet && (
-                    <div className="w-full mb-2 px-1.5 py-1 bg-primary/5 border border-primary/15 rounded-md text-[10px] text-muted-foreground leading-relaxed">
+                    <div className="px-2 py-1.5 bg-primary/5 border border-primary/15 rounded-lg text-[10px] text-muted-foreground leading-relaxed">
                         <span className="font-semibold text-primary text-[9px] uppercase tracking-wider mr-1">Transcript match:</span>
                         {video.transcriptSnippet}
                     </div>
                 )}
-                <div className="flex items-center justify-between w-full">
-                    {/* Transcript Status Badge / Transcribe Button */}
-                    <div className="flex items-center gap-1">
-                        {video.mediaType !== "image" && (
-                            <>
-                                {video.transcriptStatus === "completed" ? (
-                                    <Tooltip>
-                                        <TooltipTrigger>
-                                            <span className="inline-flex items-center justify-center text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 rounded-full w-5 h-5 cursor-default">
-                                                <Mic className="w-2.5 h-2.5" />
-                                            </span>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Transcribed — available for deep search</TooltipContent>
-                                    </Tooltip>
-                                ) : video.transcriptStatus === "processing" || transcribingIds.has(video.id) ? (
-                                    <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-full px-1.5 py-0.5">
-                                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                        Processing…
-                                    </span>
-                                ) : video.transcriptStatus === "error" ? (
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-5 text-[10px] px-1.5 text-destructive hover:bg-destructive/10 rounded-full border border-destructive/20"
-                                        onClick={() => handleTranscribe(video.id)}
-                                        title="Retry transcription"
-                                    >
-                                        <AlertCircle className="w-2.5 h-2.5 mr-0.5" /> Retry
-                                    </Button>
-                                ) : (
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-5 text-[10px] px-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full border border-dashed border-border/50"
-                                        onClick={() => handleTranscribe(video.id)}
-                                        title={`Generate AI transcript (${providerLabel})`}
-                                    >
-                                        <Mic className="w-2.5 h-2.5 mr-0.5" /> Transcribe
-                                    </Button>
-                                )}
-                            </>
-                        )}
-                    </div>
+            </div>
 
-                    <div className="flex gap-1 flex-shrink-0 bg-background/50 rounded-lg p-0.5 border border-border/20">
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => copyToClipboard(video.localPath)} title="Copy Path">
-                            <Copy className="h-3.5 w-3.5" />
+            {/* Actions footer — hidden during selection mode to prevent accidental clicks */}
+            {!selectionMode && (
+            <div className="px-3 pb-3 pt-0 flex items-center justify-between mt-auto">
+                <div className="flex items-center gap-1">
+                    {video.cloudKey ? (
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md text-emerald-500 bg-emerald-500/10 hover:bg-orange-500/10 hover:text-orange-500" onClick={() => handleCloudRemove(video)} title="Synced · Click to remove from cloud">
+                            <Cloud className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => handleOpenFolder(video.localPath)} title="View in Explorer">
-                            <FolderOpen className="h-3.5 w-3.5" />
+                    ) : (
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background" onClick={() => handleCloudUpload(video)} title="Upload to Cloud">
+                            <Cloud className="h-3.5 w-3.5" />
                         </Button>
-                        {video.mediaType === "image" && (
-                            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-primary/10 hover:text-primary shadow-sm" onClick={() => setEditingImageId(video.id)} title="Edit Image">
-                                <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                        )}
-                        {video.cloudKey ? (
-                            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-orange-500/10 hover:text-orange-500 shadow-sm" onClick={() => handleCloudRemove(video)} title="Remove from Cloud">
-                                <CloudOff className="h-3.5 w-3.5" />
-                            </Button>
-                        ) : (
-                            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background shadow-sm" onClick={() => handleCloudUpload(video)} title="Upload to Cloud">
-                                <Cloud className="h-3.5 w-3.5" />
-                            </Button>
-                        )}
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-destructive/20 hover:text-destructive shadow-sm ml-1" onClick={() => openDeleteDialog(video.id, video.title)} title="Delete Video">
-                            <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                    </div>
+                    )}
+                    {video.mediaType !== "image" && (
+                        <>
+                            {video.transcriptStatus === "completed" ? (
+                                <Tooltip>
+                                    <TooltipTrigger>
+                                        <span className="inline-flex items-center justify-center text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 rounded-full w-5 h-5 cursor-default">
+                                            <Mic className="w-2.5 h-2.5" />
+                                        </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Transcribed — available for deep search</TooltipContent>
+                                </Tooltip>
+                            ) : video.transcriptStatus === "processing" || transcribingIds.has(video.id) ? (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-full px-1.5 py-0.5">
+                                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                    Processing…
+                                </span>
+                            ) : video.transcriptStatus === "error" ? (
+                                <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1.5 text-destructive hover:bg-destructive/10 rounded-full border border-destructive/20" onClick={() => handleTranscribe(video.id)} title="Retry transcription">
+                                    <AlertCircle className="w-2.5 h-2.5 mr-0.5" /> Retry
+                                </Button>
+                            ) : (
+                                <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full border border-dashed border-border/50" onClick={() => handleTranscribe(video.id)} title={`Generate AI transcript (${providerLabel})`}>
+                                    <Mic className="w-2.5 h-2.5 mr-0.5" /> Transcribe
+                                </Button>
+                            )}
+                        </>
+                    )}
                 </div>
-            </CardFooter>
+
+                <div className="flex gap-0.5 flex-shrink-0 bg-muted/40 rounded-lg p-0.5">
+                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background" onClick={() => copyToClipboard(video.localPath)} title="Copy Path">
+                        <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background" onClick={() => handleOpenFolder(video.localPath)} title="View in Explorer">
+                        <FolderOpen className="h-3.5 w-3.5" />
+                    </Button>
+                    {video.mediaType === "image" ? (
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-primary/10 hover:text-primary" onClick={() => setEditingImageId(video.id)} title="Edit Image">
+                            <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                    ) : video.mediaType !== "audio" && (
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-primary/10 hover:text-primary" onClick={() => setEditingVideoForEditor(video.id)} title="Edit Video">
+                            <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                    )}
+                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-destructive/20 hover:text-destructive" onClick={() => openDeleteDialog(video.id, video.title)} title="Delete Video">
+                        <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                </div>
+            </div>
+            )}
         </Card>
-    );
+        );
+    };
 
     return (
         <div className="p-8 w-full space-y-10 max-w-[1600px] mx-auto min-h-full">
@@ -1359,7 +1410,7 @@ export default function LibraryPage() {
                     transition={{ type: "spring" as const, damping: 22, stiffness: 180, delay: 0.05 }}
                     className="w-full xl:w-1/3"
                 >
-                <Card className="bg-background/60 backdrop-blur-2xl border-primary/10 shadow-xl overflow-hidden relative h-full">
+                <Card className="overflow-hidden relative h-full">
                     <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent opacity-50 pointer-events-none" />
                     <CardHeader className="relative">
                         <CardTitle className="flex items-center gap-2 text-2xl font-bold tracking-tight">
@@ -1836,84 +1887,77 @@ export default function LibraryPage() {
                 className="space-y-6 pt-4"
             >
                 <div className="flex flex-col gap-3 px-1">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 flex-wrap">
-                            <div>
-                                <h2 className="text-2xl font-bold tracking-tight">Saved Media</h2>
-                                <div className="text-sm text-muted-foreground mt-0.5">
-                                    {displayedVideos.length} {displayedVideos.length === 1 ? 'item' : 'items'}
-                                    {selectedIds.size > 0 && ` · ${selectedIds.size} selected`}
-                                </div>
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h2 className="text-2xl font-bold tracking-tight">Saved Media</h2>
+                            <div className="text-sm text-muted-foreground mt-0.5">
+                                {displayedVideos.length} {displayedVideos.length === 1 ? 'item' : 'items'}
+                                {selectedIds.size > 0 && ` · ${selectedIds.size} selected`}
                             </div>
-                            <Button
-                                variant={selectionMode ? "secondary" : "ghost"}
-                                size="sm"
-                                className="h-8 text-xs gap-1.5"
-                                onClick={() => { setSelectionMode(!selectionMode); if (selectionMode) deselectAll(); }}
-                            >
-                                <CheckSquare className="w-3.5 h-3.5" />
-                                {selectionMode ? "Done" : "Select"}
-                            </Button>
-                            {/* Dev-only seed controls */}
-                            {process.env.NODE_ENV !== "production" && (
-                                <div className="flex items-center gap-1.5 ml-2 px-2 py-1 rounded-lg border border-dashed border-amber-500/40 bg-amber-500/5">
-                                    <Sparkles className="w-3 h-3 text-amber-500/70" />
-                                    <span className="text-[10px] text-amber-600/70 font-medium">Dev</span>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        disabled={seeding}
-                                        className="h-6 text-[11px] px-2 text-amber-700 hover:bg-amber-500/10"
-                                        onClick={async () => {
-                                            setSeeding(true);
-                                            const toastId = toast.loading("Seeding test images…");
-                                            try {
-                                                const res = await fetch("/api/dev/seed", { method: "POST" });
-                                                const data = await res.json();
-                                                const seeded = data.results?.filter((r: any) => r.status === "seeded").length ?? 0;
-                                                const skipped = data.results?.filter((r: any) => r.status === "skipped").length ?? 0;
-                                                toast.success(`Seeded ${seeded} images${skipped ? `, ${skipped} already present` : ""}`, { id: toastId });
-                                                fetchLibrary();
-                                                // Optionally load test URLs into the download input
-                                                if (data.testUrls?.length) {
-                                                    setUrlText((prev) => {
-                                                        const existing = new Set(prev.split("\n").map((u: string) => u.trim()).filter(Boolean));
-                                                        const newUrls = data.testUrls.filter((u: string) => !existing.has(u));
-                                                        return [...Array.from(existing), ...newUrls].join("\n");
-                                                    });
-                                                }
-                                            } catch (err: any) {
-                                                toast.error(err.message || "Seed failed", { id: toastId });
-                                            } finally {
-                                                setSeeding(false);
-                                            }
-                                        }}
-                                    >
-                                        {seeding ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
-                                        Seed Test Data
-                                    </Button>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 text-[11px] px-2 text-red-500/70 hover:bg-red-500/10"
-                                        onClick={async () => {
-                                            const res = await fetch("/api/dev/seed", { method: "DELETE" });
-                                            const data = await res.json();
-                                            toast.success(`Removed ${data.removed} seed items`);
-                                            fetchLibrary();
-                                        }}
-                                    >
-                                        Clear Seed
-                                    </Button>
-                                </div>
-                            )}
                         </div>
+                        {/* Dev-only seed controls */}
+                        {process.env.NODE_ENV !== "production" && (
+                            <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-dashed border-amber-500/40 bg-amber-500/5">
+                                <Sparkles className="w-3 h-3 text-amber-500/70" />
+                                <span className="text-[10px] text-amber-600/70 font-medium">Dev</span>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={seeding}
+                                    className="h-6 text-[11px] px-2 text-amber-700 hover:bg-amber-500/10"
+                                    onClick={async () => {
+                                        setSeeding(true);
+                                        const toastId = toast.loading("Seeding test images…");
+                                        try {
+                                            const res = await fetch("/api/dev/seed", { method: "POST" });
+                                            const data = await res.json();
+                                            const seeded = data.results?.filter((r: any) => r.status === "seeded").length ?? 0;
+                                            const skipped = data.results?.filter((r: any) => r.status === "skipped").length ?? 0;
+                                            toast.success(`Seeded ${seeded} images${skipped ? `, ${skipped} already present` : ""}`, { id: toastId });
+                                            fetchLibrary();
+                                            if (data.testUrls?.length) {
+                                                setUrlText((prev) => {
+                                                    const existing = new Set(prev.split("\n").map((u: string) => u.trim()).filter(Boolean));
+                                                    const newUrls = data.testUrls.filter((u: string) => !existing.has(u));
+                                                    return [...Array.from(existing), ...newUrls].join("\n");
+                                                });
+                                            }
+                                        } catch (err: any) {
+                                            toast.error(err.message || "Seed failed", { id: toastId });
+                                        } finally {
+                                            setSeeding(false);
+                                        }
+                                    }}
+                                >
+                                    {seeding ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                                    Seed Test Data
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 text-[11px] px-2 text-red-500/70 hover:bg-red-500/10"
+                                    onClick={async () => {
+                                        const res = await fetch("/api/dev/seed", { method: "DELETE" });
+                                        const data = await res.json();
+                                        toast.success(`Removed ${data.removed} seed items`);
+                                        fetchLibrary();
+                                    }}
+                                >
+                                    Clear Seed
+                                </Button>
+                            </div>
+                        )}
                     </div>
 
                     {selectionMode && (
-                        <div className="flex flex-wrap items-center gap-2 py-2 px-3 rounded-lg bg-muted/40 border border-border/50">
-                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={selectAll}>Select All</Button>
-                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={deselectAll}>Deselect All</Button>
+                        <div className="flex flex-wrap items-center gap-2 py-2 px-3 rounded-lg bg-primary/5 border border-primary/15">
+                            <span className="text-xs text-muted-foreground mr-1">
+                                {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Tap items to select"}
+                                <span className="hidden sm:inline ml-1 opacity-60">· Hold Shift for range</span>
+                            </span>
+                            <div className="w-px h-4 bg-border/50" />
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={selectAll}>All</Button>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={deselectAll}>Clear</Button>
                             {selectedIds.size > 0 && (
                                 <>
                                     <div className="w-px h-5 bg-border/50 mx-1" />
@@ -1943,6 +1987,75 @@ export default function LibraryPage() {
                                     >
                                         <Trash2 className="w-3.5 h-3.5" /> Delete ({selectedIds.size})
                                     </Button>
+                                    <Popover>
+                                        <PopoverTrigger className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-7 text-xs gap-1.5")}>
+                                            <Tags className="w-3.5 h-3.5" /> Label ({selectedIds.size})
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-52 p-0" align="start">
+                                            <Command>
+                                                <CommandInput placeholder="Pick a label…" className="h-8 text-xs" />
+                                                <CommandList>
+                                                    <CommandEmpty className="py-3 text-center text-xs text-muted-foreground">No labels found.</CommandEmpty>
+                                                    <CommandGroup heading="Attach label">
+                                                        {globalLabels.map(label => (
+                                                            <CommandItem
+                                                                key={label.id}
+                                                                className="text-xs py-1.5"
+                                                                onSelect={async () => {
+                                                                    const toastId = toast.loading(`Applying "${label.name}" to ${selectedIds.size} items…`);
+                                                                    try {
+                                                                        const res = await fetch("/api/library/bulk", {
+                                                                            method: "POST",
+                                                                            headers: { "Content-Type": "application/json" },
+                                                                            body: JSON.stringify({ ids: Array.from(selectedIds), action: "attachLabel", labelId: label.id }),
+                                                                        });
+                                                                        if (res.ok) {
+                                                                            const data = await res.json();
+                                                                            toast.success(`Label applied to ${data.updated} items`, { id: toastId });
+                                                                            fetchLibrary();
+                                                                        } else {
+                                                                            toast.error("Bulk label failed", { id: toastId });
+                                                                        }
+                                                                    } catch { toast.error("Bulk label error", { id: toastId }); }
+                                                                }}
+                                                            >
+                                                                <Tags className="mr-2 h-3 w-3 opacity-50" />
+                                                                {label.name}
+                                                            </CommandItem>
+                                                        ))}
+                                                    </CommandGroup>
+                                                    <CommandGroup heading="Remove label">
+                                                        {globalLabels.map(label => (
+                                                            <CommandItem
+                                                                key={`rm-${label.id}`}
+                                                                className="text-xs py-1.5 text-destructive"
+                                                                onSelect={async () => {
+                                                                    const toastId = toast.loading(`Removing "${label.name}" from ${selectedIds.size} items…`);
+                                                                    try {
+                                                                        const res = await fetch("/api/library/bulk", {
+                                                                            method: "POST",
+                                                                            headers: { "Content-Type": "application/json" },
+                                                                            body: JSON.stringify({ ids: Array.from(selectedIds), action: "detachLabel", labelId: label.id }),
+                                                                        });
+                                                                        if (res.ok) {
+                                                                            const data = await res.json();
+                                                                            toast.success(`Label removed from ${data.updated} items`, { id: toastId });
+                                                                            fetchLibrary();
+                                                                        } else {
+                                                                            toast.error("Bulk unlabel failed", { id: toastId });
+                                                                        }
+                                                                    } catch { toast.error("Bulk unlabel error", { id: toastId }); }
+                                                                }}
+                                                            >
+                                                                <X className="mr-2 h-3 w-3" />
+                                                                {label.name}
+                                                            </CommandItem>
+                                                        ))}
+                                                    </CommandGroup>
+                                                </CommandList>
+                                            </Command>
+                                        </PopoverContent>
+                                    </Popover>
                                     <Button
                                         variant="outline"
                                         size="sm"
@@ -2085,17 +2198,32 @@ export default function LibraryPage() {
                         >
                             Group by Date
                         </Button>
+
+                        <div className="w-px h-5 bg-border/40 hidden md:block" />
+                        <Button
+                            variant={selectionMode ? "secondary" : "outline"}
+                            size="sm"
+                            className="h-9 text-xs gap-1.5"
+                            onClick={() => { setSelectionMode(!selectionMode); if (selectionMode) deselectAll(); }}
+                        >
+                            <CheckSquare className="w-3.5 h-3.5" />
+                            {selectionMode ? "Done" : "Select"}
+                        </Button>
                     </div>
                 </div>
 
                 {loading || deepSearchLoading ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 min-h-[400px]">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 min-h-[400px]">
                         {Array.from({ length: 8 }).map((_, i) => (
-                            <div key={i} className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-card/50 p-3 shadow-sm">
-                                <Skeleton className="h-[200px] w-full rounded-xl bg-muted/20" />
-                                <div className="space-y-2 mt-2">
-                                    <Skeleton className="h-5 w-3/4 bg-muted/20" />
-                                    <Skeleton className="h-4 w-1/2 bg-muted/20" />
+                            <div key={i} className="flex flex-col rounded-xl border border-border/40 bg-card/50 overflow-hidden">
+                                <Skeleton className="h-[200px] w-full bg-muted/15" />
+                                <div className="p-3 space-y-2">
+                                    <Skeleton className="h-4 w-4/5 bg-muted/15" />
+                                    <Skeleton className="h-3.5 w-1/2 bg-muted/15" />
+                                    <div className="flex gap-1.5 pt-1">
+                                        <Skeleton className="h-4 w-12 rounded-full bg-muted/15" />
+                                        <Skeleton className="h-4 w-16 rounded-full bg-muted/15" />
+                                    </div>
                                 </div>
                             </div>
                         ))}
@@ -2112,7 +2240,7 @@ export default function LibraryPage() {
                 ) : (
                     <>
                         {!groupByDate ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                                 {displayedVideos.map(renderVideoCard)}
                             </div>
                         ) : (
@@ -2137,7 +2265,7 @@ export default function LibraryPage() {
                                         <h3 className="text-xl font-bold tracking-tight text-foreground/90 border-b border-border/40 pb-2 mb-4 sticky top-[72px] bg-background/80 backdrop-blur z-20 py-2">
                                             {dateObj}
                                         </h3>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                                             {groupVids.map(renderVideoCard)}
                                         </div>
                                     </div>
@@ -2181,6 +2309,17 @@ export default function LibraryPage() {
                     <ImageEditorModal
                         image={img}
                         onClose={() => setEditingImageId(null)}
+                        onRefreshLibrary={fetchLibrary}
+                    />
+                ) : null;
+            })()}
+
+            {editingVideoForEditor && (() => {
+                const vid = videos.find(v => v.id === editingVideoForEditor);
+                return vid ? (
+                    <VideoEditorModal
+                        video={vid}
+                        onClose={() => setEditingVideoForEditor(null)}
                         onRefreshLibrary={fetchLibrary}
                     />
                 ) : null;

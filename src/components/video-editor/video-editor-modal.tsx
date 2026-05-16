@@ -130,11 +130,31 @@ export function VideoEditorModal({
         });
     };
 
-    // Prevent body scroll while editor is open
+    const modalRef = useRef<HTMLDivElement>(null);
+
     useEffect(() => {
         document.body.style.overflow = "hidden";
-        return () => { document.body.style.overflow = ""; };
-    }, []);
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") { onClose(); return; }
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+            if (e.key === "Tab" && modalRef.current) {
+                const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+                    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+                );
+                if (focusable.length === 0) return;
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+                else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+            }
+        };
+        document.addEventListener("keydown", handleKeyDown);
+        return () => {
+            document.body.style.overflow = "";
+            document.removeEventListener("keydown", handleKeyDown);
+        };
+    }, [onClose]);
 
     // Clean up transcription polling interval on unmount
     useEffect(() => {
@@ -460,10 +480,14 @@ export function VideoEditorModal({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 24, scale: 0.97 }}
             transition={{ type: "spring", damping: 26, stiffness: 220 }}
+            ref={modalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Edit video: ${video.title}`}
             className="fixed inset-0 z-[60] bg-background text-foreground flex flex-col"
         >
             {/* ── Header ── */}
-            <div className="flex items-center justify-between p-4 border-b border-border bg-background/80 backdrop-blur-md relative shrink-0">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border/60 bg-background/80 backdrop-blur-md relative shrink-0">
                 <div className="flex items-center gap-4">
                     <Button
                         variant="ghost"
@@ -478,27 +502,25 @@ export function VideoEditorModal({
                     </h2>
                 </div>
 
-                {/* Mode segmented control with sliding pill */}
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-muted p-1 rounded-full flex gap-1 items-center ring-1 ring-border/60">
-                    {(["trim", "crop", "subtitles"] as const).map((m) => (
+                {/* Mode Tabs */}
+                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1 bg-muted/60 rounded-xl p-1 border border-border/40">
+                    {([
+                        { id: "trim",      label: "Trim",      Icon: Scissors },
+                        { id: "crop",      label: "Crop",      Icon: CropIcon },
+                        { id: "subtitles", label: "Subtitles", Icon: Captions },
+                    ] as const).map(({ id, label, Icon }) => (
                         <button
-                            key={m}
-                            onClick={() => setMode(m)}
-                            className="relative px-4 py-1.5 text-sm font-medium rounded-full transition-colors duration-200 flex items-center gap-2"
-                        >
-                            {mode === m && (
-                                <motion.div
-                                    layoutId="mode-pill"
-                                    className="absolute inset-0 bg-primary rounded-full shadow-md"
-                                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
-                                />
+                            key={id}
+                            onClick={() => setMode(id)}
+                            className={cn(
+                                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
+                                mode === id
+                                    ? "bg-foreground text-background shadow-sm"
+                                    : "text-muted-foreground hover:text-foreground"
                             )}
-                            <span className={cn("relative z-10 transition-colors duration-200 flex items-center gap-2", mode === m ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>
-                                {m === "trim" && <Scissors className="w-4 h-4" />}
-                                {m === "crop" && <CropIcon className="w-4 h-4" />}
-                                {m === "subtitles" && <Captions className="w-4 h-4" />}
-                                {m.charAt(0).toUpperCase() + m.slice(1)}
-                            </span>
+                        >
+                            <Icon className="w-3.5 h-3.5" />
+                            {label}
                         </button>
                     ))}
                 </div>
@@ -638,7 +660,7 @@ export function VideoEditorModal({
                                 initial={{ opacity: 0, height: 0 }}
                                 animate={{ opacity: 1, height: "auto" }}
                                 exit={{ opacity: 0, height: 0 }}
-                                transition={{ duration: 0.25 }}
+                                transition={{ duration: 0.18 }}
                                 className="shrink-0"
                             >
                                 <StylePresetSelector
@@ -659,7 +681,7 @@ export function VideoEditorModal({
                             initial={{ width: 0, opacity: 0 }}
                             animate={{ width: 360, opacity: 1 }}
                             exit={{ width: 0, opacity: 0 }}
-                            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+                            transition={{ duration: 0.18 }}
                             className="overflow-hidden shrink-0"
                         >
                             {hasSubtitles ? (
@@ -675,7 +697,7 @@ export function VideoEditorModal({
                                     <motion.div
                                         initial={{ scale: 0.8, opacity: 0 }}
                                         animate={{ scale: 1, opacity: 1 }}
-                                        transition={{ type: "spring", stiffness: 300, damping: 25, delay: 0.2 }}
+                                        transition={{ duration: 0.18, delay: 0.1 }}
                                         className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4"
                                     >
                                         <Captions className="w-8 h-8 text-muted-foreground/50" />
@@ -683,7 +705,7 @@ export function VideoEditorModal({
                                     <motion.div
                                         initial={{ y: 10, opacity: 0 }}
                                         animate={{ y: 0, opacity: 1 }}
-                                        transition={{ delay: 0.3 }}
+                                        transition={{ duration: 0.18, delay: 0.15 }}
                                     >
                                         <h3 className="text-sm font-medium text-foreground mb-2">No Subtitles Yet</h3>
                                         <p className="text-xs text-muted-foreground mb-6 max-w-[220px]">
@@ -693,7 +715,7 @@ export function VideoEditorModal({
                                             size="sm"
                                             onClick={handleTranscribe}
                                             disabled={isTranscribing}
-                                            className="bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-600/25 dark:shadow-violet-900/30"
+                                            className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20"
                                             title={`Transcribe using ${transcriptionProvider === "groq" ? "Groq" : "OpenAI"}`}
                                         >
                                             {isTranscribing ? (
@@ -715,7 +737,7 @@ export function VideoEditorModal({
             </div>
 
             {/* ── Timeline & Controls ── */}
-            <div className="border-t border-border bg-card/95 backdrop-blur-xl shrink-0 relative z-[70]">
+            <div className="border-t border-border bg-card/80 backdrop-blur-sm shrink-0 relative z-[70]">
                 {/* Seek bar (crop + subtitle modes) */}
                 <div className="px-5 pt-4 pb-1">
                     {mode !== "trim" && duration > 0 && (
@@ -830,7 +852,7 @@ export function VideoEditorModal({
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
-                            transition={{ duration: 0.2 }}
+                            transition={{ duration: 0.18 }}
                             className="px-5 pb-4"
                         >
                             <TimelineScrubber

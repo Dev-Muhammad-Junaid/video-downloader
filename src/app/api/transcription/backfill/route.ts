@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
             ids: existing.map((v) => v.id),
         });
     } catch (err: any) {
-        return NextResponse.json({ error: err.message }, { status: 500 });
+        return NextResponse.json({ error: "Backfill failed", details: err.message }, { status: 500 });
     }
 }
 
@@ -109,6 +109,6 @@ export async function GET() {
             none: statusMap["none"] ?? 0,
         });
     } catch (err: any) {
-        return NextResponse.json({ error: err.message }, { status: 500 });
+        return NextResponse.json({ error: "Backfill failed", details: err.message }, { status: 500 });
     }
 }
