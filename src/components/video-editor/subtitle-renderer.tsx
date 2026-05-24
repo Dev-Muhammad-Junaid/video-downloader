@@ -26,7 +26,7 @@
 
 import { useEffect, useCallback, useRef } from "react";
 import { buildAssFile, type SubtitleStyleConfig } from "@/lib/ass-builder";
-import { expandTikTokSubtitles, subtitlesToSrt } from "./subtitle-types";
+import { expandForAnimation, subtitlesToSrt } from "./subtitle-types";
 import type { Subtitle } from "./subtitle-types";
 
 interface SubtitleRendererProps {
@@ -70,14 +70,14 @@ export function SubtitleRenderer({
      * Effect 2 should fire.
      */
     const buildAss = useCallback((): string => {
-        let subs =
-            config.animation === "karaoke"
-                ? expandTikTokSubtitles(subtitles)
-                : subtitles;
+        let subs = subtitles;
         if (subs.length === 0 && previewText) {
             subs = makePreviewSubs(previewText);
         }
-        return buildAssFile(subtitlesToSrt(subs), config);
+        // expandForAnimation handles every per-cue mode (karaoke, reveal,
+        // spotlight, cascade) and leaves the rest untouched.
+        const expanded = expandForAnimation(subs, config.animation);
+        return buildAssFile(subtitlesToSrt(expanded), config);
     }, [subtitles, config, previewText]);
 
     // ─── Effect 1: JASSUB lifecycle (create / destroy) ───────────────────────
