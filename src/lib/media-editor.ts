@@ -5,6 +5,7 @@ import os from "os";
 import { prisma } from "@/lib/prisma";
 import { generateThumbnail } from "@/lib/thumbnail";
 import { ensureFfmpegFilterSupported, getFfmpegPath } from "@/lib/ffmpeg";
+import { buildAssFile, type SubtitleStyleConfig } from "@/lib/ass-builder";
 
 function parseTimeToSeconds(time: string): number {
     if (time.includes(":")) {
@@ -48,8 +49,9 @@ function ensureSubtitleFilterSupport() {
 
 export async function trimVideo(
     videoId: string,
-    startTime: string, // e.g., "00:00:10" or "10.5"
-    endTime: string    // e.g., "00:00:20" or "20.5"
+    startTime: string,
+    endTime: string,
+    inheritSrtContent?: string
 ) {
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
@@ -97,12 +99,15 @@ export async function trimVideo(
         }
     });
 
-    // Generate thumbnail
     generateThumbnail(newFilePath, clippedVideo.id, clippedVideo.mediaType).then(async (thumbPath) => {
         if (thumbPath) {
             await prisma.video.update({ where: { id: clippedVideo.id }, data: { thumbnailPath: thumbPath } });
         }
     }).catch(console.error);
+
+    if (inheritSrtContent) {
+        await saveInheritedSubtitles(clippedVideo.id, newFilePath, inheritSrtContent);
+    }
 
     return clippedVideo;
 }
@@ -112,7 +117,8 @@ export async function cropVideo(
     w: number,
     h: number,
     x: number,
-    y: number
+    y: number,
+    inheritSrtContent?: string
 ) {
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
@@ -159,12 +165,15 @@ export async function cropVideo(
         }
     });
 
-    // Generate thumbnail
     generateThumbnail(newFilePath, croppedVideo.id, croppedVideo.mediaType).then(async (thumbPath) => {
         if (thumbPath) {
             await prisma.video.update({ where: { id: croppedVideo.id }, data: { thumbnailPath: thumbPath } });
         }
     }).catch(console.error);
+
+    if (inheritSrtContent) {
+        await saveInheritedSubtitles(croppedVideo.id, newFilePath, inheritSrtContent);
+    }
 
     return croppedVideo;
 }
@@ -180,7 +189,8 @@ export async function trimAndCrop(
     w: number,
     h: number,
     x: number,
-    y: number
+    y: number,
+    inheritSrtContent?: string
 ) {
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
@@ -232,41 +242,72 @@ export async function trimAndCrop(
         }
     }).catch(console.error);
 
+    if (inheritSrtContent) {
+        await saveInheritedSubtitles(resultVideo.id, newFilePath, inheritSrtContent);
+    }
+
     return resultVideo;
 }
 
-/**
- * Build FFmpeg force_style string for a given subtitle style preset.
- * fontFamily overrides the preset's default font when provided.
- * Colors are in ASS ABGR format: &HAABBGGRR.
- */
-function getForceStyle(stylePreset: string, fontFamily?: string): string {
-    const font = fontFamily || "Arial";
-    switch (stylePreset) {
-        case "classic":
-            return `FontName=${font},FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BackColour=&H80000000,BorderStyle=4,Outline=0,Shadow=0,MarginV=40,Alignment=2`;
-        case "tiktok":
-            return `FontName=${font},FontSize=28,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H00000000,Bold=1,BorderStyle=1,Outline=3,Shadow=2,MarginV=120,Alignment=2`;
-        case "box":
-            return `FontName=${font},FontSize=22,PrimaryColour=&H00000000,OutlineColour=&H00FFFFFF,BackColour=&H00FFFFFF,BorderStyle=4,Outline=0,Shadow=0,MarginV=40,Alignment=2`;
-        case "cinematic":
-            return `FontName=${font},FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H00000000,Italic=1,BorderStyle=1,Outline=0,Shadow=3,MarginV=40,Alignment=2,Spacing=2`;
-        case "outline":
-            return `FontName=${font},FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H00000000,Bold=1,BorderStyle=1,Outline=2,Shadow=1,MarginV=40,Alignment=2`;
-        case "bold-center":
-            return `FontName=${font},FontSize=36,PrimaryColour=&H00FFFFFF,OutlineColour=&H60000000,BackColour=&H00000000,Bold=1,BorderStyle=1,Outline=3,Shadow=0,MarginV=10,Alignment=5`;
-        default:
-            return `FontName=${font},FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=4,Outline=0,Shadow=0,MarginV=40,Alignment=2`;
-    }
-}
 
 /**
- * Escape force_style value for ffmpeg filter syntax.
- * Keep commas intact (valid inside quoted ASS style strings),
- * only escape backslashes and single quotes.
+ * Probe actual video dimensions by reading the container header.
+ * Fast: FFmpeg reads only the container metadata, then exits.
+ * Falls back to 1280×720 on any error.
  */
-function escapeFfFilterForceStyle(style: string): string {
-    return style.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+async function getVideoDimensions(filePath: string): Promise<{ width: number; height: number }> {
+    return new Promise((resolve) => {
+        const proc = spawn(getFfmpegPath(), ["-hide_banner", "-i", filePath]);
+        let stderr = "";
+        proc.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
+        proc.on("close", () => {
+            // "Video: h264 ...yuv420p, 1920x1080 [SAR" or "Video: ... 1280x720,"
+            const m = stderr.match(/Video:[^\n]*?\s(\d{2,5})x(\d{2,5})[\s,\[]/);
+            resolve(m ? { width: parseInt(m[1]), height: parseInt(m[2]) } : { width: 1280, height: 720 });
+        });
+        proc.on("error", () => resolve({ width: 1280, height: 720 }));
+    });
+}
+
+
+/** Convert SRT content to VTT string (timestamps HH:MM:SS,mmm → HH:MM:SS.mmm) */
+function srtToVtt(srtContent: string): string {
+    return "WEBVTT\n\n" + srtContent.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2");
+}
+
+/** Extract plain text from SRT content for full-text search */
+function extractTextFromSrt(srtContent: string): string {
+    return srtContent
+        .split(/\n+/)
+        .filter(line => {
+            const t = line.trim();
+            return t && !/^\d+$/.test(t) && !/\d{2}:\d{2}:\d{2}/.test(t);
+        })
+        .join(" ");
+}
+
+/** Write inherited subtitles as VTT next to the output video and mark the DB entry as transcribed */
+async function saveInheritedSubtitles(
+    videoId: string,
+    videoFilePath: string,
+    srtContent: string
+): Promise<void> {
+    if (!srtContent?.trim()) return;
+    try {
+        const parsedPath = path.parse(videoFilePath);
+        const vttPath = path.join(parsedPath.dir, `${parsedPath.name}_subtitles.vtt`);
+        fs.writeFileSync(vttPath, srtToVtt(srtContent), "utf-8");
+        await prisma.video.update({
+            where: { id: videoId },
+            data: {
+                transcriptPath: vttPath,
+                transcriptStatus: "completed",
+                transcriptText: extractTextFromSrt(srtContent),
+            },
+        });
+    } catch (err) {
+        console.error("[SubtitleInherit] Failed to save inherited subtitles:", err);
+    }
 }
 
 export async function convertToMp4(videoId: string) {
@@ -348,8 +389,8 @@ export async function trimBurnSubtitles(
     startTime: string,
     endTime: string,
     srtContent: string,
-    stylePreset: string = "classic",
-    fontFamily?: string
+    burnOpts: SubtitleStyleConfig,
+    inheritSrtContent?: string
 ) {
     ensureSubtitleFilterSupport();
     const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
@@ -360,18 +401,18 @@ export async function trimBurnSubtitles(
     const newId = Math.random().toString(36).substring(2, 15);
     const newFileName = `${parsedPath.name}_trimcap_${newId}${parsedPath.ext}`;
     const newFilePath = path.join(parsedPath.dir, newFileName);
-    const tmpSrtPath = path.join(os.tmpdir(), `_tmp_subs_${newId}.srt`);
-    fs.writeFileSync(tmpSrtPath, srtContent, "utf-8");
+    const vDim = await getVideoDimensions(originalVideo.localPath);
+    const tmpAssPath = path.join(os.tmpdir(), `_tmp_subs_${newId}.ass`);
+    fs.writeFileSync(tmpAssPath, buildAssFile(srtContent, burnOpts, vDim), "utf-8");
 
     try {
-        const forceStyle = escapeFfFilterForceStyle(getForceStyle(stylePreset, fontFamily));
-        const escapedSrtPath = tmpSrtPath.replace(/\\/g, "\\\\\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
-        const filterArg = `subtitles=filename='${escapedSrtPath}':force_style='${forceStyle}'`;
-        const args = ["-y", "-ss", startTime, "-i", originalVideo.localPath, "-to", endTime, "-vf", filterArg, "-c:a", "copy", "-preset", "fast", newFilePath];
+        const escapedAssPath = tmpAssPath.replace(/\\/g, "\\\\\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
+        const filterArg = `subtitles=filename='${escapedAssPath}'`;
+        const args = ["-y", "-ss", startTime, "-i", originalVideo.localPath, "-to", endTime, "-vf", filterArg, "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg TrimBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args);
     } finally {
-        try { fs.unlinkSync(tmpSrtPath); } catch { }
+        try { fs.unlinkSync(tmpAssPath); } catch { }
     }
 
     let fileSize = 0;
@@ -389,6 +430,7 @@ export async function trimBurnSubtitles(
         }
     });
     generateThumbnail(newFilePath, resultVideo.id, resultVideo.mediaType).then(async (tp) => { if (tp) await prisma.video.update({ where: { id: resultVideo.id }, data: { thumbnailPath: tp } }); }).catch(console.error);
+    if (inheritSrtContent) await saveInheritedSubtitles(resultVideo.id, newFilePath, inheritSrtContent);
     return resultVideo;
 }
 
@@ -396,8 +438,8 @@ export async function cropBurnSubtitles(
     videoId: string,
     w: number, h: number, x: number, y: number,
     srtContent: string,
-    stylePreset: string = "classic",
-    fontFamily?: string
+    burnOpts: SubtitleStyleConfig,
+    inheritSrtContent?: string
 ) {
     ensureSubtitleFilterSupport();
     const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
@@ -408,18 +450,18 @@ export async function cropBurnSubtitles(
     const newId = Math.random().toString(36).substring(2, 15);
     const newFileName = `${parsedPath.name}_cropcap_${newId}${parsedPath.ext}`;
     const newFilePath = path.join(parsedPath.dir, newFileName);
-    const tmpSrtPath = path.join(os.tmpdir(), `_tmp_subs_${newId}.srt`);
-    fs.writeFileSync(tmpSrtPath, srtContent, "utf-8");
+    // Crop dimensions ARE the output dimensions — no probing needed
+    const tmpAssPath = path.join(os.tmpdir(), `_tmp_subs_${newId}.ass`);
+    fs.writeFileSync(tmpAssPath, buildAssFile(srtContent, burnOpts, { width: w, height: h }), "utf-8");
 
     try {
-        const forceStyle = escapeFfFilterForceStyle(getForceStyle(stylePreset, fontFamily));
-        const escapedSrtPath = tmpSrtPath.replace(/\\/g, "\\\\\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
-        const filterArg = `crop=${w}:${h}:${x}:${y},subtitles=filename='${escapedSrtPath}':force_style='${forceStyle}'`;
-        const args = ["-y", "-i", originalVideo.localPath, "-vf", filterArg, "-c:a", "copy", "-preset", "fast", newFilePath];
+        const escapedAssPath = tmpAssPath.replace(/\\/g, "\\\\\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
+        const filterArg = `crop=${w}:${h}:${x}:${y},subtitles=filename='${escapedAssPath}'`;
+        const args = ["-y", "-i", originalVideo.localPath, "-vf", filterArg, "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg CropBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args);
     } finally {
-        try { fs.unlinkSync(tmpSrtPath); } catch { }
+        try { fs.unlinkSync(tmpAssPath); } catch { }
     }
 
     let fileSize = 0;
@@ -437,6 +479,7 @@ export async function cropBurnSubtitles(
         }
     });
     generateThumbnail(newFilePath, resultVideo.id, resultVideo.mediaType).then(async (tp) => { if (tp) await prisma.video.update({ where: { id: resultVideo.id }, data: { thumbnailPath: tp } }); }).catch(console.error);
+    if (inheritSrtContent) await saveInheritedSubtitles(resultVideo.id, newFilePath, inheritSrtContent);
     return resultVideo;
 }
 
@@ -445,8 +488,8 @@ export async function trimCropBurnSubtitles(
     startTime: string, endTime: string,
     w: number, h: number, x: number, y: number,
     srtContent: string,
-    stylePreset: string = "classic",
-    fontFamily?: string
+    burnOpts: SubtitleStyleConfig,
+    inheritSrtContent?: string
 ) {
     ensureSubtitleFilterSupport();
     const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
@@ -457,18 +500,17 @@ export async function trimCropBurnSubtitles(
     const newId = Math.random().toString(36).substring(2, 15);
     const newFileName = `${parsedPath.name}_trimcropcap_${newId}${parsedPath.ext}`;
     const newFilePath = path.join(parsedPath.dir, newFileName);
-    const tmpSrtPath = path.join(os.tmpdir(), `_tmp_subs_${newId}.srt`);
-    fs.writeFileSync(tmpSrtPath, srtContent, "utf-8");
+    const tmpAssPath = path.join(os.tmpdir(), `_tmp_subs_${newId}.ass`);
+    fs.writeFileSync(tmpAssPath, buildAssFile(srtContent, burnOpts, { width: w, height: h }), "utf-8");
 
     try {
-        const forceStyle = escapeFfFilterForceStyle(getForceStyle(stylePreset, fontFamily));
-        const escapedSrtPath = tmpSrtPath.replace(/\\/g, "\\\\\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
-        const filterArg = `crop=${w}:${h}:${x}:${y},subtitles=filename='${escapedSrtPath}':force_style='${forceStyle}'`;
-        const args = ["-y", "-ss", startTime, "-i", originalVideo.localPath, "-to", endTime, "-vf", filterArg, "-c:a", "copy", "-preset", "fast", newFilePath];
+        const escapedAssPath = tmpAssPath.replace(/\\/g, "\\\\\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
+        const filterArg = `crop=${w}:${h}:${x}:${y},subtitles=filename='${escapedAssPath}'`;
+        const args = ["-y", "-ss", startTime, "-i", originalVideo.localPath, "-to", endTime, "-vf", filterArg, "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg TrimCropBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args);
     } finally {
-        try { fs.unlinkSync(tmpSrtPath); } catch { }
+        try { fs.unlinkSync(tmpAssPath); } catch { }
     }
 
     let fileSize = 0;
@@ -486,21 +528,19 @@ export async function trimCropBurnSubtitles(
         }
     });
     generateThumbnail(newFilePath, resultVideo.id, resultVideo.mediaType).then(async (tp) => { if (tp) await prisma.video.update({ where: { id: resultVideo.id }, data: { thumbnailPath: tp } }); }).catch(console.error);
+    if (inheritSrtContent) await saveInheritedSubtitles(resultVideo.id, newFilePath, inheritSrtContent);
     return resultVideo;
 }
 
 export async function burnSubtitles(
     videoId: string,
     srtContent: string,
-    stylePreset: string = "classic",
-    fontFamily?: string
+    burnOpts: SubtitleStyleConfig,
+    inheritSrtContent?: string
 ) {
     ensureSubtitleFilterSupport();
 
-    const originalVideo = await prisma.video.findUnique({
-        where: { id: videoId }
-    });
-
+    const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
     if (!originalVideo) throw new Error("Video not found");
     if (!fs.existsSync(originalVideo.localPath)) throw new Error("Original file missing on disk");
 
@@ -509,45 +549,26 @@ export async function burnSubtitles(
     const newFileName = `${parsedPath.name}_captioned_${newId}${parsedPath.ext}`;
     const newFilePath = path.join(parsedPath.dir, newFileName);
 
-    // Write temp SRT file (FFmpeg's subtitles filter needs a file path)
-    // Use system temp directory to avoid write-permission issues in source folders.
-    const tmpSrtPath = path.join(os.tmpdir(), `_tmp_subs_${newId}.srt`);
-    fs.writeFileSync(tmpSrtPath, srtContent, "utf-8");
+    const vDim = await getVideoDimensions(originalVideo.localPath);
+    const tmpAssPath = path.join(os.tmpdir(), `_tmp_subs_${newId}.ass`);
+    fs.writeFileSync(tmpAssPath, buildAssFile(srtContent, burnOpts, vDim), "utf-8");
 
     try {
-        const forceStyleRaw = getForceStyle(stylePreset, fontFamily);
-        const forceStyle = escapeFfFilterForceStyle(forceStyleRaw);
-        // Escape special characters in the path for FFmpeg filter syntax
-        const escapedSrtPath = tmpSrtPath
+        const escapedAssPath = tmpAssPath
             .replace(/\\/g, "\\\\\\\\")
             .replace(/:/g, "\\:")
             .replace(/'/g, "\\'");
-
-        // Use explicit filename= form to avoid parser ambiguity on absolute paths.
-        const filterArg = `subtitles=filename='${escapedSrtPath}':force_style='${forceStyle}'`;
-        const args = [
-            "-y",
-            "-i", originalVideo.localPath,
-            "-vf", filterArg,
-            "-c:a", "copy",     // Copy audio
-            "-preset", "fast",  // Faster encoding
-            newFilePath
-        ];
-
+        const filterArg = `subtitles=filename='${escapedAssPath}'`;
+        const args = ["-y", "-i", originalVideo.localPath, "-vf", filterArg, "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg BurnSubs] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args);
     } finally {
-        // Clean up temp SRT regardless of success/failure
-        try { fs.unlinkSync(tmpSrtPath); } catch { }
+        try { fs.unlinkSync(tmpAssPath); } catch { }
     }
 
     let fileSize = 0;
-    try {
-        const stats = fs.statSync(newFilePath);
-        fileSize = stats.size;
-    } catch (e) { }
+    try { fileSize = fs.statSync(newFilePath).size; } catch { }
 
-    // Create a new DB entry for the captioned video
     const captionedVideo = await prisma.video.create({
         data: {
             title: `${originalVideo.title} (Captioned)`,
@@ -560,12 +581,13 @@ export async function burnSubtitles(
         }
     });
 
-    // Generate thumbnail
     generateThumbnail(newFilePath, captionedVideo.id, captionedVideo.mediaType).then(async (thumbPath) => {
         if (thumbPath) {
             await prisma.video.update({ where: { id: captionedVideo.id }, data: { thumbnailPath: thumbPath } });
         }
     }).catch(console.error);
+
+    if (inheritSrtContent) await saveInheritedSubtitles(captionedVideo.id, newFilePath, inheritSrtContent);
 
     return captionedVideo;
 }
