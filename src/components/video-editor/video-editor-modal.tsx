@@ -754,7 +754,10 @@ export function VideoEditorModal({
                                 </button>
                             </div>
 
-                            {/* Style tab */}
+                            {/* Tab content — `flex-1 min-h-0` confines the inner
+                                scroll area to the space below the tab bar, so
+                                the tab bar itself stays pinned at the top. */}
+                            <div className="flex-1 min-h-0 flex flex-col">
                             {sidebarTab === "style" && (
                                 <SubtitleStylePanel
                                     config={styleConfig}
@@ -822,6 +825,7 @@ export function VideoEditorModal({
                                     </div>
                                 )
                             )}
+                            </div>
                         </motion.div>
                     )}
                 </AnimatePresence>
