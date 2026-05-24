@@ -16,6 +16,7 @@ import {
     Undo2,
     Redo2,
     FileText,
+    Info,
 } from "lucide-react";
 import {
     Subtitle,
@@ -261,28 +262,35 @@ export function SubtitleEditor({
             {/* Toolbar */}
             <div className="border-b border-border bg-card/90 backdrop-blur-sm shrink-0">
                 <div className="h-12 flex items-center justify-between px-3 gap-2">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1">
+                        {/* Review queue — icon-only with count badge */}
                         <button
                             onClick={() => setShowReviewQueue(!showReviewQueue)}
+                            title={`Review queue${needsReviewCount > 0 ? ` (${needsReviewCount})` : ""}`}
                             className={cn(
-                                "px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors",
+                                "relative p-1.5 rounded-md transition-colors",
                                 showReviewQueue
                                     ? "bg-primary text-primary-foreground"
                                     : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
                             )}
                         >
                             <ListTodo className="w-3.5 h-3.5" />
-                            Review
                             {needsReviewCount > 0 && (
-                                <span className="bg-red-500 text-white text-[9px] px-1 py-0 rounded-full min-w-[16px] text-center leading-[16px]">
+                                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] px-1 rounded-full min-w-[14px] text-center leading-[14px] font-medium pointer-events-none">
                                     {needsReviewCount}
                                 </span>
                             )}
                         </button>
-                        <span className="text-[10px] text-muted-foreground font-mono tabular-nums ml-1 hidden lg:inline">
-                            {subtitles.length} subs · {totalWords}w ·{" "}
-                            {statsMins}m {String(statsSecs).padStart(2, "0")}s
-                        </span>
+
+                        {/* Transcript stats — tooltip on hover (native title) */}
+                        <button
+                            type="button"
+                            title={`${subtitles.length} subtitles · ${totalWords} words · ${statsMins}m ${String(statsSecs).padStart(2, "0")}s`}
+                            aria-label="Transcript info"
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                        >
+                            <Info className="w-3.5 h-3.5" />
+                        </button>
                     </div>
 
                     <div className="flex items-center gap-0.5">
