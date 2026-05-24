@@ -1,5 +1,23 @@
 import { NextResponse } from "next/server";
-import { trimVideo, cropVideo, trimAndCrop, burnSubtitles, trimBurnSubtitles, cropBurnSubtitles, trimCropBurnSubtitles, trimAudio, convertToMp4, editImage } from "@/lib/media-editor";
+import {
+    trimVideo,
+    cropVideo,
+    trimAndCrop,
+    burnSubtitles,
+    trimBurnSubtitles,
+    cropBurnSubtitles,
+    trimCropBurnSubtitles,
+    trimAudio,
+    convertToMp4,
+    editImage,
+} from "@/lib/media-editor";
+import { createDefaultStyleConfig, type SubtitleStyleConfig } from "@/lib/ass-builder";
+
+/** Merge a partial (or fully absent) styleConfig from the request with safe defaults. */
+function resolveStyleConfig(raw?: Partial<SubtitleStyleConfig>): SubtitleStyleConfig {
+    const preset = raw?.preset ?? "classic";
+    return { ...createDefaultStyleConfig(preset), ...(raw ?? {}) };
+}
 
 export async function POST(req: Request) {
     try {
@@ -13,59 +31,95 @@ export async function POST(req: Request) {
         let result;
 
         if (action === "trim") {
-            const { startTime, endTime } = params;
+            const { startTime, endTime, inheritSrtContent } = params;
             if (startTime === undefined || endTime === undefined) {
                 return NextResponse.json({ error: "Trim requires startTime and endTime" }, { status: 400 });
             }
-            result = await trimVideo(videoId, startTime, endTime);
+            result = await trimVideo(videoId, startTime, endTime, inheritSrtContent);
+
         } else if (action === "crop") {
-            const { w, h, x, y } = params;
+            const { w, h, x, y, inheritSrtContent } = params;
             if (w === undefined || h === undefined || x === undefined || y === undefined) {
                 return NextResponse.json({ error: "Crop requires w, h, x, and y parameters" }, { status: 400 });
             }
-            result = await cropVideo(videoId, w, h, x, y);
+            result = await cropVideo(videoId, w, h, x, y, inheritSrtContent);
+
         } else if (action === "trim-crop") {
-            const { startTime, endTime, w, h, x, y } = params;
+            const { startTime, endTime, w, h, x, y, inheritSrtContent } = params;
             if (startTime === undefined || endTime === undefined ||
                 w === undefined || h === undefined || x === undefined || y === undefined) {
                 return NextResponse.json({ error: "trim-crop requires startTime, endTime, w, h, x, and y" }, { status: 400 });
             }
-            result = await trimAndCrop(videoId, startTime, endTime, w, h, x, y);
+            result = await trimAndCrop(videoId, startTime, endTime, w, h, x, y, inheritSrtContent);
+
         } else if (action === "burn-subtitles") {
-            const { srtContent, stylePreset, fontFamily } = params;
+            const { srtContent, styleConfig: rawStyle, inheritSrtContent } = params;
             if (!srtContent) {
                 return NextResponse.json({ error: "burn-subtitles requires srtContent" }, { status: 400 });
             }
-            result = await burnSubtitles(videoId, srtContent, stylePreset || "classic", fontFamily);
+            result = await burnSubtitles(
+                videoId,
+                srtContent,
+                resolveStyleConfig(rawStyle),
+                inheritSrtContent
+            );
+
         } else if (action === "trim-audio") {
             const { startTime, endTime } = params;
             if (startTime === undefined || endTime === undefined) {
                 return NextResponse.json({ error: "trim-audio requires startTime and endTime" }, { status: 400 });
             }
             result = await trimAudio(videoId, startTime, endTime);
+
         } else if (action === "trim-burn") {
-            const { startTime, endTime, srtContent, stylePreset, fontFamily } = params;
+            const { startTime, endTime, srtContent, styleConfig: rawStyle, inheritSrtContent } = params;
             if (startTime === undefined || endTime === undefined || !srtContent) {
                 return NextResponse.json({ error: "trim-burn requires startTime, endTime, and srtContent" }, { status: 400 });
             }
-            result = await trimBurnSubtitles(videoId, startTime, endTime, srtContent, stylePreset || "classic", fontFamily);
+            result = await trimBurnSubtitles(
+                videoId,
+                startTime,
+                endTime,
+                srtContent,
+                resolveStyleConfig(rawStyle),
+                inheritSrtContent
+            );
+
         } else if (action === "crop-burn") {
-            const { w, h, x, y, srtContent, stylePreset, fontFamily } = params;
+            const { w, h, x, y, srtContent, styleConfig: rawStyle, inheritSrtContent } = params;
             if (w === undefined || h === undefined || x === undefined || y === undefined || !srtContent) {
                 return NextResponse.json({ error: "crop-burn requires w, h, x, y, and srtContent" }, { status: 400 });
             }
-            result = await cropBurnSubtitles(videoId, w, h, x, y, srtContent, stylePreset || "classic", fontFamily);
+            result = await cropBurnSubtitles(
+                videoId,
+                w, h, x, y,
+                srtContent,
+                resolveStyleConfig(rawStyle),
+                inheritSrtContent
+            );
+
         } else if (action === "trim-crop-burn") {
-            const { startTime, endTime, w, h, x, y, srtContent, stylePreset, fontFamily } = params;
-            if (startTime === undefined || endTime === undefined || w === undefined || h === undefined || x === undefined || y === undefined || !srtContent) {
+            const { startTime, endTime, w, h, x, y, srtContent, styleConfig: rawStyle, inheritSrtContent } = params;
+            if (startTime === undefined || endTime === undefined || w === undefined || h === undefined ||
+                x === undefined || y === undefined || !srtContent) {
                 return NextResponse.json({ error: "trim-crop-burn requires all trim, crop, and subtitle params" }, { status: 400 });
             }
-            result = await trimCropBurnSubtitles(videoId, startTime, endTime, w, h, x, y, srtContent, stylePreset || "classic", fontFamily);
+            result = await trimCropBurnSubtitles(
+                videoId,
+                startTime, endTime,
+                w, h, x, y,
+                srtContent,
+                resolveStyleConfig(rawStyle),
+                inheritSrtContent
+            );
+
         } else if (action === "convert-mp4") {
             result = await convertToMp4(videoId);
+
         } else if (action === "image-edit") {
             const { crop, rotation, brightness, contrast, saturation, format, quality } = params;
             result = await editImage(videoId, { crop, rotation, brightness, contrast, saturation, format, quality });
+
         } else {
             return NextResponse.json({ error: "Invalid action." }, { status: 400 });
         }

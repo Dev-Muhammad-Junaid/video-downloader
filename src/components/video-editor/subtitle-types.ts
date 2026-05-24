@@ -200,3 +200,106 @@ export function findNearestSubtitle(
     }
     return closest;
 }
+
+// ── Position & Color ──
+
+export type SubtitleVertical = "top" | "middle" | "bottom";
+export type SubtitleHorizontal = "left" | "center" | "right";
+
+export interface SubtitlePosition {
+    vertical: SubtitleVertical;
+    horizontal: SubtitleHorizontal;
+}
+
+export const DEFAULT_POSITION: SubtitlePosition = { vertical: "bottom", horizontal: "center" };
+
+export interface SubtitleColorOption {
+    id: string;
+    label: string;
+    hex: string;      // CSS hex color
+    assAbgr: string;  // ASS ABGR format &HAABBGGRR
+}
+
+export const HIGHLIGHT_COLORS: SubtitleColorOption[] = [
+    { id: "yellow",  label: "Yellow",  hex: "#FACC15", assAbgr: "&H0015CCFA" },
+    { id: "white",   label: "White",   hex: "#FFFFFF", assAbgr: "&H00FFFFFF" },
+    { id: "green",   label: "Green",   hex: "#22C55E", assAbgr: "&H005EC522" },
+    { id: "cyan",    label: "Cyan",    hex: "#06B6D4", assAbgr: "&H00D4B606" },
+    { id: "red",     label: "Red",     hex: "#EF4444", assAbgr: "&H004444EF" },
+    { id: "orange",  label: "Orange",  hex: "#F97316", assAbgr: "&H001673F9" },
+    { id: "pink",    label: "Pink",    hex: "#EC4899", assAbgr: "&H009948EC" },
+];
+
+/** Map (vertical, horizontal) to ASS alignment integer (1–9) */
+export function positionToAssAlignment(position: SubtitlePosition): number {
+    const rowOffset = { bottom: 0, middle: 3, top: 6 }[position.vertical];
+    const col = { left: 1, center: 2, right: 3 }[position.horizontal];
+    return rowOffset + col;
+}
+
+// ── VTT Export ──
+
+/** Convert Subtitle array to WebVTT string */
+export function subtitlesToVtt(subtitles: Subtitle[]): string {
+    const body = subtitles
+        .map((s, i) => {
+            const start = s.start.replace(",", ".");
+            const end = s.end.replace(",", ".");
+            return `${i + 1}\n${start} --> ${end}\n${s.text}\n`;
+        })
+        .join("\n");
+    return `WEBVTT\n\n${body}`;
+}
+
+// ── TikTok Word-by-Word Expansion ──
+
+/**
+ * Expand each subtitle cue into per-word cues for TikTok-style export.
+ * Each word gets an equal share of the cue's duration.
+ */
+export function expandTikTokSubtitles(subtitles: Subtitle[]): Subtitle[] {
+    const expanded: Subtitle[] = [];
+    let newId = 1;
+    for (const sub of subtitles) {
+        const startSec = parseSrtTime(sub.start);
+        const endSec = parseSrtTime(sub.end);
+        const words = sub.text.split(/\s+/).filter(Boolean);
+        if (words.length === 0) continue;
+        const durPerWord = (endSec - startSec) / words.length;
+        for (let i = 0; i < words.length; i++) {
+            expanded.push({
+                id: newId++,
+                start: formatSrtTime(startSec + i * durPerWord),
+                end: formatSrtTime(startSec + (i + 1) * durPerWord),
+                text: words[i],
+                confidence: sub.confidence,
+            });
+        }
+    }
+    return expanded;
+}
+
+// ── Supported Transcription Languages ──
+
+export const TRANSCRIPTION_LANGUAGES = [
+    { code: "",   label: "Auto Detect" },
+    { code: "en", label: "English" },
+    { code: "es", label: "Spanish" },
+    { code: "fr", label: "French" },
+    { code: "de", label: "German" },
+    { code: "it", label: "Italian" },
+    { code: "pt", label: "Portuguese" },
+    { code: "ja", label: "Japanese" },
+    { code: "ko", label: "Korean" },
+    { code: "zh", label: "Chinese" },
+    { code: "ar", label: "Arabic" },
+    { code: "ru", label: "Russian" },
+    { code: "nl", label: "Dutch" },
+    { code: "pl", label: "Polish" },
+    { code: "tr", label: "Turkish" },
+    { code: "vi", label: "Vietnamese" },
+    { code: "hi", label: "Hindi" },
+    { code: "id", label: "Indonesian" },
+    { code: "th", label: "Thai" },
+    { code: "uk", label: "Ukrainian" },
+];
