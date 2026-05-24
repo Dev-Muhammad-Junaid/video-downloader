@@ -17,12 +17,23 @@ export interface StylePreset {
 }
 
 export const STYLE_PRESETS: StylePreset[] = [
-    { id: "classic", name: "Classic", desc: "Standard bottom text", icon: "📺" },
-    { id: "tiktok", name: "TikTok", desc: "Yellow highlights, word-by-word", icon: "🎯" },
-    { id: "box", name: "Modern Box", desc: "Text with solid background", icon: "◻️" },
-    { id: "cinematic", name: "Cinematic", desc: "Subtle drop shadow", icon: "🎬" },
-    { id: "outline", name: "Outline", desc: "White text, black stroke", icon: "✏️" },
-    { id: "bold-center", name: "Bold Center", desc: "Large centered, glow effect", icon: "💥" },
+    // ── Core ─────────────────────────────────────────────────────────────────
+    { id: "classic",     name: "Classic",   desc: "Standard bottom text",            icon: "📺" },
+    { id: "tiktok",      name: "TikTok",    desc: "Yellow word-by-word",             icon: "🎯" },
+    { id: "box",         name: "Box",       desc: "Black text on white block",       icon: "◻️" },
+    { id: "cinematic",   name: "Cinematic", desc: "Wide-set italic, soft shadow",    icon: "🎬" },
+    { id: "outline",     name: "Outline",   desc: "Bold white, black stroke",        icon: "✏️" },
+    { id: "bold-center", name: "Mega",      desc: "Huge centered hero text",         icon: "💥" },
+
+    // ── Viral / Instagram-Reels ──────────────────────────────────────────────
+    /** Cyan glow on magenta halo — synth-wave / aesthetic reel look. */
+    { id: "neon",        name: "Neon",      desc: "Electric cyan with pink glow",    icon: "💫" },
+    /** Massive gold-yellow on thick black stroke — viral explainer style. */
+    { id: "punch",       name: "Punch",     desc: "Big bold yellow with stroke",     icon: "⚡" },
+    /** Minimal documentary — small refined caption with hairline shadow. */
+    { id: "whisper",     name: "Whisper",   desc: "Minimal documentary caption",     icon: "🪶" },
+    /** Per-word yellow block w/ karaoke timing — Submagic-style. */
+    { id: "highlight",   name: "Highlight", desc: "Yellow word block, karaoke",      icon: "🟨" },
 ];
 
 // ── SRT Time Parsing ──

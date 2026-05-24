@@ -38,42 +38,94 @@ export interface SubtitleStyleConfig {
 
 // ── Preset defaults ──────────────────────────────────────────────────────────
 
+/**
+ * Presets that should render with an opaque background block (BorderStyle=3)
+ * instead of the outline+shadow model (BorderStyle=1). Single source of truth.
+ */
+export const BOX_STYLE_PRESETS = new Set(["classic", "box", "highlight"]);
+
 const PRESET_DEFAULTS: Record<string, Partial<SubtitleStyleConfig>> = {
+    // ── Classic — slightly lighter box, refined size ──
     classic: {
         primaryColor: "#FFFFFF", outlineColor: "#000000",
-        backgroundColor: "#000000", backgroundOpacity: 60,
+        backgroundColor: "#000000", backgroundOpacity: 55,
         outlineSize: 0, shadowSize: 0,
-        bold: false, italic: false, letterSpacing: 0, fontSizeScale: 1.0,
+        bold: false, italic: false, letterSpacing: 0, fontSizeScale: 0.95,
     },
+
+    // ── TikTok — yellow word-by-word, a touch more breathable spacing ──
     tiktok: {
         primaryColor: "#FACC15", outlineColor: "#000000",
         backgroundColor: "#000000", backgroundOpacity: 0,
         outlineSize: 4, shadowSize: 0,
-        bold: true, italic: false, letterSpacing: 1, fontSizeScale: 1.2,
+        bold: true, italic: false, letterSpacing: 1.5, fontSizeScale: 1.2,
     },
+
+    // ── Box — black on white block ──
     box: {
         primaryColor: "#000000", outlineColor: "#000000",
         backgroundColor: "#FFFFFF", backgroundOpacity: 100,
         outlineSize: 0, shadowSize: 0,
         bold: true, italic: false, letterSpacing: 0, fontSizeScale: 1.0,
     },
+
+    // ── Cinematic — more dramatic spacing, smaller / more delicate ──
     cinematic: {
         primaryColor: "#FFFFFF", outlineColor: "#000000",
         backgroundColor: "#000000", backgroundOpacity: 0,
-        outlineSize: 0, shadowSize: 6,
-        bold: false, italic: true, letterSpacing: 4, fontSizeScale: 0.9,
+        outlineSize: 0, shadowSize: 7,
+        bold: false, italic: true, letterSpacing: 5, fontSizeScale: 0.85,
     },
+
+    // ── Outline — slightly thicker stroke + a hint more shadow ──
     outline: {
         primaryColor: "#FFFFFF", outlineColor: "#000000",
         backgroundColor: "#000000", backgroundOpacity: 0,
-        outlineSize: 3, shadowSize: 1,
+        outlineSize: 3.5, shadowSize: 2,
         bold: true, italic: false, letterSpacing: 0, fontSizeScale: 1.05,
     },
+
+    // ── Mega (formerly Bold Center) — punchier stroke at scale 1.6 ──
     "bold-center": {
         primaryColor: "#FFFFFF", outlineColor: "#000000",
         backgroundColor: "#000000", backgroundOpacity: 0,
-        outlineSize: 4, shadowSize: 0,
+        outlineSize: 5, shadowSize: 0,
         bold: true, italic: false, letterSpacing: 0, fontSizeScale: 1.6,
+    },
+
+    // ── Neon — electric cyan core with magenta halo (chromatic glow) ──
+    // Hot pink outline blurred by a thick shadow mimics a neon-tube glow.
+    neon: {
+        primaryColor: "#00F0FF", outlineColor: "#FF1493",
+        backgroundColor: "#000000", backgroundOpacity: 0,
+        outlineSize: 2.5, shadowSize: 8,
+        bold: true, italic: false, letterSpacing: 1, fontSizeScale: 1.15,
+    },
+
+    // ── Punch — viral explainer (MrBeast-style): big yellow + thick stroke ──
+    punch: {
+        primaryColor: "#FFD700", outlineColor: "#000000",
+        backgroundColor: "#000000", backgroundOpacity: 0,
+        outlineSize: 7, shadowSize: 0,
+        bold: true, italic: false, letterSpacing: 0, fontSizeScale: 1.5,
+    },
+
+    // ── Whisper — minimal documentary, hairline shadow, wide elegant spacing ──
+    whisper: {
+        primaryColor: "#FFFFFF", outlineColor: "#000000",
+        backgroundColor: "#000000", backgroundOpacity: 0,
+        outlineSize: 0.5, shadowSize: 2,
+        bold: false, italic: false, letterSpacing: 2, fontSizeScale: 0.75,
+    },
+
+    // ── Highlight — Submagic-style yellow word block, black text, karaoke ──
+    // The karaoke timing expansion turns each word into its own Dialogue line,
+    // so with BorderStyle=3 each word gets its own yellow background box.
+    highlight: {
+        primaryColor: "#000000", outlineColor: "#000000",
+        backgroundColor: "#FACC15", backgroundOpacity: 100,
+        outlineSize: 0, shadowSize: 0,
+        bold: true, italic: false, letterSpacing: 1, fontSizeScale: 1.3,
     },
 };
 
@@ -178,6 +230,8 @@ function makeAnimTag(
 const BASE_FONT_SIZES: Record<string, number> = {
     classic: 36, tiktok: 52, box: 36,
     cinematic: 32, outline: 38, "bold-center": 58,
+    // Viral presets — generally larger so the styling reads at any res
+    neon: 50, punch: 60, whisper: 30, highlight: 50,
 };
 
 /**
@@ -213,7 +267,7 @@ export function buildAssFile(
 
     // Box styles use BorderStyle=3 (opaque box fill via BackColour)
     // All other styles use BorderStyle=1 (outline + shadow model)
-    const isBoxStyle = preset === "classic" || preset === "box";
+    const isBoxStyle = BOX_STYLE_PRESETS.has(preset);
     const borderStyle = isBoxStyle ? 3 : 1;
 
     const primaryAss = hexToAss(primaryColor, 100);
