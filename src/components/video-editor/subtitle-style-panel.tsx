@@ -27,6 +27,7 @@ import {
 import { GripVertical, Bold, Italic } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STYLE_PRESETS } from "./subtitle-types";
+import { BOX_STYLE_PRESETS, getPresetDefaults } from "@/lib/ass-builder";
 import type { SubtitleStyleConfig } from "@/lib/ass-builder";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -75,23 +76,17 @@ const POSITION_GRID: Array<{
     { v: "bottom", h: "right",  label: "Bottom right"  },
 ];
 
+/**
+ * Default entrance animation per preset — applied on preset click and
+ * overridable by the Animation section.
+ */
 const PRESET_DEFAULT_ANIMATION: Record<string, SubtitleStyleConfig["animation"]> = {
     tiktok:    "karaoke",
     cinematic: "fade",
-};
-
-/**
- * Structural properties changed by a preset click.
- * Colors (primary, outline, background), fontFamily, positionV/H are
- * intentionally absent so the user's customisations are preserved.
- */
-const PRESET_STRUCTURAL: Record<string, Partial<SubtitleStyleConfig>> = {
-    classic:       { backgroundOpacity: 60,  outlineSize: 0, shadowSize: 0, bold: false, italic: false, letterSpacing: 0,  fontSizeScale: 1.0  },
-    tiktok:        { backgroundOpacity: 0,   outlineSize: 4, shadowSize: 0, bold: true,  italic: false, letterSpacing: 1,  fontSizeScale: 1.2  },
-    box:           { backgroundOpacity: 100, outlineSize: 0, shadowSize: 0, bold: true,  italic: false, letterSpacing: 0,  fontSizeScale: 1.0  },
-    cinematic:     { backgroundOpacity: 0,   outlineSize: 0, shadowSize: 6, bold: false, italic: true,  letterSpacing: 4,  fontSizeScale: 0.9  },
-    outline:       { backgroundOpacity: 0,   outlineSize: 3, shadowSize: 1, bold: true,  italic: false, letterSpacing: 0,  fontSizeScale: 1.05 },
-    "bold-center": { backgroundOpacity: 0,   outlineSize: 4, shadowSize: 0, bold: true,  italic: false, letterSpacing: 0,  fontSizeScale: 1.6  },
+    neon:      "pop",
+    punch:     "pop",
+    whisper:   "fade",
+    highlight: "karaoke",
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -221,17 +216,21 @@ export function SubtitleStylePanel({ config, onChange, embedded = false }: Subti
         return () => window.removeEventListener("resize", onResize);
     }, [embedded, mx, my]);
 
+    /**
+     * Clicking a preset applies its full visual identity — colours, stroke,
+     * spacing, etc. Position and font are preserved so the user keeps the
+     * layout / typography they intentionally chose.
+     */
     const handlePresetClick = (presetId: string) => {
+        const defaults = getPresetDefaults(presetId);
         onChange({
             preset: presetId,
             animation: PRESET_DEFAULT_ANIMATION[presetId] ?? "none",
-            ...(PRESET_STRUCTURAL[presetId] ?? {}),
-            // primaryColor, outlineColor, backgroundColor, fontFamily,
-            // positionV, positionH are NOT included → user's picks preserved
+            ...defaults,
         });
     };
 
-    const isBoxStyle = config.preset === "classic" || config.preset === "box";
+    const isBoxStyle = BOX_STYLE_PRESETS.has(config.preset);
 
     // ── Shared panel body (used in both embedded and floating modes) ─────────
     const panelBody = (
