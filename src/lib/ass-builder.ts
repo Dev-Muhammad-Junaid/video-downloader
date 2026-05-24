@@ -32,8 +32,25 @@ export interface SubtitleStyleConfig {
     letterSpacing: number;
     bold: boolean;
     italic: boolean;
-    /** Entrance animation baked into ASS override tags */
-    animation: "none" | "fade" | "pop" | "slide-up" | "karaoke";
+    /**
+     * Entrance / playback animation baked into ASS override tags.
+     *
+     * Simple entrances (fade / pop / slide-up) wrap the full cue.
+     *
+     * The four advanced modes work in tandem with a per-cue text expansion
+     * that lives in `subtitle-types.ts`:
+     *   - `karaoke`   — one word at a time (one Dialogue per word).
+     *   - `reveal`    — one Dialogue per cue with `\k` tags between words;
+     *                   each word cumulatively turns into PrimaryColour as
+     *                   it's spoken (used by the "Reveal" preset).
+     *   - `spotlight` — same shape as `reveal` but using `\kf` smooth fill,
+     *                   with SecondaryColour set to a faded version of
+     *                   PrimaryColour. Inactive words appear dimmed.
+     *   - `cascade`   — N progressive snapshot Dialogues per cue; the newest
+     *                   word in each snapshot has a blur + scale + fade-in
+     *                   entrance baked into the text (Cascade preset).
+     */
+    animation: "none" | "fade" | "pop" | "slide-up" | "karaoke" | "reveal" | "spotlight" | "cascade";
 }
 
 // ── Preset defaults ──────────────────────────────────────────────────────────
@@ -127,6 +144,36 @@ const PRESET_DEFAULTS: Record<string, Partial<SubtitleStyleConfig>> = {
         outlineSize: 0, shadowSize: 0,
         bold: true, italic: false, letterSpacing: 1, fontSizeScale: 1.3,
     },
+
+    // ── Reveal — full sentence; active word turns yellow as it's spoken ──
+    // Builds up cumulatively: by the end of the cue, the whole sentence is
+    // yellow. PrimaryColour = yellow (active), SecondaryColour = white
+    // (inactive) is set automatically in buildAssFile when animation==reveal.
+    reveal: {
+        primaryColor: "#FACC15", outlineColor: "#000000",
+        backgroundColor: "#000000", backgroundOpacity: 0,
+        outlineSize: 3.5, shadowSize: 0,
+        bold: true, italic: false, letterSpacing: 0.5, fontSizeScale: 1.1,
+    },
+
+    // ── Spotlight — full sentence faded; active word at full opacity ──
+    // Uses `\kf` smooth fill. SecondaryColour = primaryColor at ~35% alpha,
+    // PrimaryColour = primaryColor at full alpha. Set automatically.
+    spotlight: {
+        primaryColor: "#FFFFFF", outlineColor: "#000000",
+        backgroundColor: "#000000", backgroundOpacity: 0,
+        outlineSize: 2.5, shadowSize: 0,
+        bold: true, italic: false, letterSpacing: 0.5, fontSizeScale: 1.1,
+    },
+
+    // ── Cascade — words pop in with blur + scale + fade entrance, all stay ──
+    // Per-word scale variance gives the type a rhythmic, hand-keyed feel.
+    cascade: {
+        primaryColor: "#FFFFFF", outlineColor: "#000000",
+        backgroundColor: "#000000", backgroundOpacity: 0,
+        outlineSize: 3, shadowSize: 2,
+        bold: true, italic: false, letterSpacing: 0, fontSizeScale: 1.2,
+    },
 };
 
 export function getPresetDefaults(preset: string): Partial<SubtitleStyleConfig> {
@@ -203,7 +250,11 @@ function makeAnimTag(
     vDim: { width: number; height: number },
     marginV: number,
 ): string {
-    if (animation === "none" || animation === "karaoke") return "";
+    // `karaoke` / `reveal` / `spotlight` / `cascade` bake their own entrance
+    // logic into the per-cue expanded text — no extra wrapper tag needed.
+    if (animation === "none" || animation === "karaoke" ||
+        animation === "reveal" || animation === "spotlight" ||
+        animation === "cascade") return "";
 
     if (animation === "fade") return "{\\fad(300,300)}";
 
@@ -232,6 +283,8 @@ const BASE_FONT_SIZES: Record<string, number> = {
     cinematic: 32, outline: 38, "bold-center": 58,
     // Viral presets — generally larger so the styling reads at any res
     neon: 50, punch: 60, whisper: 30, highlight: 50,
+    // Advanced (per-word) presets — tuned to read at the same density as TikTok
+    reveal: 48, spotlight: 48, cascade: 50,
 };
 
 /**
@@ -274,6 +327,19 @@ export function buildAssFile(
     const outlineAss = hexToAss(outlineColor, 100);
     const backAss = hexToAss(backgroundColor, isBoxStyle ? backgroundOpacity : 100);
 
+    // SecondaryColour governs the un-highlighted state of `\k` / `\kf`
+    // karaoke segments. For the advanced presets that use karaoke tags
+    // inside the text, it's the colour every word *starts* at:
+    //   - reveal:    starts white, animates to PrimaryColour (yellow)
+    //   - spotlight: starts faded (35% alpha), animates to PrimaryColour (full)
+    // For everything else it's the ASS default (transparent placeholder).
+    let secondaryAss = "&H000000FF";
+    if (animation === "reveal") {
+        secondaryAss = hexToAss("#FFFFFF", 100);
+    } else if (animation === "spotlight") {
+        secondaryAss = hexToAss(primaryColor, 35);
+    }
+
     // Box style: no visible outline / shadow — they'd conflict with the filled box
     const effectiveOutline = isBoxStyle ? 0 : outlineSize;
     const effectiveShadow = isBoxStyle ? 0 : shadowSize;
@@ -287,7 +353,7 @@ export function buildAssFile(
     // BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
     const styleRow = [
         "Default", fontFamily, fontSize,
-        primaryAss, "&H000000FF", outlineAss, backAss,
+        primaryAss, secondaryAss, outlineAss, backAss,
         assBold, assItalic, 0, 0,
         100, 100, letterSpacing, 0,
         borderStyle, effectiveOutline, effectiveShadow,
@@ -308,7 +374,11 @@ export function buildAssFile(
         if (parts.length !== 2) continue;
         const start = srtTimeToAss(parts[0]);
         const end   = srtTimeToAss(parts[1]);
-        const text  = lines.slice(ti + 1).join("\\N").replace(/\{/g, "\\{");
+        // Preserve embedded ASS override tags ({\k20}, {\pos(...)}, ...) while
+        // still escaping literal `{` characters that the user may have typed.
+        // A real ASS tag always starts with `{\`, so the negative-lookahead
+        // for `\\` skips genuine overrides and only escapes stray braces.
+        const text  = lines.slice(ti + 1).join("\\N").replace(/\{(?!\\)/g, "\\{");
         dialogues.push(`Dialogue: 0,${start},${end},Default,,0,0,0,,${animTag}${text}`);
     }
 

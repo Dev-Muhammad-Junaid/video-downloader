@@ -31,7 +31,7 @@ import {
     parseVtt,
     subtitlesToSrt,
     clipAndShiftSubtitles,
-    expandTikTokSubtitles,
+    expandForAnimation,
 } from "./subtitle-types";
 import {
     SubtitleStyleConfig,
@@ -427,8 +427,10 @@ export function VideoEditorModal({
             const wantSubs = includeSubtitles && hasSubtitles && mode !== "subtitles";
 
             // Karaoke animation: expand each cue into per-word cues before serialising
+            // expandForAnimation handles karaoke, reveal, spotlight, cascade.
+            // For everything else it returns the subtitles unchanged.
             const prepareSubsForBurn = (subs: Subtitle[]) =>
-                styleConfig.animation === "karaoke" ? expandTikTokSubtitles(subs) : subs;
+                expandForAnimation(subs, styleConfig.animation);
 
             const clippedSubtitles = mode === "trim"
                 ? clipAndShiftSubtitles(subtitles, trimStart, trimEnd)

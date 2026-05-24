@@ -87,6 +87,10 @@ const PRESET_DEFAULT_ANIMATION: Record<string, SubtitleStyleConfig["animation"]>
     punch:     "pop",
     whisper:   "fade",
     highlight: "karaoke",
+    // Advanced per-cue effects — each preset binds to a custom expander.
+    reveal:    "reveal",
+    spotlight: "spotlight",
+    cascade:   "cascade",
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

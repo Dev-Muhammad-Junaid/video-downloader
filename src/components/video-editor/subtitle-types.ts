@@ -34,6 +34,14 @@ export const STYLE_PRESETS: StylePreset[] = [
     { id: "whisper",     name: "Whisper",   desc: "Minimal documentary caption",     icon: "🪶" },
     /** Per-word yellow block w/ karaoke timing — Submagic-style. */
     { id: "highlight",   name: "Highlight", desc: "Yellow word block, karaoke",      icon: "🟨" },
+
+    // ── Advanced (per-cue word effects, like CapCut / Premier Pro) ──────────
+    /** Full sentence shown; each word turns yellow as it's spoken. */
+    { id: "reveal",      name: "Reveal",    desc: "Sentence; word turns yellow",     icon: "💡" },
+    /** Faded sentence; the spoken word brightens to full opacity. */
+    { id: "spotlight",   name: "Spotlight", desc: "Dim sentence; active is bright",  icon: "🔦" },
+    /** Words cascade in with blur + scale + fade entrance, all stay visible. */
+    { id: "cascade",     name: "Cascade",   desc: "Words pop in with blur + scale",  icon: "🌊" },
 ];
 
 // ── SRT Time Parsing ──
@@ -288,6 +296,147 @@ export function expandTikTokSubtitles(subtitles: Subtitle[]): Subtitle[] {
         }
     }
     return expanded;
+}
+
+// ── Advanced per-word ASS expanders ──────────────────────────────────────────
+//
+// These build a `Subtitle[]` whose `.text` already contains ASS override tags
+// (`{\k20}`, `{\fscx80\\t(...)}`, etc.). Those tags survive `subtitlesToSrt`
+// round-tripping and `buildAssFile` injects them straight into the Dialogue
+// text — so the same expanded form drives both the JASSUB preview and the
+// FFmpeg burn pipeline.
+
+/**
+ * One Dialogue per cue with `\k` (instant) or `\kf` (smooth-fill) karaoke
+ * tags between words. The active word transitions from SecondaryColour to
+ * PrimaryColour as it's spoken; libass handles the rest.
+ *
+ * Words "spoken" so far stay highlighted — the highlight builds up across
+ * the line. That's the look the Reveal and Spotlight presets use.
+ */
+export function expandKaraokeInline(
+    subtitles: Subtitle[],
+    tag: "k" | "kf" = "k",
+): Subtitle[] {
+    return subtitles.map((sub) => {
+        const words = sub.text.split(/\s+/).filter(Boolean);
+        if (words.length <= 1) return sub;
+
+        const durationCs = Math.max(
+            words.length,
+            Math.round((parseSrtTime(sub.end) - parseSrtTime(sub.start)) * 100),
+        );
+        // Distribute centiseconds across words; integer arithmetic so the
+        // sum stays a clean count (no fractional dropout on a sentence end).
+        const perWord = Math.floor(durationCs / words.length);
+        const remainder = durationCs - perWord * words.length;
+
+        const text = words
+            .map((w, i) => {
+                const cs = perWord + (i < remainder ? 1 : 0);
+                return `{\\${tag}${cs}}${w}`;
+            })
+            .join(" ");
+
+        return { ...sub, text };
+    });
+}
+
+/**
+ * Per-word scale variance — deterministic so a given word always lays out
+ * the same way. Returns a percent (95 / 100 / 105 / 110) that the cascade
+ * expander stamps into `\fscx\fscy` for both the entrance and the resting
+ * state, giving the line a hand-keyed visual rhythm.
+ */
+function cascadeWordScale(word: string, idx: number): number {
+    const seed = (word.length * 7 + idx * 13) % 4;
+    return 95 + seed * 5;
+}
+
+/**
+ * N progressive snapshot Dialogues per cue.
+ *
+ * Snapshot k spans from word_k's start to word_(k+1)'s start (or the cue
+ * end). Its text is "Word1 Word2 ... Word_(k-1) {entrance}Word_k" — older
+ * words sit at their resting scale, only the newest word animates in with
+ * a blur + scale + fade entrance. All accumulated words stay visible until
+ * the cue ends, which is the CapCut / Premier Pro "typing-on" look.
+ */
+export function expandCascade(subtitles: Subtitle[]): Subtitle[] {
+    const out: Subtitle[] = [];
+    let nextId = 1;
+
+    for (const sub of subtitles) {
+        const words = sub.text.split(/\s+/).filter(Boolean);
+        const startSec = parseSrtTime(sub.start);
+        const endSec = parseSrtTime(sub.end);
+
+        if (words.length <= 1) {
+            out.push({ ...sub, id: nextId++ });
+            continue;
+        }
+
+        const totalMs = Math.max(words.length * 60, (endSec - startSec) * 1000);
+        const perWordMs = totalMs / words.length;
+        // Cap entrance to 70% of the per-word slot so the next snapshot doesn't
+        // cut it off; 80 ms floor keeps it feeling snappy on fast speech.
+        const entranceMs = Math.max(80, Math.min(200, Math.round(perWordMs * 0.7)));
+
+        for (let i = 0; i < words.length; i++) {
+            const snapStart = startSec + (i * perWordMs) / 1000;
+            const snapEnd = i === words.length - 1
+                ? endSec
+                : startSec + ((i + 1) * perWordMs) / 1000;
+
+            const segments: string[] = [];
+            for (let k = 0; k <= i; k++) {
+                const s = cascadeWordScale(words[k], k);
+                if (k === i) {
+                    // Newest word — entrance: blur, sub-100% scale, transparent,
+                    // all animating to the resting state over `entranceMs`.
+                    const s0 = Math.round(s * 0.7);
+                    segments.push(
+                        `{\\fscx${s0}\\fscy${s0}\\blur5\\alpha&HFF&` +
+                        `\\t(0,${entranceMs},\\fscx${s}\\fscy${s}\\blur0\\alpha&H00&)}` +
+                        words[k]
+                    );
+                } else {
+                    // Older word — settled at its resting scale.
+                    segments.push(`{\\fscx${s}\\fscy${s}\\alpha&H00&}${words[k]}`);
+                }
+            }
+
+            out.push({
+                id: nextId++,
+                start: formatSrtTime(snapStart),
+                end: formatSrtTime(snapEnd),
+                text: segments.join(" "),
+                confidence: sub.confidence,
+            });
+        }
+    }
+    return out;
+}
+
+/**
+ * Dispatch helper: given the chosen animation mode, return the correctly
+ * pre-expanded `Subtitle[]` so the next stage (`subtitlesToSrt → buildAssFile`)
+ * doesn't have to know about per-cue effects.
+ *
+ * Both the JASSUB preview pipeline and the FFmpeg burn pipeline call this so
+ * preview and export stay byte-identical.
+ */
+export function expandForAnimation(
+    subtitles: Subtitle[],
+    animation: string,
+): Subtitle[] {
+    switch (animation) {
+        case "karaoke":   return expandTikTokSubtitles(subtitles);
+        case "reveal":    return expandKaraokeInline(subtitles, "k");
+        case "spotlight": return expandKaraokeInline(subtitles, "kf");
+        case "cascade":   return expandCascade(subtitles);
+        default:          return subtitles;
+    }
 }
 
 // ── Supported Transcription Languages ──
