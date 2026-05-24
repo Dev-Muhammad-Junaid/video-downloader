@@ -15,6 +15,7 @@ import {
     Download,
     Mic,
     RectangleHorizontal,
+    Palette,
 } from "lucide-react";
 import { TimelineScrubber } from "./timeline-scrubber";
 import { toast } from "sonner";
@@ -728,30 +729,28 @@ export function VideoEditorModal({
                             transition={{ duration: 0.18 }}
                             className="flex flex-col overflow-hidden shrink-0 border-l border-border bg-background"
                         >
-                            {/* Tab bar */}
-                            <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-border bg-muted/30 shrink-0">
-                                <button
-                                    onClick={() => setSidebarTab("style")}
-                                    className={cn(
-                                        "flex-1 flex items-center justify-center gap-1.5 py-1 rounded-md text-[10px] font-medium transition-all",
-                                        sidebarTab === "style"
-                                            ? "bg-background text-foreground shadow-sm border border-border/60"
-                                            : "text-muted-foreground hover:text-foreground"
-                                    )}
-                                >
-                                    <span className="text-xs">✦</span> Style
-                                </button>
-                                <button
-                                    onClick={() => setSidebarTab("cues")}
-                                    className={cn(
-                                        "flex-1 flex items-center justify-center gap-1.5 py-1 rounded-md text-[10px] font-medium transition-all",
-                                        sidebarTab === "cues"
-                                            ? "bg-background text-foreground shadow-sm border border-border/60"
-                                            : "text-muted-foreground hover:text-foreground"
-                                    )}
-                                >
-                                    <Captions className="w-3 h-3" /> Cues
-                                </button>
+                            {/* Tab bar — same pill pattern as the header Trim / Crop / Subtitles tabs */}
+                            <div className="px-3 py-2 border-b border-border/60 shrink-0">
+                                <div className="flex items-center gap-1 bg-muted/60 rounded-xl p-1 border border-border/40">
+                                    {([
+                                        { id: "style", label: "Style", Icon: Palette  },
+                                        { id: "cues",  label: "Cues",  Icon: Captions },
+                                    ] as const).map(({ id, label, Icon }) => (
+                                        <button
+                                            key={id}
+                                            onClick={() => setSidebarTab(id)}
+                                            className={cn(
+                                                "flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
+                                                sidebarTab === id
+                                                    ? "bg-foreground text-background shadow-sm"
+                                                    : "text-muted-foreground hover:text-foreground"
+                                            )}
+                                        >
+                                            <Icon className="w-3.5 h-3.5" />
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
 
                             {/* Tab content — `flex-1 min-h-0` confines the inner
