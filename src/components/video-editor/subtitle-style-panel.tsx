@@ -80,17 +80,15 @@ const POSITION_GRID: Array<{
  * Default entrance animation per preset — applied on preset click and
  * overridable by the Animation section.
  */
+/**
+ * Default animation per preset. Each preset binds to the right expander
+ * downstream in `expandForAnimation`.
+ */
 const PRESET_DEFAULT_ANIMATION: Record<string, SubtitleStyleConfig["animation"]> = {
-    tiktok:    "karaoke",
-    cinematic: "fade",
-    neon:      "pop",
-    punch:     "pop",
-    whisper:   "fade",
-    highlight: "karaoke",
-    // Advanced per-cue effects — each preset binds to a custom expander.
-    reveal:    "reveal",
-    spotlight: "spotlight",
-    cascade:   "cascade",
+    classic: "none",
+    outline: "none",
+    tiktok:  "tiktok-box",
+    reveal:  "reveal",
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -301,6 +299,57 @@ export function SubtitleStylePanel({ config, onChange, embedded = false }: Subti
                     })}
                 </div>
             </Section>
+
+            {/* ── Reveal Options (only when Reveal preset is active) ── */}
+            {config.preset === "reveal" && (
+                <Section title="Reveal Options">
+                    <div className="flex flex-col gap-1">
+                        <button
+                            onClick={() => onChange({ revealFadeInactive: !config.revealFadeInactive })}
+                            className={cn(
+                                "flex items-center justify-between gap-2 px-2 py-1.5 rounded-md border text-[10px] font-medium transition-all",
+                                config.revealFadeInactive
+                                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                    : "border-border bg-muted/40 text-foreground hover:bg-muted"
+                            )}
+                        >
+                            <span className="flex items-center gap-1.5">
+                                <span className="leading-none">🔦</span>
+                                Fade inactive words
+                            </span>
+                            <span className={cn(
+                                "text-[9px] px-1.5 py-0.5 rounded",
+                                config.revealFadeInactive ? "bg-primary-foreground/20" : "bg-muted",
+                            )}>
+                                {config.revealFadeInactive ? "ON" : "OFF"}
+                            </span>
+                        </button>
+                        <button
+                            onClick={() => onChange({ revealWordEntrance: !config.revealWordEntrance })}
+                            className={cn(
+                                "flex items-center justify-between gap-2 px-2 py-1.5 rounded-md border text-[10px] font-medium transition-all",
+                                config.revealWordEntrance
+                                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                    : "border-border bg-muted/40 text-foreground hover:bg-muted"
+                            )}
+                        >
+                            <span className="flex items-center gap-1.5">
+                                <span className="leading-none">🌊</span>
+                                Word-by-word entrance
+                            </span>
+                            <span className={cn(
+                                "text-[9px] px-1.5 py-0.5 rounded",
+                                config.revealWordEntrance ? "bg-primary-foreground/20" : "bg-muted",
+                            )}>
+                                {config.revealWordEntrance ? "ON" : "OFF"}
+                            </span>
+                        </button>
+                        <p className="text-[9px] text-muted-foreground/70 mt-0.5 leading-snug">
+                            Combine both for a spotlight that follows the speaker.
+                        </p>
+                    </div>
+                </Section>
+            )}
 
             {/* ── Animation ── */}
             <Section title="Animation">
