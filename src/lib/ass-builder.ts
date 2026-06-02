@@ -60,6 +60,14 @@ export interface SubtitleStyleConfig {
      * `revealFadeInactive` so any combination is possible.
      */
     revealWordEntrance?: boolean;
+
+    /**
+     * TikTok variant — controls how the cue is laid out when the TikTok
+     * preset is active.
+     *   - `active-box`: yellow pill follows the spoken word (default).
+     *   - `single-box`: one chunky coloured pill behind the whole line.
+     */
+    tiktokStyle?: "active-box" | "single-box";
 }
 
 // ── Preset defaults ──────────────────────────────────────────────────────────
@@ -79,17 +87,17 @@ const PRESET_DEFAULTS: Record<string, Partial<SubtitleStyleConfig>> = {
         bold: false, italic: false, letterSpacing: 0, fontSizeScale: 0.95,
     },
 
-    // ── TikTok — real TikTok look: full sentence with a yellow rectangle
-    //    overlay behind the currently-spoken word. PrimaryColour stores the
-    //    *highlight* (box) colour so users can recolour it to pink/green/etc.
-    //    Base sentence text is white with a thin black stroke; the overlay
-    //    paints black text on the highlight rectangle. animation=tiktok-box
-    //    drives a per-word position expander in subtitle-types.ts.
+    // ── TikTok — real TikTok look. PrimaryColour stores the *highlight*
+    //    (pill) colour so users can recolour it to pink/green/etc. The
+    //    `tiktokStyle` modifier picks the layout variant downstream in
+    //    expandForAnimation: "active-box" places per-word pills, while
+    //    "single-box" puts one pill behind the whole sentence.
     tiktok: {
         primaryColor: "#FACC15", outlineColor: "#000000",
         backgroundColor: "#000000", backgroundOpacity: 0,
         outlineSize: 2, shadowSize: 0,
         bold: true, italic: false, letterSpacing: 0, fontSizeScale: 1.2,
+        tiktokStyle: "active-box",
     },
 
     // ── Outline — bold white with a chunky black stroke; universal hero look ──
@@ -139,6 +147,7 @@ export function createDefaultStyleConfig(preset = "classic"): SubtitleStyleConfi
         animation: "none",
         revealFadeInactive: d.revealFadeInactive ?? false,
         revealWordEntrance: d.revealWordEntrance ?? false,
+        tiktokStyle: d.tiktokStyle ?? "active-box",
     };
 }
 

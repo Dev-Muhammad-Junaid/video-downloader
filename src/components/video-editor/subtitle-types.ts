@@ -439,30 +439,73 @@ const FONT_WIDTH_FACTORS: Record<string, number> = {
     "Nunito":     0.55,
 };
 const SPACE_WIDTH_FACTOR = 0.32;
+/** Sentence is constrained to this fraction of the video width — anything
+ *  longer wraps onto additional lines. 0.85 ≈ 7.5% margin on each side,
+ *  which is roughly what TikTok itself uses. */
+const MAX_LINE_RATIO = 0.85;
+/** Per-line vertical spacing as a multiple of font size. */
+const LINE_HEIGHT_FACTOR = 1.30;
 
 function estimateWordWidth(word: string, fontFamily: string, fontSize: number): number {
     const factor = FONT_WIDTH_FACTORS[fontFamily] ?? 0.50;
     return word.length * fontSize * factor;
 }
 
+interface LaidOutLine {
+    /** Words in this line, in order. */
+    words: string[];
+    /** Estimated pixel width per word. */
+    widths: number[];
+    /** Index in the original sentence of this line's first word — used to
+     *  preserve per-word karaoke timing across the line break. */
+    startIdx: number;
+    /** Total pixel width of the line (sum of word widths + interword spaces). */
+    totalWidth: number;
+}
+
+/** Greedy word-wrap: pack words into lines, breaking as soon as the next
+ *  word would push the line past `maxLineWidth`. */
+function layoutLines(
+    words: string[],
+    widths: number[],
+    maxLineWidth: number,
+    spaceW: number,
+): LaidOutLine[] {
+    const out: LaidOutLine[] = [];
+    let cur: LaidOutLine = { words: [], widths: [], startIdx: 0, totalWidth: 0 };
+
+    for (let i = 0; i < words.length; i++) {
+        const wW = widths[i];
+        const space = cur.words.length > 0 ? spaceW : 0;
+        if (cur.words.length > 0 && cur.totalWidth + space + wW > maxLineWidth) {
+            out.push(cur);
+            cur = { words: [], widths: [], startIdx: i, totalWidth: 0 };
+        }
+        cur.words.push(words[i]);
+        cur.widths.push(wW);
+        cur.totalWidth += space + wW;
+    }
+    if (cur.words.length > 0) out.push(cur);
+    return out;
+}
+
 /**
- * Real TikTok caption look. Each cue emits two kinds of Dialogue events:
+ * Real TikTok caption look — "active word box" variant.
  *
- *   1. A "base" event for the cue's full duration: the whole sentence in
- *      white, with a thin black outline so it reads on any video.
+ * Each cue emits two kinds of Dialogue events:
+ *   1. A "base" event: the wrapped sentence in white with a thin black
+ *      stroke, joined by `\N` so libass uses our wrap points.
  *   2. One overlay event per word: a black-text-on-yellow-rectangle pill
  *      positioned over that word, timed for when the word is "active".
  *
- * Word positions are approximated from per-font width factors — exact on
- * monospace, ~5% drift on proportional fonts. Good enough that the box
- * sits visibly behind the right word.
+ * Line wrapping is computed in JS from per-font width factors so we can
+ * place the per-word overlays at the same x/y libass renders the base
+ * text at. `\q2` on the base disables libass's own wrapping, locking it
+ * to ours. ~5% drift is possible on proportional fonts; Anton (default
+ * for this preset) is tight enough that the boxes visibly hug the words.
  *
- * The yellow "box" is faked with a chunky coloured outline (BorderStyle=1
- * inherited from the Default style, `\bord` and `\3c` set inline). That
- * avoids needing a second ASS style definition.
- *
- * @param boxHex      "#RRGGBB" of the highlight pill (defaults to TikTok yellow)
- * @param fontFamily  Drives both the rendered base font and the width estimate
+ * @param boxHex      "#RRGGBB" of the highlight pill
+ * @param fontFamily  Drives both the rendered font and the width estimate
  * @param fontSize    Already in the target video's pixel space
  * @param vDim        Target video dimensions for `\pos` math
  * @param positionV   bottom / middle / top — picks the y origin
@@ -480,60 +523,98 @@ export function expandTikTokBox(
 
     const boxAss = rgbToAssBgr(boxHex);
     const spaceW = fontSize * SPACE_WIDTH_FACTOR;
+    const maxLineWidth = vDim.width * MAX_LINE_RATIO;
+    const lineHeight = fontSize * LINE_HEIGHT_FACTOR;
     // Match the margin used by buildAssFile / positionToAlignment.
     const marginV = positionV === "middle" ? 8 : 45;
-    const baseY =
-        positionV === "top"    ? marginV + fontSize / 2 :
-        positionV === "middle" ? vDim.height / 2 :
-                                 vDim.height - marginV - fontSize / 2;
 
     for (const sub of subtitles) {
         const words = sub.text.split(/\s+/).filter(Boolean);
         if (words.length === 0) continue;
 
-        // 1) Base sentence — white text, thin black outline, no wrapping
-        //    so the per-word overlays stay aligned with a single layout pass.
+        const widths = words.map((w) => estimateWordWidth(w, fontFamily, fontSize));
+        const lines = layoutLines(words, widths, maxLineWidth, spaceW);
+        const numLines = lines.length;
+
+        // 1) Base sentence with our explicit wrap. `\q2` = no libass auto-wrap.
+        const baseText = lines.map((l) => l.words.join(" ")).join("\\N");
         out.push({
             id: nextId++,
             start: sub.start,
             end:   sub.end,
-            text:  `{\\q2\\1c&HFFFFFF&\\3c&H000000&\\bord3\\shad0\\b1}${sub.text}`,
+            text:  `{\\q2\\1c&HFFFFFF&\\3c&H000000&\\bord3\\shad0\\b1}${baseText}`,
             confidence: sub.confidence,
         });
 
-        // 2) Per-word overlay positions.
-        const widths = words.map((w) => estimateWordWidth(w, fontFamily, fontSize));
-        const sentenceWidth =
-            widths.reduce((a, b) => a + b, 0) + spaceW * (words.length - 1);
-        let cursorX = vDim.width / 2 - sentenceWidth / 2;
-
+        // 2) Per-word overlays — y depends on which wrapped line the word
+        //    landed in, x on its position within that line.
         const startSec = parseSrtTime(sub.start);
         const perWordSec = (parseSrtTime(sub.end) - startSec) / words.length;
 
-        for (let i = 0; i < words.length; i++) {
-            const w = widths[i];
-            const centerX = cursorX + w / 2;
-            cursorX += w + spaceW;
+        for (let li = 0; li < numLines; li++) {
+            const line = lines[li];
 
-            const wStart = startSec + i * perWordSec;
-            const wEnd = startSec + (i + 1) * perWordSec;
+            // Y center of this line. For bottom alignment the *last* line sits
+            // at the bottom margin; earlier lines stack above. For top, line 0
+            // sits at the top margin. For middle, the block is centred.
+            const lineY = (() => {
+                const halfFont = fontSize / 2;
+                if (positionV === "top") {
+                    return marginV + li * lineHeight + halfFont;
+                }
+                if (positionV === "middle") {
+                    const blockTop = vDim.height / 2 - (numLines * lineHeight) / 2;
+                    return blockTop + li * lineHeight + halfFont;
+                }
+                // bottom
+                return vDim.height - marginV - (numLines - 1 - li) * lineHeight - halfFont;
+            })();
 
-            // \an5 anchors the overlay at its word's centre. The chunky
-            // coloured outline (`\bord12` + `\3c<boxColor>`) draws the
-            // yellow pill; `\1c` paints the text on top in black.
-            out.push({
-                id: nextId++,
-                start: formatSrtTime(wStart),
-                end:   formatSrtTime(wEnd),
-                text:
-                    `{\\an5\\pos(${Math.round(centerX)},${Math.round(baseY)})` +
-                    `\\1c&H000000&\\3c${boxAss}\\bord12\\shad0\\b1}` +
-                    words[i],
-                confidence: sub.confidence,
-            });
+            let cursorX = vDim.width / 2 - line.totalWidth / 2;
+            for (let wi = 0; wi < line.words.length; wi++) {
+                const w = line.widths[wi];
+                const centerX = cursorX + w / 2;
+                cursorX += w + spaceW;
+
+                const globalIdx = line.startIdx + wi;
+                const wStart = startSec + globalIdx * perWordSec;
+                const wEnd   = startSec + (globalIdx + 1) * perWordSec;
+
+                out.push({
+                    id: nextId++,
+                    start: formatSrtTime(wStart),
+                    end:   formatSrtTime(wEnd),
+                    text:
+                        `{\\an5\\pos(${Math.round(centerX)},${Math.round(lineY)})` +
+                        `\\1c&H000000&\\3c${boxAss}\\bord12\\shad0\\b1}` +
+                        line.words[wi],
+                    confidence: sub.confidence,
+                });
+            }
         }
     }
     return out;
+}
+
+/**
+ * TikTok "single box" variant — one Dialogue per cue with a chunky coloured
+ * stroke that reads as a single pill behind the whole sentence. No per-word
+ * highlighting. Text wraps via the libass default. Cheaper to render than
+ * the active-word variant and avoids any width-estimation drift.
+ */
+export function expandTikTokSingleBox(
+    subtitles: Subtitle[],
+    boxHex: string,
+): Subtitle[] {
+    const boxAss = rgbToAssBgr(boxHex);
+    // \1c black text on \3c box-coloured stroke, \bord thick enough to fake
+    // a rounded rectangle around the line. Bold for that TikTok weight.
+    const overrides =
+        `{\\1c&H000000&\\3c${boxAss}\\bord14\\shad0\\b1}`;
+    return subtitles.map((sub) => ({
+        ...sub,
+        text: overrides + sub.text,
+    }));
 }
 
 /**
@@ -549,6 +630,7 @@ export function expandForAnimation(
         animation: string;
         revealFadeInactive?: boolean;
         revealWordEntrance?: boolean;
+        tiktokStyle?: "active-box" | "single-box";
         primaryColor?: string;
         fontFamily?: string;
         fontSizeScale?: number;
@@ -569,9 +651,15 @@ export function expandForAnimation(
         }
 
         case "tiktok-box": {
-            // TikTok preset's font size at scale=1.0 is 50px on a 720p canvas,
-            // scaled by the actual height. `tiktok` here is the BASE_FONT_SIZES
-            // value — kept as a literal so subtitle-types.ts has no import.
+            const boxHex = config.primaryColor ?? "#FACC15";
+            if ((config.tiktokStyle ?? "active-box") === "single-box") {
+                // Single pill behind the whole sentence — no per-word math
+                // needed, libass wraps the line itself.
+                return expandTikTokSingleBox(subtitles, boxHex);
+            }
+            // Active-word pill — needs the rendered font size in target-video
+            // pixels for the word-position math. 50 is BASE_FONT_SIZES.tiktok,
+            // kept literal so this file stays import-free.
             const tiktokBase = 50;
             const scale = vDim.height / 720;
             const fontSize = Math.round(
@@ -579,7 +667,7 @@ export function expandForAnimation(
             );
             return expandTikTokBox(
                 subtitles,
-                config.primaryColor ?? "#FACC15",
+                boxHex,
                 config.fontFamily ?? "Anton",
                 fontSize,
                 vDim,
