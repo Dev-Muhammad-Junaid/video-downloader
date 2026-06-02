@@ -47,7 +47,7 @@ export interface SubtitleStyleConfig {
      *                    yellow rectangle overlay on the currently-spoken
      *                    word, positioned via approximate font metrics.
      */
-    animation: "none" | "fade" | "pop" | "slide-up" | "karaoke" | "reveal" | "tiktok-box" | "stacked";
+    animation: "none" | "fade" | "pop" | "slide-up" | "karaoke" | "reveal" | "tiktok-box";
 
     /**
      * Reveal modifier — when true, inactive words are dimmed (alpha) so the
@@ -90,14 +90,17 @@ const PRESET_DEFAULTS: Record<string, Partial<SubtitleStyleConfig>> = {
     // ── TikTok — real TikTok look. PrimaryColour stores the *highlight*
     //    (pill) colour so users can recolour it to pink/green/etc. The
     //    `tiktokStyle` modifier picks the layout variant downstream in
-    //    expandForAnimation: "active-box" places per-word pills, while
-    //    "single-box" puts one pill behind the whole sentence.
+    //    expandForAnimation: "single-box" puts one pill behind the whole
+    //    sentence and lets libass handle wrap natively (always aligned).
+    //    "active-box" attempts per-word pills using Canvas measureText —
+    //    looks great when font metrics line up, but kept opt-in because
+    //    libass and the browser's font rasteriser can still disagree.
     tiktok: {
         primaryColor: "#FACC15", outlineColor: "#000000",
         backgroundColor: "#000000", backgroundOpacity: 0,
         outlineSize: 2, shadowSize: 0,
         bold: true, italic: false, letterSpacing: 0, fontSizeScale: 1.2,
-        tiktokStyle: "active-box",
+        tiktokStyle: "single-box",
     },
 
     // ── Outline — bold white with a chunky black stroke; universal hero look ──
@@ -122,28 +125,6 @@ const PRESET_DEFAULTS: Record<string, Partial<SubtitleStyleConfig>> = {
         revealWordEntrance: false,
     },
 
-    // ── Vibes — y2k pop look. Stacked cyan / yellow / pink shadows behind
-    //    bold white text. animation="stacked" picks the palette by preset
-    //    id in expandForAnimation. Font locked to Anton so the layers read
-    //    as solid blocks rather than thin glyph trails.
-    vibes: {
-        fontFamily: "Anton",
-        primaryColor: "#FFFFFF", outlineColor: "#000000",
-        backgroundColor: "#000000", backgroundOpacity: 0,
-        outlineSize: 2, shadowSize: 0,
-        bold: true, italic: false, letterSpacing: 1, fontSizeScale: 1.35,
-    },
-
-    // ── 3D — premium extruded depth. Bright pink front with darker pink
-    //    tiers + black drop shadow giving an extruded look. Font locked to
-    //    Anton; the chunky strokes are what sell the 3D illusion.
-    "3d": {
-        fontFamily: "Anton",
-        primaryColor: "#FF66CC", outlineColor: "#FFFFFF",
-        backgroundColor: "#000000", backgroundOpacity: 0,
-        outlineSize: 1.5, shadowSize: 0,
-        bold: true, italic: false, letterSpacing: 0.5, fontSizeScale: 1.4,
-    },
 };
 
 export function getPresetDefaults(preset: string): Partial<SubtitleStyleConfig> {
@@ -226,12 +207,11 @@ function makeAnimTag(
     vDim: { width: number; height: number },
     marginV: number,
 ): string {
-    // `karaoke` / `reveal` / `tiktok-box` / `stacked` bake their own
-    // entrance / layering logic into the per-cue expanded text, so no
-    // extra wrapper animation tag is needed at the cue level.
+    // `karaoke` / `reveal` / `tiktok-box` bake their own entrance / layering
+    // logic into the per-cue expanded text, so no extra wrapper animation
+    // tag is needed at the cue level.
     if (animation === "none" || animation === "karaoke" ||
-        animation === "reveal" || animation === "tiktok-box" ||
-        animation === "stacked") return "";
+        animation === "reveal" || animation === "tiktok-box") return "";
 
     if (animation === "fade") return "{\\fad(300,300)}";
 
@@ -260,8 +240,6 @@ const BASE_FONT_SIZES: Record<string, number> = {
     tiktok:  50,
     outline: 42,
     reveal:  48,
-    vibes:   56,
-    "3d":    60,
 };
 
 /**

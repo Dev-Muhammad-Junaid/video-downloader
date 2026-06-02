@@ -29,10 +29,6 @@ export const STYLE_PRESETS: StylePreset[] = [
      * for Spotlight-style dim, "Word entrance" for Cascade-style pop-in.
      */
     { id: "reveal",  name: "Reveal",  desc: "Sentence with active word effects",   icon: "💡" },
-    /** y2k pop look — white text with cyan/yellow/pink tiered shadow trail. */
-    { id: "vibes",   name: "Vibes",   desc: "Stacked pop colour shadow",           icon: "🌈" },
-    /** Premium extruded 3D — bright pink front with depth tiers behind. */
-    { id: "3d",      name: "3D",      desc: "Extruded depth, pink premium",        icon: "💎" },
 ];
 
 // ── SRT Time Parsing ──
@@ -430,29 +426,64 @@ export function expandRevealCascade(
 
 // ── TikTok per-word box overlay ──────────────────────────────────────────────
 //
-// Approximate character widths per font (in units of font size). Tuned by
-// eye against the fonts we ship; tight enough on bold sans-serifs (Anton
-// looks ~95% right at any size), looser on proportional serifs. The TikTok
-// preset's font defaults to Anton so the overlays line up cleanly.
+// Fallback width factors used only when Canvas `measureText` is unavailable
+// (server-side burn path, SSR). When running in a browser we measure the
+// actual rendered text instead — the Google Fonts <link> in app/layout.tsx
+// registers every preset font with `document.fonts` early in app boot, so
+// Canvas hits the same glyph metrics libass uses and the per-word \pos
+// math lines up with the rendered base sentence.
 const FONT_WIDTH_FACTORS: Record<string, number> = {
     "Roboto":     0.50,
-    "Anton":      0.40,  // condensed display sans
+    "Anton":      0.40,
     "Lora":       0.50,
     "Oswald":     0.42,
-    "Space Mono": 0.60,  // monospace
+    "Space Mono": 0.60,
     "Nunito":     0.55,
 };
-const SPACE_WIDTH_FACTOR = 0.32;
+const SPACE_WIDTH_FACTOR_FALLBACK = 0.32;
 /** Sentence is constrained to this fraction of the video width — anything
  *  longer wraps onto additional lines. 0.85 ≈ 7.5% margin on each side,
  *  which is roughly what TikTok itself uses. */
 const MAX_LINE_RATIO = 0.85;
-/** Per-line vertical spacing as a multiple of font size. */
-const LINE_HEIGHT_FACTOR = 1.30;
+/** Per-line vertical spacing as a multiple of font size. Tuned for Anton's
+ *  tight metric; close enough on the other sans-serifs we ship. */
+const LINE_HEIGHT_FACTOR = 1.20;
+
+/** Lazily-allocated 2D context, reused across calls to avoid re-creating
+ *  a Canvas element on every word. SSR / non-browser → returns null. */
+let _measureCtx: CanvasRenderingContext2D | null | undefined;
+function getMeasureCtx(): CanvasRenderingContext2D | null {
+    if (_measureCtx !== undefined) return _measureCtx;
+    if (typeof document === "undefined") return (_measureCtx = null);
+    try {
+        _measureCtx = document.createElement("canvas").getContext("2d");
+    } catch {
+        _measureCtx = null;
+    }
+    return _measureCtx;
+}
 
 function estimateWordWidth(word: string, fontFamily: string, fontSize: number): number {
+    const ctx = getMeasureCtx();
+    if (ctx) {
+        // 700 weight matches the TikTok preset's `bold: true`. Quotes around
+        // the family allow names containing spaces ("Space Mono").
+        ctx.font = `700 ${fontSize}px "${fontFamily}", sans-serif`;
+        const w = ctx.measureText(word).width;
+        if (w > 0) return w;
+    }
     const factor = FONT_WIDTH_FACTORS[fontFamily] ?? 0.50;
     return word.length * fontSize * factor;
+}
+
+function estimateSpaceWidth(fontFamily: string, fontSize: number): number {
+    const ctx = getMeasureCtx();
+    if (ctx) {
+        ctx.font = `700 ${fontSize}px "${fontFamily}", sans-serif`;
+        const w = ctx.measureText(" ").width;
+        if (w > 0) return w;
+    }
+    return fontSize * SPACE_WIDTH_FACTOR_FALLBACK;
 }
 
 interface LaidOutLine {
@@ -526,7 +557,7 @@ export function expandTikTokBox(
     let nextId = 1;
 
     const boxAss = rgbToAssBgr(boxHex);
-    const spaceW = fontSize * SPACE_WIDTH_FACTOR;
+    const spaceW = estimateSpaceWidth(fontFamily, fontSize);
     const maxLineWidth = vDim.width * MAX_LINE_RATIO;
     const lineHeight = fontSize * LINE_HEIGHT_FACTOR;
     // Match the margin used by buildAssFile / positionToAlignment.
@@ -621,142 +652,6 @@ export function expandTikTokSingleBox(
     }));
 }
 
-// ── Stacked-shadow expander (Vibes / 3D presets) ─────────────────────────────
-//
-// Renders each cue as several overlapping Dialogue events at different `\pos`
-// offsets, each painted in a different colour. Read back-to-front:
-//
-//     [deepest shadow]   <- back layer, biggest offset
-//     [mid shadow]
-//     [front shadow]
-//     [main text]        <- top layer, zero offset
-//
-// All layers share the same anchor + alignment so multi-line cues wrap
-// identically across the stack. The shadow layers turn off their own
-// outline / shadow (`\3a&HFF&\4a&HFF&\bord0\shad0`) so only the fill colour
-// shows — that's what produces the clean tier of colours behind the text.
-
-/** A single shadow layer used by the stacked-shadow renderer. */
-export interface ShadowLayer {
-    /** Hex colour `#RRGGBB`. */
-    color: string;
-    /** Pixel offset right of the main text. */
-    dx: number;
-    /** Pixel offset down from the main text. */
-    dy: number;
-}
-
-/**
- * Hardcoded palette per preset. Kept local to keep these self-contained —
- * users still recolour the *main* text via the standard Text Color picker;
- * only the shadow layers come from here.
- */
-const STACKED_PALETTES: Record<string, ShadowLayer[]> = {
-    // Vibes — y2k pop: cyan / yellow / hot pink trail behind white text.
-    vibes: [
-        { color: "#FF1493", dx: 14, dy: 14 },  // hot pink (deepest)
-        { color: "#FFEB3B", dx: 9,  dy: 9  },  // yellow
-        { color: "#00E5FF", dx: 4,  dy: 4  },  // cyan
-    ],
-    // 3D — premium extruded look: black drop-shadow + four shaded purple
-    //      tiers fake an "extruded" depth without needing real perspective.
-    "3d": [
-        { color: "#000000", dx: 14, dy: 14 },
-        { color: "#3D1129", dx: 11, dy: 11 },
-        { color: "#6B1F4A", dx: 8,  dy: 8  },
-        { color: "#9C2E72", dx: 5,  dy: 5  },
-        { color: "#C84296", dx: 2,  dy: 2  },
-    ],
-};
-
-export function getStackedPalette(preset: string): ShadowLayer[] {
-    return STACKED_PALETTES[preset] ?? STACKED_PALETTES.vibes;
-}
-
-/** Map our (positionV, positionH) → ASS numpad alignment 1–9. Duplicated
- *  here (not imported) so this module stays free of ass-builder imports. */
-function computeAssAnchor(
-    positionV: "top" | "middle" | "bottom",
-    positionH: "left" | "center" | "right",
-): number {
-    const row = ({ bottom: 0, middle: 3, top: 6 } as Record<string, number>)[positionV] ?? 0;
-    const col = ({ left: 1, center: 2, right: 3 } as Record<string, number>)[positionH] ?? 2;
-    return row + col;
-}
-
-/**
- * Emit a stacked-shadow render of each cue.
- *
- * Each cue produces (layers.length + 1) Dialogue events:
- *   - N shadow layers with `\1c<layer>` and no border/shadow of their own,
- *     placed at `\pos(anchor + dx, anchor + dy)` so they sit behind the main
- *     text by varying offsets.
- *   - 1 main layer at the natural anchor, with `\1c<primary>` and a thin
- *     outline (`\3c<outline>\bord<n>`) for crisp edges over a busy video.
- *
- * Multi-line cues are handled by libass's own line wrapping — every layer
- * shares the same text and style, so they wrap identically (just shifted).
- */
-export function expandStackedShadow(
-    subtitles: Subtitle[],
-    layers: ShadowLayer[],
-    primaryHex: string,
-    outlineHex: string,
-    outlineSize: number,
-    vDim: { width: number; height: number },
-    positionV: "top" | "middle" | "bottom",
-    positionH: "left" | "center" | "right",
-): Subtitle[] {
-    const out: Subtitle[] = [];
-    let nextId = 1;
-
-    const anN = computeAssAnchor(positionV, positionH);
-    const marginH = 10;
-    const marginV = positionV === "middle" ? 8 : 45;
-
-    const anchorX =
-        positionH === "left"  ? marginH :
-        positionH === "right" ? vDim.width - marginH :
-                                vDim.width / 2;
-    const anchorY =
-        positionV === "top"    ? marginV :
-        positionV === "middle" ? vDim.height / 2 :
-                                 vDim.height - marginV;
-
-    const primaryAss = rgbToAssBgr(primaryHex);
-    const outlineAss = rgbToAssBgr(outlineHex);
-    const bord = Math.max(0, outlineSize);
-
-    for (const sub of subtitles) {
-        // Shadow layers — back to front so the closest tier renders last.
-        for (let i = layers.length - 1; i >= 0; i--) {
-            const l = layers[i];
-            const colorAss = rgbToAssBgr(l.color);
-            out.push({
-                id: nextId++,
-                start: sub.start,
-                end:   sub.end,
-                text:
-                    `{\\an${anN}\\pos(${Math.round(anchorX + l.dx)},${Math.round(anchorY + l.dy)})` +
-                    `\\1c${colorAss}\\3a&HFF&\\4a&HFF&\\bord0\\shad0\\b1}` +
-                    sub.text,
-                confidence: sub.confidence,
-            });
-        }
-        // Main (top) layer.
-        out.push({
-            id: nextId++,
-            start: sub.start,
-            end:   sub.end,
-            text:
-                `{\\an${anN}\\pos(${Math.round(anchorX)},${Math.round(anchorY)})` +
-                `\\1c${primaryAss}\\3c${outlineAss}\\bord${bord}\\shad0\\b1}` +
-                sub.text,
-            confidence: sub.confidence,
-        });
-    }
-    return out;
-}
 
 /**
  * Dispatch helper: given the chosen animation mode + the config + target
@@ -817,23 +712,6 @@ export function expandForAnimation(
                 fontSize,
                 vDim,
                 config.positionV ?? "bottom",
-            );
-        }
-
-        case "stacked": {
-            // Palette is chosen by preset id (Vibes vs 3D etc.). Main text
-            // colour follows the user's Text Color swatch; the shadow tiers
-            // are baked into the preset for its signature look.
-            const palette = getStackedPalette(config.preset ?? "vibes");
-            return expandStackedShadow(
-                subtitles,
-                palette,
-                config.primaryColor ?? "#FFFFFF",
-                config.outlineColor ?? "#000000",
-                config.outlineSize ?? 2,
-                vDim,
-                config.positionV ?? "bottom",
-                config.positionH ?? "center",
             );
         }
 

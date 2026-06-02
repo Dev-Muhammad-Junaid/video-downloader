@@ -89,8 +89,6 @@ const PRESET_DEFAULT_ANIMATION: Record<string, SubtitleStyleConfig["animation"]>
     outline: "none",
     tiktok:  "tiktok-box",
     reveal:  "reveal",
-    vibes:   "stacked",
-    "3d":    "stacked",
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
