@@ -300,6 +300,39 @@ export function SubtitleStylePanel({ config, onChange, embedded = false }: Subti
                 </div>
             </Section>
 
+            {/* ── TikTok Options (only when TikTok preset is active) ── */}
+            {config.preset === "tiktok" && (
+                <Section title="TikTok Options">
+                    <div className="grid grid-cols-2 gap-1">
+                        {([
+                            { id: "active-box", icon: "🎯", label: "Active box",   hint: "Pill follows the spoken word" },
+                            { id: "single-box", icon: "🟨", label: "Single box",   hint: "One pill behind the whole line" },
+                        ] as const).map(v => {
+                            const active = (config.tiktokStyle ?? "active-box") === v.id;
+                            return (
+                                <button
+                                    key={v.id}
+                                    onClick={() => onChange({ tiktokStyle: v.id })}
+                                    title={v.hint}
+                                    className={cn(
+                                        "flex flex-col items-center gap-0.5 px-1.5 py-2 rounded-md border text-[10px] font-medium transition-all",
+                                        active
+                                            ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                            : "border-border bg-muted/40 text-foreground hover:bg-muted"
+                                    )}
+                                >
+                                    <span className="text-base leading-none">{v.icon}</span>
+                                    <span>{v.label}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <p className="text-[9px] text-muted-foreground/70 mt-1.5 leading-snug">
+                        Pill colour follows Text Color below.
+                    </p>
+                </Section>
+            )}
+
             {/* ── Reveal Options (only when Reveal preset is active) ── */}
             {config.preset === "reveal" && (
                 <Section title="Reveal Options">
