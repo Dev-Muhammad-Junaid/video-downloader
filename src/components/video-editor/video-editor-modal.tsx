@@ -427,10 +427,14 @@ export function VideoEditorModal({
             const wantSubs = includeSubtitles && hasSubtitles && mode !== "subtitles";
 
             // Karaoke animation: expand each cue into per-word cues before serialising
-            // expandForAnimation handles karaoke, reveal, spotlight, cascade.
-            // For everything else it returns the subtitles unchanged.
+            // expandForAnimation handles karaoke, reveal (with its modifier
+            // flags), and tiktok-box. tiktok-box needs the source video's
+            // dimensions for its per-word \pos math.
+            const vWidth  = videoRef.current?.videoWidth  ?? 1280;
+            const vHeight = videoRef.current?.videoHeight ?? 720;
+            const burnVDim = { width: vWidth, height: vHeight };
             const prepareSubsForBurn = (subs: Subtitle[]) =>
-                expandForAnimation(subs, styleConfig.animation);
+                expandForAnimation(subs, styleConfig, burnVDim);
 
             const clippedSubtitles = mode === "trim"
                 ? clipAndShiftSubtitles(subtitles, trimStart, trimEnd)

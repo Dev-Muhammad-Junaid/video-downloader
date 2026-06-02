@@ -37,20 +37,29 @@ export interface SubtitleStyleConfig {
      *
      * Simple entrances (fade / pop / slide-up) wrap the full cue.
      *
-     * The four advanced modes work in tandem with a per-cue text expansion
-     * that lives in `subtitle-types.ts`:
-     *   - `karaoke`   — one word at a time (one Dialogue per word).
-     *   - `reveal`    — one Dialogue per cue with `\k` tags between words;
-     *                   each word cumulatively turns into PrimaryColour as
-     *                   it's spoken (used by the "Reveal" preset).
-     *   - `spotlight` — same shape as `reveal` but using `\kf` smooth fill,
-     *                   with SecondaryColour set to a faded version of
-     *                   PrimaryColour. Inactive words appear dimmed.
-     *   - `cascade`   — N progressive snapshot Dialogues per cue; the newest
-     *                   word in each snapshot has a blur + scale + fade-in
-     *                   entrance baked into the text (Cascade preset).
+     * Advanced modes drive a per-cue text expansion in `subtitle-types.ts`:
+     *   - `karaoke`    — one word at a time (one Dialogue per word).
+     *   - `reveal`     — sentence-level reveal. Behaviour is further shaped
+     *                    by `revealFadeInactive` and `revealWordEntrance`
+     *                    (see below), so a single mode covers what used to
+     *                    be three separate presets.
+     *   - `tiktok-box` — real TikTok look. Full sentence rendered, plus a
+     *                    yellow rectangle overlay on the currently-spoken
+     *                    word, positioned via approximate font metrics.
      */
-    animation: "none" | "fade" | "pop" | "slide-up" | "karaoke" | "reveal" | "spotlight" | "cascade";
+    animation: "none" | "fade" | "pop" | "slide-up" | "karaoke" | "reveal" | "tiktok-box";
+
+    /**
+     * Reveal modifier — when true, inactive words are dimmed (alpha) so the
+     * active word visually "pops" out. Old Spotlight preset behaviour.
+     */
+    revealFadeInactive?: boolean;
+    /**
+     * Reveal modifier — when true, each new word arrives with a blur +
+     * scale + fade entrance. Old Cascade preset behaviour. Independent of
+     * `revealFadeInactive` so any combination is possible.
+     */
+    revealWordEntrance?: boolean;
 }
 
 // ── Preset defaults ──────────────────────────────────────────────────────────
@@ -59,10 +68,10 @@ export interface SubtitleStyleConfig {
  * Presets that should render with an opaque background block (BorderStyle=3)
  * instead of the outline+shadow model (BorderStyle=1). Single source of truth.
  */
-export const BOX_STYLE_PRESETS = new Set(["classic", "box", "highlight"]);
+export const BOX_STYLE_PRESETS = new Set(["classic"]);
 
 const PRESET_DEFAULTS: Record<string, Partial<SubtitleStyleConfig>> = {
-    // ── Classic — slightly lighter box, refined size ──
+    // ── Classic — translucent dark box, white text ──
     classic: {
         primaryColor: "#FFFFFF", outlineColor: "#000000",
         backgroundColor: "#000000", backgroundOpacity: 55,
@@ -70,109 +79,39 @@ const PRESET_DEFAULTS: Record<string, Partial<SubtitleStyleConfig>> = {
         bold: false, italic: false, letterSpacing: 0, fontSizeScale: 0.95,
     },
 
-    // ── TikTok — yellow word-by-word, a touch more breathable spacing ──
+    // ── TikTok — real TikTok look: full sentence with a yellow rectangle
+    //    overlay behind the currently-spoken word. PrimaryColour stores the
+    //    *highlight* (box) colour so users can recolour it to pink/green/etc.
+    //    Base sentence text is white with a thin black stroke; the overlay
+    //    paints black text on the highlight rectangle. animation=tiktok-box
+    //    drives a per-word position expander in subtitle-types.ts.
     tiktok: {
         primaryColor: "#FACC15", outlineColor: "#000000",
         backgroundColor: "#000000", backgroundOpacity: 0,
-        outlineSize: 4, shadowSize: 0,
-        bold: true, italic: false, letterSpacing: 1.5, fontSizeScale: 1.2,
+        outlineSize: 2, shadowSize: 0,
+        bold: true, italic: false, letterSpacing: 0, fontSizeScale: 1.2,
     },
 
-    // ── Box — black on white block ──
-    box: {
-        primaryColor: "#000000", outlineColor: "#000000",
-        backgroundColor: "#FFFFFF", backgroundOpacity: 100,
-        outlineSize: 0, shadowSize: 0,
-        bold: true, italic: false, letterSpacing: 0, fontSizeScale: 1.0,
-    },
-
-    // ── Cinematic — more dramatic spacing, smaller / more delicate ──
-    cinematic: {
-        primaryColor: "#FFFFFF", outlineColor: "#000000",
-        backgroundColor: "#000000", backgroundOpacity: 0,
-        outlineSize: 0, shadowSize: 7,
-        bold: false, italic: true, letterSpacing: 5, fontSizeScale: 0.85,
-    },
-
-    // ── Outline — slightly thicker stroke + a hint more shadow ──
+    // ── Outline — bold white with a chunky black stroke; universal hero look ──
     outline: {
         primaryColor: "#FFFFFF", outlineColor: "#000000",
         backgroundColor: "#000000", backgroundOpacity: 0,
-        outlineSize: 3.5, shadowSize: 2,
-        bold: true, italic: false, letterSpacing: 0, fontSizeScale: 1.05,
+        outlineSize: 4, shadowSize: 1.5,
+        bold: true, italic: false, letterSpacing: 0, fontSizeScale: 1.15,
     },
 
-    // ── Mega (formerly Bold Center) — punchier stroke at scale 1.6 ──
-    "bold-center": {
-        primaryColor: "#FFFFFF", outlineColor: "#000000",
-        backgroundColor: "#000000", backgroundOpacity: 0,
-        outlineSize: 5, shadowSize: 0,
-        bold: true, italic: false, letterSpacing: 0, fontSizeScale: 1.6,
-    },
-
-    // ── Neon — electric cyan core with magenta halo (chromatic glow) ──
-    // Hot pink outline blurred by a thick shadow mimics a neon-tube glow.
-    neon: {
-        primaryColor: "#00F0FF", outlineColor: "#FF1493",
-        backgroundColor: "#000000", backgroundOpacity: 0,
-        outlineSize: 2.5, shadowSize: 8,
-        bold: true, italic: false, letterSpacing: 1, fontSizeScale: 1.15,
-    },
-
-    // ── Punch — viral explainer (MrBeast-style): big yellow + thick stroke ──
-    punch: {
-        primaryColor: "#FFD700", outlineColor: "#000000",
-        backgroundColor: "#000000", backgroundOpacity: 0,
-        outlineSize: 7, shadowSize: 0,
-        bold: true, italic: false, letterSpacing: 0, fontSizeScale: 1.5,
-    },
-
-    // ── Whisper — minimal documentary, hairline shadow, wide elegant spacing ──
-    whisper: {
-        primaryColor: "#FFFFFF", outlineColor: "#000000",
-        backgroundColor: "#000000", backgroundOpacity: 0,
-        outlineSize: 0.5, shadowSize: 2,
-        bold: false, italic: false, letterSpacing: 2, fontSizeScale: 0.75,
-    },
-
-    // ── Highlight — Submagic-style yellow word block, black text, karaoke ──
-    // The karaoke timing expansion turns each word into its own Dialogue line,
-    // so with BorderStyle=3 each word gets its own yellow background box.
-    highlight: {
-        primaryColor: "#000000", outlineColor: "#000000",
-        backgroundColor: "#FACC15", backgroundOpacity: 100,
-        outlineSize: 0, shadowSize: 0,
-        bold: true, italic: false, letterSpacing: 1, fontSizeScale: 1.3,
-    },
-
-    // ── Reveal — full sentence; active word turns yellow as it's spoken ──
-    // Builds up cumulatively: by the end of the cue, the whole sentence is
-    // yellow. PrimaryColour = yellow (active), SecondaryColour = white
-    // (inactive) is set automatically in buildAssFile when animation==reveal.
+    // ── Reveal — sentence-level reveal. PrimaryColour = highlight target
+    //    colour (yellow by default), SecondaryColour is set automatically
+    //    based on revealFadeInactive (white for sharp, faded primary for
+    //    smooth). Modifier flags revealFadeInactive / revealWordEntrance
+    //    extend the behaviour with old-Spotlight / old-Cascade flavours.
     reveal: {
         primaryColor: "#FACC15", outlineColor: "#000000",
         backgroundColor: "#000000", backgroundOpacity: 0,
-        outlineSize: 3.5, shadowSize: 0,
+        outlineSize: 3, shadowSize: 0,
         bold: true, italic: false, letterSpacing: 0.5, fontSizeScale: 1.1,
-    },
-
-    // ── Spotlight — full sentence faded; active word at full opacity ──
-    // Uses `\kf` smooth fill. SecondaryColour = primaryColor at ~35% alpha,
-    // PrimaryColour = primaryColor at full alpha. Set automatically.
-    spotlight: {
-        primaryColor: "#FFFFFF", outlineColor: "#000000",
-        backgroundColor: "#000000", backgroundOpacity: 0,
-        outlineSize: 2.5, shadowSize: 0,
-        bold: true, italic: false, letterSpacing: 0.5, fontSizeScale: 1.1,
-    },
-
-    // ── Cascade — words pop in with blur + scale + fade entrance, all stay ──
-    // Per-word scale variance gives the type a rhythmic, hand-keyed feel.
-    cascade: {
-        primaryColor: "#FFFFFF", outlineColor: "#000000",
-        backgroundColor: "#000000", backgroundOpacity: 0,
-        outlineSize: 3, shadowSize: 2,
-        bold: true, italic: false, letterSpacing: 0, fontSizeScale: 1.2,
+        revealFadeInactive: false,
+        revealWordEntrance: false,
     },
 };
 
@@ -198,6 +137,8 @@ export function createDefaultStyleConfig(preset = "classic"): SubtitleStyleConfi
         bold: d.bold ?? false,
         italic: d.italic ?? false,
         animation: "none",
+        revealFadeInactive: d.revealFadeInactive ?? false,
+        revealWordEntrance: d.revealWordEntrance ?? false,
     };
 }
 
@@ -250,11 +191,10 @@ function makeAnimTag(
     vDim: { width: number; height: number },
     marginV: number,
 ): string {
-    // `karaoke` / `reveal` / `spotlight` / `cascade` bake their own entrance
-    // logic into the per-cue expanded text — no extra wrapper tag needed.
+    // `karaoke` / `reveal` / `tiktok-box` bake their own entrance logic
+    // into the per-cue expanded text — no extra wrapper tag needed.
     if (animation === "none" || animation === "karaoke" ||
-        animation === "reveal" || animation === "spotlight" ||
-        animation === "cascade") return "";
+        animation === "reveal" || animation === "tiktok-box") return "";
 
     if (animation === "fade") return "{\\fad(300,300)}";
 
@@ -279,12 +219,10 @@ function makeAnimTag(
 
 /** Base font sizes (at scale=1.0) per preset, tuned for a 720p PlayRes canvas */
 const BASE_FONT_SIZES: Record<string, number> = {
-    classic: 36, tiktok: 52, box: 36,
-    cinematic: 32, outline: 38, "bold-center": 58,
-    // Viral presets — generally larger so the styling reads at any res
-    neon: 50, punch: 60, whisper: 30, highlight: 50,
-    // Advanced (per-word) presets — tuned to read at the same density as TikTok
-    reveal: 48, spotlight: 48, cascade: 50,
+    classic: 36,
+    tiktok:  50,
+    outline: 42,
+    reveal:  48,
 };
 
 /**
@@ -328,16 +266,17 @@ export function buildAssFile(
     const backAss = hexToAss(backgroundColor, isBoxStyle ? backgroundOpacity : 100);
 
     // SecondaryColour governs the un-highlighted state of `\k` / `\kf`
-    // karaoke segments. For the advanced presets that use karaoke tags
-    // inside the text, it's the colour every word *starts* at:
-    //   - reveal:    starts white, animates to PrimaryColour (yellow)
-    //   - spotlight: starts faded (35% alpha), animates to PrimaryColour (full)
-    // For everything else it's the ASS default (transparent placeholder).
+    // karaoke segments. For the Reveal preset it's the colour each word
+    // starts at before its karaoke tick promotes it to PrimaryColour:
+    //   - default:           white (sharp color shift to PrimaryColour)
+    //   - revealFadeInactive: faded primary (smooth alpha brightening)
+    // For tiktok-box the base sentence is rendered via inline overrides and
+    // the Default-style secondary is never sampled; we leave it as-is.
     let secondaryAss = "&H000000FF";
     if (animation === "reveal") {
-        secondaryAss = hexToAss("#FFFFFF", 100);
-    } else if (animation === "spotlight") {
-        secondaryAss = hexToAss(primaryColor, 35);
+        secondaryAss = config.revealFadeInactive
+            ? hexToAss(primaryColor, 35)
+            : hexToAss("#FFFFFF", 100);
     }
 
     // Box style: no visible outline / shadow — they'd conflict with the filled box

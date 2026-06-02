@@ -17,31 +17,18 @@ export interface StylePreset {
 }
 
 export const STYLE_PRESETS: StylePreset[] = [
-    // ── Core ─────────────────────────────────────────────────────────────────
-    { id: "classic",     name: "Classic",   desc: "Standard bottom text",            icon: "📺" },
-    { id: "tiktok",      name: "TikTok",    desc: "Yellow word-by-word",             icon: "🎯" },
-    { id: "box",         name: "Box",       desc: "Black text on white block",       icon: "◻️" },
-    { id: "cinematic",   name: "Cinematic", desc: "Wide-set italic, soft shadow",    icon: "🎬" },
-    { id: "outline",     name: "Outline",   desc: "Bold white, black stroke",        icon: "✏️" },
-    { id: "bold-center", name: "Mega",      desc: "Huge centered hero text",         icon: "💥" },
-
-    // ── Viral / Instagram-Reels ──────────────────────────────────────────────
-    /** Cyan glow on magenta halo — synth-wave / aesthetic reel look. */
-    { id: "neon",        name: "Neon",      desc: "Electric cyan with pink glow",    icon: "💫" },
-    /** Massive gold-yellow on thick black stroke — viral explainer style. */
-    { id: "punch",       name: "Punch",     desc: "Big bold yellow with stroke",     icon: "⚡" },
-    /** Minimal documentary — small refined caption with hairline shadow. */
-    { id: "whisper",     name: "Whisper",   desc: "Minimal documentary caption",     icon: "🪶" },
-    /** Per-word yellow block w/ karaoke timing — Submagic-style. */
-    { id: "highlight",   name: "Highlight", desc: "Yellow word block, karaoke",      icon: "🟨" },
-
-    // ── Advanced (per-cue word effects, like CapCut / Premier Pro) ──────────
-    /** Full sentence shown; each word turns yellow as it's spoken. */
-    { id: "reveal",      name: "Reveal",    desc: "Sentence; word turns yellow",     icon: "💡" },
-    /** Faded sentence; the spoken word brightens to full opacity. */
-    { id: "spotlight",   name: "Spotlight", desc: "Dim sentence; active is bright",  icon: "🔦" },
-    /** Words cascade in with blur + scale + fade entrance, all stay visible. */
-    { id: "cascade",     name: "Cascade",   desc: "Words pop in with blur + scale",  icon: "🌊" },
+    /** Standard subtitle — white text in a translucent dark box. */
+    { id: "classic", name: "Classic", desc: "Standard bottom text",                icon: "📺" },
+    /** Real TikTok look — yellow rectangle behind the active word as it's spoken. */
+    { id: "tiktok",  name: "TikTok",  desc: "Yellow box under spoken word",        icon: "🎯" },
+    /** Bold white text with black stroke — universal hero caption. */
+    { id: "outline", name: "Outline", desc: "Bold white, black stroke",            icon: "✏️" },
+    /**
+     * Sentence-level reveal with optional Spotlight / Cascade modifiers.
+     * Default: each word turns yellow as it's spoken. Toggle "Fade inactive"
+     * for Spotlight-style dim, "Word entrance" for Cascade-style pop-in.
+     */
+    { id: "reveal",  name: "Reveal",  desc: "Sentence with active word effects",   icon: "💡" },
 ];
 
 // ── SRT Time Parsing ──
@@ -306,13 +293,34 @@ export function expandTikTokSubtitles(subtitles: Subtitle[]): Subtitle[] {
 // text — so the same expanded form drives both the JASSUB preview and the
 // FFmpeg burn pipeline.
 
+/** Internal: "#RRGGBB" → ASS "&H00BBGGRR" (opaque). Kept local to avoid
+ *  a hard import dependency from subtitle-types.ts onto ass-builder.ts. */
+function rgbToAssBgr(hex: string): string {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    const h = (n: number) => n.toString(16).padStart(2, "0").toUpperCase();
+    return `&H00${h(b)}${h(g)}${h(r)}&`;
+}
+
+/** Per-word scale variance for cascade entrance — deterministic so a given
+ *  word always lays out the same way (95 / 100 / 105 / 110 %). */
+function cascadeWordScale(word: string, idx: number): number {
+    const seed = (word.length * 7 + idx * 13) % 4;
+    return 95 + seed * 5;
+}
+
 /**
  * One Dialogue per cue with `\k` (instant) or `\kf` (smooth-fill) karaoke
  * tags between words. The active word transitions from SecondaryColour to
  * PrimaryColour as it's spoken; libass handles the rest.
  *
- * Words "spoken" so far stay highlighted — the highlight builds up across
- * the line. That's the look the Reveal and Spotlight presets use.
+ * Used by the Reveal preset when `revealWordEntrance` is false:
+ *   - tag="k":  sharp color shift — each word snaps to PrimaryColour as
+ *               its tick passes (cumulative buildup across the line).
+ *   - tag="kf": smooth fill — paired with a faded SecondaryColour (set by
+ *               buildAssFile when revealFadeInactive=true), this gives a
+ *               Spotlight-style "dim → bright as spoken" effect.
  */
 export function expandKaraokeInline(
     subtitles: Subtitle[],
@@ -343,26 +351,21 @@ export function expandKaraokeInline(
 }
 
 /**
- * Per-word scale variance — deterministic so a given word always lays out
- * the same way. Returns a percent (95 / 100 / 105 / 110) that the cascade
- * expander stamps into `\fscx\fscy` for both the entrance and the resting
- * state, giving the line a hand-keyed visual rhythm.
- */
-function cascadeWordScale(word: string, idx: number): number {
-    const seed = (word.length * 7 + idx * 13) % 4;
-    return 95 + seed * 5;
-}
-
-/**
- * N progressive snapshot Dialogues per cue.
+ * Cascade-style Reveal: N progressive snapshot Dialogues per cue, each
+ * snapshot showing words 0..i with the newest word arriving via a blur +
+ * scale + fade entrance. Per-word scale variance gives the line a
+ * hand-keyed rhythm.
  *
- * Snapshot k spans from word_k's start to word_(k+1)'s start (or the cue
- * end). Its text is "Word1 Word2 ... Word_(k-1) {entrance}Word_k" — older
- * words sit at their resting scale, only the newest word animates in with
- * a blur + scale + fade entrance. All accumulated words stay visible until
- * the cue ends, which is the CapCut / Premier Pro "typing-on" look.
+ *   - fadeInactive=false: older words sit at full opacity once they've
+ *                         appeared (CapCut "typing-on" look).
+ *   - fadeInactive=true:  older words dim back to ~35% opacity once a
+ *                         new word arrives — the spotlight follows the
+ *                         speaker word by word.
  */
-export function expandCascade(subtitles: Subtitle[]): Subtitle[] {
+export function expandRevealCascade(
+    subtitles: Subtitle[],
+    fadeInactive: boolean,
+): Subtitle[] {
     const out: Subtitle[] = [];
     let nextId = 1;
 
@@ -378,9 +381,11 @@ export function expandCascade(subtitles: Subtitle[]): Subtitle[] {
 
         const totalMs = Math.max(words.length * 60, (endSec - startSec) * 1000);
         const perWordMs = totalMs / words.length;
-        // Cap entrance to 70% of the per-word slot so the next snapshot doesn't
-        // cut it off; 80 ms floor keeps it feeling snappy on fast speech.
-        const entranceMs = Math.max(80, Math.min(200, Math.round(perWordMs * 0.7)));
+        // Cap entrance to 70% of the per-word slot so the next snapshot
+        // doesn't cut it off; 80 ms floor keeps it feeling snappy.
+        const entranceMs = Math.max(80, Math.min(220, Math.round(perWordMs * 0.7)));
+        // 35% visible ≈ alpha 0xA6. Used to dim older words when fadeInactive.
+        const dimAlpha = "A6";
 
         for (let i = 0; i < words.length; i++) {
             const snapStart = startSec + (i * perWordMs) / 1000;
@@ -394,15 +399,16 @@ export function expandCascade(subtitles: Subtitle[]): Subtitle[] {
                 if (k === i) {
                     // Newest word — entrance: blur, sub-100% scale, transparent,
                     // all animating to the resting state over `entranceMs`.
-                    const s0 = Math.round(s * 0.7);
+                    const s0 = Math.round(s * 0.75);
                     segments.push(
                         `{\\fscx${s0}\\fscy${s0}\\blur5\\alpha&HFF&` +
                         `\\t(0,${entranceMs},\\fscx${s}\\fscy${s}\\blur0\\alpha&H00&)}` +
                         words[k]
                     );
                 } else {
-                    // Older word — settled at its resting scale.
-                    segments.push(`{\\fscx${s}\\fscy${s}\\alpha&H00&}${words[k]}`);
+                    // Older word — settled. Dim if fadeInactive, else full opacity.
+                    const a = fadeInactive ? dimAlpha : "00";
+                    segments.push(`{\\fscx${s}\\fscy${s}\\alpha&H${a}&}${words[k]}`);
                 }
             }
 
@@ -418,24 +424,171 @@ export function expandCascade(subtitles: Subtitle[]): Subtitle[] {
     return out;
 }
 
+// ── TikTok per-word box overlay ──────────────────────────────────────────────
+//
+// Approximate character widths per font (in units of font size). Tuned by
+// eye against the fonts we ship; tight enough on bold sans-serifs (Anton
+// looks ~95% right at any size), looser on proportional serifs. The TikTok
+// preset's font defaults to Anton so the overlays line up cleanly.
+const FONT_WIDTH_FACTORS: Record<string, number> = {
+    "Roboto":     0.50,
+    "Anton":      0.40,  // condensed display sans
+    "Lora":       0.50,
+    "Oswald":     0.42,
+    "Space Mono": 0.60,  // monospace
+    "Nunito":     0.55,
+};
+const SPACE_WIDTH_FACTOR = 0.32;
+
+function estimateWordWidth(word: string, fontFamily: string, fontSize: number): number {
+    const factor = FONT_WIDTH_FACTORS[fontFamily] ?? 0.50;
+    return word.length * fontSize * factor;
+}
+
 /**
- * Dispatch helper: given the chosen animation mode, return the correctly
- * pre-expanded `Subtitle[]` so the next stage (`subtitlesToSrt → buildAssFile`)
- * doesn't have to know about per-cue effects.
+ * Real TikTok caption look. Each cue emits two kinds of Dialogue events:
  *
- * Both the JASSUB preview pipeline and the FFmpeg burn pipeline call this so
- * preview and export stay byte-identical.
+ *   1. A "base" event for the cue's full duration: the whole sentence in
+ *      white, with a thin black outline so it reads on any video.
+ *   2. One overlay event per word: a black-text-on-yellow-rectangle pill
+ *      positioned over that word, timed for when the word is "active".
+ *
+ * Word positions are approximated from per-font width factors — exact on
+ * monospace, ~5% drift on proportional fonts. Good enough that the box
+ * sits visibly behind the right word.
+ *
+ * The yellow "box" is faked with a chunky coloured outline (BorderStyle=1
+ * inherited from the Default style, `\bord` and `\3c` set inline). That
+ * avoids needing a second ASS style definition.
+ *
+ * @param boxHex      "#RRGGBB" of the highlight pill (defaults to TikTok yellow)
+ * @param fontFamily  Drives both the rendered base font and the width estimate
+ * @param fontSize    Already in the target video's pixel space
+ * @param vDim        Target video dimensions for `\pos` math
+ * @param positionV   bottom / middle / top — picks the y origin
+ */
+export function expandTikTokBox(
+    subtitles: Subtitle[],
+    boxHex: string,
+    fontFamily: string,
+    fontSize: number,
+    vDim: { width: number; height: number },
+    positionV: "top" | "middle" | "bottom",
+): Subtitle[] {
+    const out: Subtitle[] = [];
+    let nextId = 1;
+
+    const boxAss = rgbToAssBgr(boxHex);
+    const spaceW = fontSize * SPACE_WIDTH_FACTOR;
+    // Match the margin used by buildAssFile / positionToAlignment.
+    const marginV = positionV === "middle" ? 8 : 45;
+    const baseY =
+        positionV === "top"    ? marginV + fontSize / 2 :
+        positionV === "middle" ? vDim.height / 2 :
+                                 vDim.height - marginV - fontSize / 2;
+
+    for (const sub of subtitles) {
+        const words = sub.text.split(/\s+/).filter(Boolean);
+        if (words.length === 0) continue;
+
+        // 1) Base sentence — white text, thin black outline, no wrapping
+        //    so the per-word overlays stay aligned with a single layout pass.
+        out.push({
+            id: nextId++,
+            start: sub.start,
+            end:   sub.end,
+            text:  `{\\q2\\1c&HFFFFFF&\\3c&H000000&\\bord3\\shad0\\b1}${sub.text}`,
+            confidence: sub.confidence,
+        });
+
+        // 2) Per-word overlay positions.
+        const widths = words.map((w) => estimateWordWidth(w, fontFamily, fontSize));
+        const sentenceWidth =
+            widths.reduce((a, b) => a + b, 0) + spaceW * (words.length - 1);
+        let cursorX = vDim.width / 2 - sentenceWidth / 2;
+
+        const startSec = parseSrtTime(sub.start);
+        const perWordSec = (parseSrtTime(sub.end) - startSec) / words.length;
+
+        for (let i = 0; i < words.length; i++) {
+            const w = widths[i];
+            const centerX = cursorX + w / 2;
+            cursorX += w + spaceW;
+
+            const wStart = startSec + i * perWordSec;
+            const wEnd = startSec + (i + 1) * perWordSec;
+
+            // \an5 anchors the overlay at its word's centre. The chunky
+            // coloured outline (`\bord12` + `\3c<boxColor>`) draws the
+            // yellow pill; `\1c` paints the text on top in black.
+            out.push({
+                id: nextId++,
+                start: formatSrtTime(wStart),
+                end:   formatSrtTime(wEnd),
+                text:
+                    `{\\an5\\pos(${Math.round(centerX)},${Math.round(baseY)})` +
+                    `\\1c&H000000&\\3c${boxAss}\\bord12\\shad0\\b1}` +
+                    words[i],
+                confidence: sub.confidence,
+            });
+        }
+    }
+    return out;
+}
+
+/**
+ * Dispatch helper: given the chosen animation mode + the config + target
+ * video dimensions, return the correctly pre-expanded `Subtitle[]` so the
+ * next stage (`subtitlesToSrt → buildAssFile`) doesn't have to know about
+ * per-cue effects. Both the JASSUB preview pipeline and the FFmpeg burn
+ * pipeline call this so preview and export stay byte-identical.
  */
 export function expandForAnimation(
     subtitles: Subtitle[],
-    animation: string,
+    config: {
+        animation: string;
+        revealFadeInactive?: boolean;
+        revealWordEntrance?: boolean;
+        primaryColor?: string;
+        fontFamily?: string;
+        fontSizeScale?: number;
+        positionV?: "top" | "middle" | "bottom";
+    },
+    vDim: { width: number; height: number } = { width: 1280, height: 720 },
 ): Subtitle[] {
-    switch (animation) {
-        case "karaoke":   return expandTikTokSubtitles(subtitles);
-        case "reveal":    return expandKaraokeInline(subtitles, "k");
-        case "spotlight": return expandKaraokeInline(subtitles, "kf");
-        case "cascade":   return expandCascade(subtitles);
-        default:          return subtitles;
+    switch (config.animation) {
+        case "karaoke":
+            return expandTikTokSubtitles(subtitles);
+
+        case "reveal": {
+            const wordEntrance = config.revealWordEntrance ?? false;
+            const fadeInactive = config.revealFadeInactive ?? false;
+            return wordEntrance
+                ? expandRevealCascade(subtitles, fadeInactive)
+                : expandKaraokeInline(subtitles, fadeInactive ? "kf" : "k");
+        }
+
+        case "tiktok-box": {
+            // TikTok preset's font size at scale=1.0 is 50px on a 720p canvas,
+            // scaled by the actual height. `tiktok` here is the BASE_FONT_SIZES
+            // value — kept as a literal so subtitle-types.ts has no import.
+            const tiktokBase = 50;
+            const scale = vDim.height / 720;
+            const fontSize = Math.round(
+                tiktokBase * (config.fontSizeScale ?? 1.2) * scale
+            );
+            return expandTikTokBox(
+                subtitles,
+                config.primaryColor ?? "#FACC15",
+                config.fontFamily ?? "Anton",
+                fontSize,
+                vDim,
+                config.positionV ?? "bottom",
+            );
+        }
+
+        default:
+            return subtitles;
     }
 }
 

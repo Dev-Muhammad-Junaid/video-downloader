@@ -75,10 +75,15 @@ export function SubtitleRenderer({
             subs = makePreviewSubs(previewText);
         }
         // expandForAnimation handles every per-cue mode (karaoke, reveal,
-        // spotlight, cascade) and leaves the rest untouched.
-        const expanded = expandForAnimation(subs, config.animation);
-        return buildAssFile(subtitlesToSrt(expanded), config);
-    }, [subtitles, config, previewText]);
+        // tiktok-box) and leaves the rest untouched. tiktok-box needs the
+        // real video dimensions for its per-word \pos math.
+        const video = videoRef.current;
+        const vDim = video && video.videoWidth && video.videoHeight
+            ? { width: video.videoWidth, height: video.videoHeight }
+            : { width: 1280, height: 720 };
+        const expanded = expandForAnimation(subs, config, vDim);
+        return buildAssFile(subtitlesToSrt(expanded), config, vDim);
+    }, [subtitles, config, previewText, videoRef]);
 
     // ─── Effect 1: JASSUB lifecycle (create / destroy) ───────────────────────
     // Re-runs only when the video element itself changes.
