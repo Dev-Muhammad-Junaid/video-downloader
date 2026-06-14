@@ -16,6 +16,27 @@ function parseTimeToSeconds(time: string): number {
     return parseFloat(time) || 0;
 }
 
+/**
+ * Absolute path to the subtitle fonts bundled with the app — the *same* TTF
+ * files JASSUB loads in the browser preview (`public/fonts`). Handing this to
+ * libass through the `subtitles` filter's `fontsdir` option is what makes the
+ * burn-in match the preview 1:1. Without it libass can't resolve Roboto /
+ * Anton / Oswald / etc. (they aren't installed system-wide) and silently
+ * substitutes a default face, so every export drifts from what the user saw.
+ */
+const SUBTITLE_FONTS_DIR = path.join(process.cwd(), "public", "fonts");
+
+/** Escape a filesystem path for use inside an ffmpeg -vf filter argument. */
+function escapeForFfFilter(p: string): string {
+    return p.replace(/\\/g, "\\\\\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
+}
+
+/** Build the `subtitles=` filter for an ASS file, always pinning fontsdir so
+ *  the burn uses the same fonts as the preview. */
+function buildSubtitlesFilter(assPath: string): string {
+    return `subtitles=filename='${escapeForFfFilter(assPath)}':fontsdir='${escapeForFfFilter(SUBTITLE_FONTS_DIR)}'`;
+}
+
 // Helper to spawn ffmpeg and return a promise
 function runFfmpeg(args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -406,8 +427,7 @@ export async function trimBurnSubtitles(
     fs.writeFileSync(tmpAssPath, buildAssFile(srtContent, burnOpts, vDim), "utf-8");
 
     try {
-        const escapedAssPath = tmpAssPath.replace(/\\/g, "\\\\\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
-        const filterArg = `subtitles=filename='${escapedAssPath}'`;
+        const filterArg = buildSubtitlesFilter(tmpAssPath);
         const args = ["-y", "-ss", startTime, "-i", originalVideo.localPath, "-to", endTime, "-vf", filterArg, "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg TrimBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args);
@@ -455,8 +475,7 @@ export async function cropBurnSubtitles(
     fs.writeFileSync(tmpAssPath, buildAssFile(srtContent, burnOpts, { width: w, height: h }), "utf-8");
 
     try {
-        const escapedAssPath = tmpAssPath.replace(/\\/g, "\\\\\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
-        const filterArg = `crop=${w}:${h}:${x}:${y},subtitles=filename='${escapedAssPath}'`;
+        const filterArg = `crop=${w}:${h}:${x}:${y},${buildSubtitlesFilter(tmpAssPath)}`;
         const args = ["-y", "-i", originalVideo.localPath, "-vf", filterArg, "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg CropBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args);
@@ -504,8 +523,7 @@ export async function trimCropBurnSubtitles(
     fs.writeFileSync(tmpAssPath, buildAssFile(srtContent, burnOpts, { width: w, height: h }), "utf-8");
 
     try {
-        const escapedAssPath = tmpAssPath.replace(/\\/g, "\\\\\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
-        const filterArg = `crop=${w}:${h}:${x}:${y},subtitles=filename='${escapedAssPath}'`;
+        const filterArg = `crop=${w}:${h}:${x}:${y},${buildSubtitlesFilter(tmpAssPath)}`;
         const args = ["-y", "-ss", startTime, "-i", originalVideo.localPath, "-to", endTime, "-vf", filterArg, "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg TrimCropBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args);
@@ -554,11 +572,7 @@ export async function burnSubtitles(
     fs.writeFileSync(tmpAssPath, buildAssFile(srtContent, burnOpts, vDim), "utf-8");
 
     try {
-        const escapedAssPath = tmpAssPath
-            .replace(/\\/g, "\\\\\\\\")
-            .replace(/:/g, "\\:")
-            .replace(/'/g, "\\'");
-        const filterArg = `subtitles=filename='${escapedAssPath}'`;
+        const filterArg = buildSubtitlesFilter(tmpAssPath);
         const args = ["-y", "-i", originalVideo.localPath, "-vf", filterArg, "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg BurnSubs] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args);
