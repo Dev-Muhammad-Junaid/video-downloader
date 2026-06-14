@@ -27,7 +27,7 @@ import {
 import { GripVertical, Bold, Italic } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STYLE_PRESETS } from "./subtitle-types";
-import { BOX_STYLE_PRESETS, getPresetDefaults } from "@/lib/ass-builder";
+import { BOX_STYLE_PRESETS, getPresetDefaults, createDefaultStyleConfig } from "@/lib/ass-builder";
 import type { SubtitleStyleConfig } from "@/lib/ass-builder";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -75,21 +75,6 @@ const POSITION_GRID: Array<{
     { v: "bottom", h: "center", label: "Bottom center" },
     { v: "bottom", h: "right",  label: "Bottom right"  },
 ];
-
-/**
- * Default entrance animation per preset — applied on preset click and
- * overridable by the Animation section.
- */
-/**
- * Default animation per preset. Each preset binds to the right expander
- * downstream in `expandForAnimation`.
- */
-const PRESET_DEFAULT_ANIMATION: Record<string, SubtitleStyleConfig["animation"]> = {
-    classic: "none",
-    outline: "none",
-    tiktok:  "tiktok-box",
-    reveal:  "reveal",
-};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -219,17 +204,16 @@ export function SubtitleStylePanel({ config, onChange, embedded = false }: Subti
     }, [embedded, mx, my]);
 
     /**
-     * Clicking a preset applies its full visual identity — colours, stroke,
-     * spacing, etc. Position and font are preserved so the user keeps the
-     * layout / typography they intentionally chose.
+     * Clicking a preset applies its full visual identity — colours, border
+     * model, animation, casing, position. We reset from the preset's complete
+     * default config (so flags like uppercase / blur from a previous preset
+     * are cleared), keeping only the user's chosen font unless the preset
+     * pins its own.
      */
     const handlePresetClick = (presetId: string) => {
-        const defaults = getPresetDefaults(presetId);
-        onChange({
-            preset: presetId,
-            animation: PRESET_DEFAULT_ANIMATION[presetId] ?? "none",
-            ...defaults,
-        });
+        const full = createDefaultStyleConfig(presetId);
+        const pinnedFont = getPresetDefaults(presetId).fontFamily;
+        onChange({ ...full, fontFamily: pinnedFont ?? config.fontFamily });
     };
 
     const isBoxStyle = BOX_STYLE_PRESETS.has(config.preset);
@@ -299,39 +283,6 @@ export function SubtitleStylePanel({ config, onChange, embedded = false }: Subti
                     })}
                 </div>
             </Section>
-
-            {/* ── TikTok Options (only when TikTok preset is active) ── */}
-            {config.preset === "tiktok" && (
-                <Section title="TikTok Options">
-                    <div className="grid grid-cols-2 gap-1">
-                        {([
-                            { id: "active-box", icon: "🎯", label: "Active box",   hint: "Pill follows the spoken word" },
-                            { id: "single-box", icon: "🟨", label: "Single box",   hint: "One pill behind the whole line" },
-                        ] as const).map(v => {
-                            const active = (config.tiktokStyle ?? "active-box") === v.id;
-                            return (
-                                <button
-                                    key={v.id}
-                                    onClick={() => onChange({ tiktokStyle: v.id })}
-                                    title={v.hint}
-                                    className={cn(
-                                        "flex flex-col items-center gap-0.5 px-1.5 py-2 rounded-md border text-[10px] font-medium transition-all",
-                                        active
-                                            ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                                            : "border-border bg-muted/40 text-foreground hover:bg-muted"
-                                    )}
-                                >
-                                    <span className="text-base leading-none">{v.icon}</span>
-                                    <span>{v.label}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
-                    <p className="text-[9px] text-muted-foreground/70 mt-1.5 leading-snug">
-                        Pill colour follows Text Color below.
-                    </p>
-                </Section>
-            )}
 
             {/* ── Reveal Options (only when Reveal preset is active) ── */}
             {config.preset === "reveal" && (

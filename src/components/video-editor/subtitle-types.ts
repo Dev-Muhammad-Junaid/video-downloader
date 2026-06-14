@@ -17,18 +17,24 @@ export interface StylePreset {
 }
 
 export const STYLE_PRESETS: StylePreset[] = [
-    /** Standard subtitle — white text in a translucent dark box. */
-    { id: "classic", name: "Classic", desc: "Standard bottom text",                icon: "📺" },
-    /** Real TikTok look — yellow rectangle behind the active word as it's spoken. */
-    { id: "tiktok",  name: "TikTok",  desc: "Yellow box under spoken word",        icon: "🎯" },
-    /** Bold white text with black stroke — universal hero caption. */
-    { id: "outline", name: "Outline", desc: "Bold white, black stroke",            icon: "✏️" },
+    /** Standard subtitle — white text in a translucent rounded black box. */
+    { id: "classic",     name: "Classic",   desc: "White text, soft black box",       icon: "📺" },
+    /** Real TikTok look — yellow rounded box behind the active spoken word. */
+    { id: "tiktok",      name: "TikTok",    desc: "Yellow box on spoken word",        icon: "🎯" },
+    /** Black text on a solid white block with a drop shadow. */
+    { id: "box",         name: "Modern Box", desc: "Black text on white block",       icon: "⬜" },
+    /** Delicate light italic, wide tracking, soft cinematic shadow. */
+    { id: "cinematic",   name: "Cinematic", desc: "Light italic, soft shadow",        icon: "🎬" },
+    /** Bold white text with a clean black stroke — universal hero caption. */
+    { id: "outline",     name: "Outline",   desc: "Bold white, black stroke",         icon: "✏️" },
+    /** Huge centred uppercase hero text with stroke + glow. */
+    { id: "bold-center", name: "Bold Center", desc: "Huge centred hero text",         icon: "💥" },
     /**
      * Sentence-level reveal with optional Spotlight / Cascade modifiers.
      * Default: each word turns yellow as it's spoken. Toggle "Fade inactive"
      * for Spotlight-style dim, "Word entrance" for Cascade-style pop-in.
      */
-    { id: "reveal",  name: "Reveal",  desc: "Sentence with active word effects",   icon: "💡" },
+    { id: "reveal",      name: "Reveal",    desc: "Word-by-word highlight",           icon: "💡" },
 ];
 
 // ── SRT Time Parsing ──
@@ -525,21 +531,50 @@ function layoutLines(
 }
 
 /**
- * Real TikTok caption look — "active word box" variant.
+ * Build an ASS vector-drawing path for a rounded rectangle centred on the
+ * origin (so `\an5\pos(cx,cy)` drops it exactly on a point). Half-width `hw`,
+ * half-height `hh`, corner radius `r`. Coordinates are integers in PlayRes
+ * pixel space; `\p1` (scale 1) renders them 1:1.
+ */
+function roundedRectPath(hw: number, hh: number, r: number): string {
+    r = Math.max(0, Math.min(r, hw, hh));
+    const k = 0.5523;            // cubic-bezier circle approximation
+    const o = r * (1 - k);       // control-point inset from the corner
+    const R = (n: number) => Math.round(n);
+    const L = -hw, Rt = hw, T = -hh, B = hh;
+    return [
+        `m ${R(L + r)} ${R(T)}`,
+        `l ${R(Rt - r)} ${R(T)}`,
+        `b ${R(Rt - o)} ${R(T)} ${R(Rt)} ${R(T + o)} ${R(Rt)} ${R(T + r)}`,
+        `l ${R(Rt)} ${R(B - r)}`,
+        `b ${R(Rt)} ${R(B - o)} ${R(Rt - o)} ${R(B)} ${R(Rt - r)} ${R(B)}`,
+        `l ${R(L + r)} ${R(B)}`,
+        `b ${R(L + o)} ${R(B)} ${R(L)} ${R(B - o)} ${R(L)} ${R(B - r)}`,
+        `l ${R(L)} ${R(T + r)}`,
+        `b ${R(L)} ${R(T + o)} ${R(L + o)} ${R(T)} ${R(L + r)} ${R(T)}`,
+    ].join(" ");
+}
+
+/**
+ * Real TikTok caption look — full sentence in white with the currently-spoken
+ * word sitting on a solid rounded highlight box (black text on colour).
  *
- * Each cue emits two kinds of Dialogue events:
- *   1. A "base" event: the wrapped sentence in white with a thin black
- *      stroke, joined by `\N` so libass uses our wrap points.
- *   2. One overlay event per word: a black-text-on-yellow-rectangle pill
- *      positioned over that word, timed for when the word is "active".
+ * Per cue we emit:
+ *   1. A "base" event: the wrapped sentence in white with a black stroke,
+ *      joined by `\N` and `\q2` so libass honours our wrap points.
+ *   2. For each word, during its active window, two stacked events:
+ *        a. a filled rounded rectangle (vector drawing) in the box colour;
+ *        b. the word again in black, on top of that box.
+ *      All three layers share `\an5\pos(cx,cy)` so the box and black word
+ *      land exactly over the white word underneath. Same-layer events render
+ *      in file order, so base → box → black word composites correctly.
  *
- * Line wrapping is computed in JS from per-font width factors so we can
- * place the per-word overlays at the same x/y libass renders the base
- * text at. `\q2` on the base disables libass's own wrapping, locking it
- * to ours. ~5% drift is possible on proportional fonts; Anton (default
- * for this preset) is tight enough that the boxes visibly hug the words.
+ * Word x/y come from Canvas-measured widths (browser) baked into the SRT, so
+ * the preview and the burn consume the *identical* positions — 1:1 by
+ * construction. A real drawn rectangle (not a thick `\bord` halo) gives the
+ * clean pill TikTok uses, with consistent height regardless of glyph shape.
  *
- * @param boxHex      "#RRGGBB" of the highlight pill
+ * @param boxHex      "#RRGGBB" of the highlight box
  * @param fontFamily  Drives both the rendered font and the width estimate
  * @param fontSize    Already in the target video's pixel space
  * @param vDim        Target video dimensions for `\pos` math
@@ -560,8 +595,15 @@ export function expandTikTokBox(
     const spaceW = estimateSpaceWidth(fontFamily, fontSize);
     const maxLineWidth = vDim.width * MAX_LINE_RATIO;
     const lineHeight = fontSize * LINE_HEIGHT_FACTOR;
-    // Match the margin used by buildAssFile / positionToAlignment.
-    const marginV = positionV === "middle" ? 8 : 45;
+    // Must match buildAssFile's marginV (which scales 45/8 by height/720) so the
+    // per-word boxes sit on the same baseline as the style-positioned base text.
+    const marginV = (positionV === "middle" ? 8 : 45) * (vDim.height / 720);
+
+    // Box geometry, all derived from the rendered font size.
+    const padX = fontSize * 0.22;        // horizontal breathing room
+    const boxHalfH = fontSize * 0.62;    // half the pill height
+    const cornerR = fontSize * 0.18;     // rounded corner radius
+    const baseStroke = Math.max(2, Math.round(fontSize * 0.06));
 
     for (const sub of subtitles) {
         const words = sub.text.split(/\s+/).filter(Boolean);
@@ -577,21 +619,20 @@ export function expandTikTokBox(
             id: nextId++,
             start: sub.start,
             end:   sub.end,
-            text:  `{\\q2\\1c&HFFFFFF&\\3c&H000000&\\bord3\\shad0\\b1}${baseText}`,
+            text:
+                `{\\q2\\an${positionV === "top" ? 8 : positionV === "middle" ? 5 : 2}` +
+                `\\1c&HFFFFFF&\\3c&H000000&\\bord${baseStroke}\\shad0\\b1}${baseText}`,
             confidence: sub.confidence,
         });
 
-        // 2) Per-word overlays — y depends on which wrapped line the word
-        //    landed in, x on its position within that line.
+        // 2) Per-word highlight box + black word, timed to each word.
         const startSec = parseSrtTime(sub.start);
         const perWordSec = (parseSrtTime(sub.end) - startSec) / words.length;
 
         for (let li = 0; li < numLines; li++) {
             const line = lines[li];
 
-            // Y center of this line. For bottom alignment the *last* line sits
-            // at the bottom margin; earlier lines stack above. For top, line 0
-            // sits at the top margin. For middle, the block is centred.
+            // Y centre of this wrapped line, mirroring how the base text stacks.
             const lineY = (() => {
                 const halfFont = fontSize / 2;
                 if (positionV === "top") {
@@ -601,27 +642,41 @@ export function expandTikTokBox(
                     const blockTop = vDim.height / 2 - (numLines * lineHeight) / 2;
                     return blockTop + li * lineHeight + halfFont;
                 }
-                // bottom
                 return vDim.height - marginV - (numLines - 1 - li) * lineHeight - halfFont;
             })();
 
             let cursorX = vDim.width / 2 - line.totalWidth / 2;
             for (let wi = 0; wi < line.words.length; wi++) {
                 const w = line.widths[wi];
-                const centerX = cursorX + w / 2;
+                const centerX = Math.round(cursorX + w / 2);
+                const cy = Math.round(lineY);
                 cursorX += w + spaceW;
 
                 const globalIdx = line.startIdx + wi;
                 const wStart = startSec + globalIdx * perWordSec;
                 const wEnd   = startSec + (globalIdx + 1) * perWordSec;
+                const startStr = formatSrtTime(wStart);
+                const endStr   = formatSrtTime(wEnd);
 
+                // a. Filled rounded rectangle behind the word.
+                const path = roundedRectPath(w / 2 + padX, boxHalfH, cornerR);
                 out.push({
                     id: nextId++,
-                    start: formatSrtTime(wStart),
-                    end:   formatSrtTime(wEnd),
+                    start: startStr,
+                    end:   endStr,
                     text:
-                        `{\\an5\\pos(${Math.round(centerX)},${Math.round(lineY)})` +
-                        `\\1c&H000000&\\3c${boxAss}\\bord12\\shad0\\b1}` +
+                        `{\\an5\\pos(${centerX},${cy})\\1c${boxAss}\\bord0\\shad0\\p1}` +
+                        `${path}{\\p0}`,
+                    confidence: sub.confidence,
+                });
+
+                // b. The word again in black, on top of the box.
+                out.push({
+                    id: nextId++,
+                    start: startStr,
+                    end:   endStr,
+                    text:
+                        `{\\an5\\pos(${centerX},${cy})\\1c&H000000&\\bord0\\shad0\\b1}` +
                         line.words[wi],
                     confidence: sub.confidence,
                 });
@@ -629,27 +684,6 @@ export function expandTikTokBox(
         }
     }
     return out;
-}
-
-/**
- * TikTok "single box" variant — one Dialogue per cue with a chunky coloured
- * stroke that reads as a single pill behind the whole sentence. No per-word
- * highlighting. Text wraps via the libass default. Cheaper to render than
- * the active-word variant and avoids any width-estimation drift.
- */
-export function expandTikTokSingleBox(
-    subtitles: Subtitle[],
-    boxHex: string,
-): Subtitle[] {
-    const boxAss = rgbToAssBgr(boxHex);
-    // \1c black text on \3c box-coloured stroke, \bord thick enough to fake
-    // a rounded rectangle around the line. Bold for that TikTok weight.
-    const overrides =
-        `{\\1c&H000000&\\3c${boxAss}\\bord14\\shad0\\b1}`;
-    return subtitles.map((sub) => ({
-        ...sub,
-        text: overrides + sub.text,
-    }));
 }
 
 
@@ -667,7 +701,7 @@ export function expandForAnimation(
         preset?: string;
         revealFadeInactive?: boolean;
         revealWordEntrance?: boolean;
-        tiktokStyle?: "active-box" | "single-box";
+        uppercase?: boolean;
         primaryColor?: string;
         outlineColor?: string;
         outlineSize?: number;
@@ -678,37 +712,39 @@ export function expandForAnimation(
     },
     vDim: { width: number; height: number } = { width: 1280, height: 720 },
 ): Subtitle[] {
+    // Casing transform first, so every downstream expander (and the plain
+    // pass-through) works on the already-cased text — and both preview and
+    // burn, which both call this, stay identical.
+    const src = config.uppercase
+        ? subtitles.map((s) => ({ ...s, text: s.text.toUpperCase() }))
+        : subtitles;
+
     switch (config.animation) {
         case "karaoke":
-            return expandTikTokSubtitles(subtitles);
+            return expandTikTokSubtitles(src);
 
         case "reveal": {
             const wordEntrance = config.revealWordEntrance ?? false;
             const fadeInactive = config.revealFadeInactive ?? false;
             return wordEntrance
-                ? expandRevealCascade(subtitles, fadeInactive)
-                : expandKaraokeInline(subtitles, fadeInactive ? "kf" : "k");
+                ? expandRevealCascade(src, fadeInactive)
+                : expandKaraokeInline(src, fadeInactive ? "kf" : "k");
         }
 
         case "tiktok-box": {
             const boxHex = config.primaryColor ?? "#FACC15";
-            if ((config.tiktokStyle ?? "active-box") === "single-box") {
-                // Single pill behind the whole sentence — no per-word math
-                // needed, libass wraps the line itself.
-                return expandTikTokSingleBox(subtitles, boxHex);
-            }
-            // Active-word pill — needs the rendered font size in target-video
-            // pixels for the word-position math. 50 is BASE_FONT_SIZES.tiktok,
-            // kept literal so this file stays import-free.
+            // Word-position math needs the rendered font size in target-video
+            // pixels. 50 is BASE_FONT_SIZES.tiktok, kept literal so this file
+            // stays free of an ass-builder import.
             const tiktokBase = 50;
             const scale = vDim.height / 720;
             const fontSize = Math.round(
-                tiktokBase * (config.fontSizeScale ?? 1.2) * scale
+                tiktokBase * (config.fontSizeScale ?? 1.15) * scale
             );
             return expandTikTokBox(
-                subtitles,
+                src,
                 boxHex,
-                config.fontFamily ?? "Anton",
+                config.fontFamily ?? "Roboto",
                 fontSize,
                 vDim,
                 config.positionV ?? "bottom",
@@ -716,7 +752,7 @@ export function expandForAnimation(
         }
 
         default:
-            return subtitles;
+            return src;
     }
 }
 
