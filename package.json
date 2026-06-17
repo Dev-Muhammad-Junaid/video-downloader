@@ -2,6 +2,9 @@
   "name": "snapdown",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.0.0 <23.0.0"
+  },
   "scripts": {
     "prebuild:jassub": "node -e \"const fs=require('fs');fs.mkdirSync('public/jassub',{recursive:true});if(!fs.existsSync('public/jassub/jassub.js')){const {execSync}=require('child_process');execSync('npx esbuild node_modules/jassub/dist/jassub.js --bundle --format=esm --platform=browser --outfile=public/jassub/jassub.js',{stdio:'inherit'})};['jassub-worker.js','jassub-worker.wasm','jassub-worker-modern.wasm','default.woff2'].forEach(f=>{const src='node_modules/jassub/dist/'+(f.endsWith('.wasm')||f==='jassub-worker.js'?'wasm/':'')+f,dst='public/jassub/'+f;if(!fs.existsSync(dst))fs.copyFileSync(src,dst)})\"",
     "dev": "npm run prebuild:jassub && next dev",

@@ -167,7 +167,7 @@ export default function CloudSyncPage() {
                         Cloud Storage
                     </h1>
                     <p className="text-sm text-muted-foreground mt-1">
-                        Manage your Cloudflare R2 storage and synced media
+                        Your cloud storage and synced files.
                     </p>
                 </div>
                 <Button
@@ -360,8 +360,7 @@ export default function CloudSyncPage() {
                 ) : cloudVideos.length === 0 ? (
                     <div className="h-48 flex flex-col gap-3 items-center justify-center text-muted-foreground border-2 border-dashed border-muted rounded-2xl bg-muted/10">
                         <Cloud className="w-10 h-10 opacity-20" />
-                        <span className="text-sm opacity-60">No files uploaded to cloud yet</span>
-                        <span className="text-xs opacity-40">Upload videos from your library using the cloud button</span>
+                        <span className="text-sm opacity-60">No cloud files yet</span>
                     </div>
                 ) : (
                     <div className="space-y-2">

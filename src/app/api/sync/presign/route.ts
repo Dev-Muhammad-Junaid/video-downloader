@@ -41,7 +41,14 @@ export async function POST(req: Request) {
         const configuredExpiry = credentials?.urlExpiry || 604800;
         const expiresIn = Math.min(requestedExpiry || configuredExpiry, 604800);
 
-        const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn });
+        // `s3Client` and the presigner's expected Client type come from slightly
+        // different @aws-sdk minor versions, so TS sees two distinct (but runtime-
+        // identical) Client types. Cast to the presigner's expected client type.
+        const presignedUrl = await getSignedUrl(
+            s3Client as unknown as Parameters<typeof getSignedUrl>[0],
+            command,
+            { expiresIn }
+        );
 
         return NextResponse.json({ success: true, url: presignedUrl });
     } catch (error: any) {

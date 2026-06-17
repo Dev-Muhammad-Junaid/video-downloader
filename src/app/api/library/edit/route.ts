@@ -8,6 +8,7 @@ import {
     cropBurnSubtitles,
     trimCropBurnSubtitles,
     trimAudio,
+    processAudio,
     convertToMp4,
     editImage,
 } from "@/lib/media-editor";
@@ -70,6 +71,10 @@ export async function POST(req: Request) {
                 return NextResponse.json({ error: "trim-audio requires startTime and endTime" }, { status: 400 });
             }
             result = await trimAudio(videoId, startTime, endTime);
+
+        } else if (action === "process-audio") {
+            // Unified audio editor: trim + format/bitrate + gain + normalize + fades + voice enhance.
+            result = await processAudio(videoId, params || {});
 
         } else if (action === "trim-burn") {
             const { startTime, endTime, srtContent, styleConfig: rawStyle, inheritSrtContent } = params;

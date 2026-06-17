@@ -3,6 +3,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
     X,
     Play,
@@ -520,6 +522,8 @@ export function VideoEditorModal({
         return p && p.w ? p.w / p.h : 16 / 9;
     }, [aspectRatio]);
 
+    const isMobile = useIsMobile();
+
     // Tailwind max-w-* in px (16px rem) — animated via Framer Motion so width cap eases with the frame
     const previewMaxWidthPx = useMemo(() => {
         switch (aspectRatio) {
@@ -557,23 +561,24 @@ export function VideoEditorModal({
             className="fixed inset-0 z-[60] bg-background text-foreground flex flex-col"
         >
             {/* ── Header ── */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-border/60 bg-background/80 backdrop-blur-md relative shrink-0">
-                <div className="flex items-center gap-4">
+            <div className="relative flex flex-wrap items-center gap-2 px-3 sm:px-5 py-2 sm:py-3 border-b border-border/60 bg-background/80 backdrop-blur-md shrink-0">
+                <div className="flex items-center gap-2 sm:gap-4 min-w-0 mr-auto">
                     <Button
                         variant="ghost"
                         size="icon"
                         onClick={onClose}
-                        className="rounded-full hover:bg-muted text-foreground"
+                        className="rounded-full hover:bg-muted text-foreground shrink-0"
                     >
                         <X className="w-5 h-5" />
                     </Button>
-                    <h2 className="text-lg font-medium tracking-tight text-foreground truncate max-w-sm">
+                    <h2 className="hidden xl:block text-lg font-medium tracking-tight text-foreground truncate max-w-xs 2xl:max-w-sm">
                         Editing {video.title}
                     </h2>
                 </div>
 
-                {/* Mode Tabs */}
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1 bg-muted/60 rounded-xl p-1 border border-border/40">
+                {/* Mode Tabs — own full-width row on mobile, absolute-centered on desktop */}
+                <div className="order-last w-full sm:order-none sm:w-auto sm:absolute sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 flex justify-center">
+                  <div className="flex items-center gap-1 bg-muted/60 rounded-xl p-1 border border-border/40">
                     {([
                         { id: "trim",      label: "Trim",      Icon: Scissors },
                         { id: "crop",      label: "Crop",      Icon: CropIcon },
@@ -593,20 +598,24 @@ export function VideoEditorModal({
                             {label}
                         </button>
                     ))}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3">
                     {/* Include Subtitles toggle — visible in trim/crop when subtitles exist */}
                     {mode !== "subtitles" && hasSubtitles && (
-                        <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                        <label
+                            className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none whitespace-nowrap"
+                            title="Include subtitles in the export"
+                        >
                             <input
                                 type="checkbox"
                                 checked={includeSubtitles}
                                 onChange={(e) => setIncludeSubtitles(e.target.checked)}
                                 className="rounded border-border"
                             />
-                            <Captions className="w-3.5 h-3.5" />
-                            Include Subtitles
+                            <Captions className="w-3.5 h-3.5 shrink-0" />
+                            <span className="hidden xl:inline">Include Subtitles</span>
                         </label>
                     )}
                     <Button
@@ -636,13 +645,13 @@ export function VideoEditorModal({
                         ) : (
                             <Download className="w-4 h-4 mr-2" />
                         )}
-                        Export {mode === "trim" ? "Trim" : mode === "crop" ? "Crop" : "with Subtitles"}
+                        Export<span className="hidden sm:inline"> {mode === "trim" ? "Trim" : mode === "crop" ? "Crop" : "with Subtitles"}</span>
                     </Button>
                 </div>
             </div>
 
             {/* ── Main Content ── */}
-            <div className="flex-1 overflow-hidden flex">
+            <div className="flex-1 overflow-hidden flex flex-col sm:flex-row">
                 {/* Video Stage */}
                 <div className="flex-1 overflow-hidden relative bg-muted/40 dark:bg-muted/25 flex flex-col min-w-0">
                     {/* Video container — always has a defined aspect-ratio; CSS transition morphs it smoothly */}
@@ -729,11 +738,11 @@ export function VideoEditorModal({
                 <AnimatePresence>
                     {mode === "subtitles" && (
                         <motion.div
-                            initial={{ width: 0, opacity: 0 }}
-                            animate={{ width: 320, opacity: 1 }}
-                            exit={{ width: 0, opacity: 0 }}
+                            initial={isMobile ? { height: 0, opacity: 0 } : { width: 0, opacity: 0 }}
+                            animate={isMobile ? { height: "45vh", opacity: 1 } : { width: 320, opacity: 1 }}
+                            exit={isMobile ? { height: 0, opacity: 0 } : { width: 0, opacity: 0 }}
                             transition={{ duration: 0.18 }}
-                            className="flex flex-col overflow-hidden shrink-0 border-l border-border bg-background"
+                            className="flex flex-col overflow-hidden shrink-0 bg-background w-full sm:w-auto border-t sm:border-t-0 sm:border-l border-border"
                         >
                             {/* Tab bar — same pill pattern as the header Trim / Crop / Subtitles tabs */}
                             <div className="px-3 py-2 border-b border-border/60 shrink-0">
@@ -798,17 +807,26 @@ export function VideoEditorModal({
                                             <label className="text-[10px] text-muted-foreground block mb-1 font-medium uppercase tracking-wider">
                                                 Language
                                             </label>
-                                            <select
-                                                value={transcriptionLanguage}
-                                                onChange={(e) => setTranscriptionLanguage(e.target.value)}
-                                                className="w-full px-2 py-1.5 text-xs bg-muted border border-border rounded-lg text-foreground outline-none focus:border-ring transition-colors"
+                                            <Select
+                                                value={transcriptionLanguage || "auto-detect"}
+                                                onValueChange={(v) => setTranscriptionLanguage(v === "auto-detect" ? "" : (v ?? ""))}
                                             >
-                                                {TRANSCRIPTION_LANGUAGES.map((lang) => (
-                                                    <option key={lang.code} value={lang.code}>
-                                                        {lang.label}
-                                                    </option>
-                                                ))}
-                                            </select>
+                                                <SelectTrigger size="sm" className="w-full text-xs">
+                                                    <SelectValue>
+                                                        {(v) => {
+                                                            const code = v === "auto-detect" ? "" : v;
+                                                            return TRANSCRIPTION_LANGUAGES.find((l) => l.code === code)?.label ?? "Auto Detect";
+                                                        }}
+                                                    </SelectValue>
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {TRANSCRIPTION_LANGUAGES.map((lang) => (
+                                                        <SelectItem key={lang.code} value={lang.code || "auto-detect"} className="text-xs">
+                                                            {lang.label}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         </div>
                                         <Button
                                             size="sm"
@@ -839,7 +857,7 @@ export function VideoEditorModal({
             {/* ── Timeline & Controls ── */}
             <div className="border-t border-border bg-card/80 backdrop-blur-sm shrink-0 relative z-[70]">
                 {/* Seek bar (crop + subtitle modes) */}
-                <div className="px-5 pt-4 pb-1">
+                <div className="px-3 sm:px-5 pt-4 pb-1">
                     {mode !== "trim" && duration > 0 && (
                         <div className="group relative">
                             <input
@@ -868,7 +886,7 @@ export function VideoEditorModal({
                 </div>
 
                 {/* Compact Playback Bar */}
-                <div className="px-5 pb-2 flex items-center gap-3">
+                <div className="px-3 sm:px-5 pb-2 flex flex-wrap items-center gap-2 sm:gap-3">
                     <span ref={timeDisplayRef} className="text-[11px] text-muted-foreground font-mono tabular-nums min-w-[40px]">
                         {formatTime(currentTime)}
                     </span>
@@ -916,10 +934,10 @@ export function VideoEditorModal({
                         -{formatTime(Math.max(0, duration - currentTime))}
                     </span>
 
-                    <div className="flex-1" />
+                    <div className="hidden sm:block sm:flex-1" />
 
-                    {/* Aspect Ratio selector — animated sliding pill */}
-                    <div className="flex items-center gap-1 bg-muted/80 rounded-lg p-0.5 ring-1 ring-border/50">
+                    {/* Aspect Ratio selector — animated sliding pill (own row on mobile) */}
+                    <div className="order-last w-full sm:order-none sm:w-auto flex items-center justify-center sm:justify-start gap-1 bg-muted/80 rounded-lg p-0.5 ring-1 ring-border/50">
                         <RectangleHorizontal className="w-3 h-3 text-muted-foreground ml-1.5 mr-0.5" />
                         {ASPECT_RATIOS.map((ar) => (
                             <button
@@ -953,7 +971,7 @@ export function VideoEditorModal({
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
                             transition={{ duration: 0.18 }}
-                            className="px-5 pb-4"
+                            className="px-3 sm:px-5 pb-4"
                         >
                             <TimelineScrubber
                                 duration={duration}

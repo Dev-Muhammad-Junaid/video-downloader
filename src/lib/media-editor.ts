@@ -405,6 +405,131 @@ export async function trimAudio(
     return trimmedAudio;
 }
 
+export type AudioFormat = "original" | "mp3" | "m4a" | "wav";
+export type VoiceEnhance = "off" | "light" | "studio";
+
+export interface ProcessAudioOptions {
+    startTime?: string;       // trim start (seconds or hh:mm:ss); omit for full clip
+    endTime?: string;         // trim end
+    format?: AudioFormat;     // output container/codec
+    bitrate?: string;         // e.g. "192k" (ignored for wav)
+    gainDb?: number;          // manual gain in dB (+/-)
+    normalize?: boolean;      // EBU R128 loudness normalize
+    fadeIn?: number;          // fade-in seconds
+    fadeOut?: number;         // fade-out seconds
+    enhance?: VoiceEnhance;   // voice clean-up / studio enhancement
+}
+
+/**
+ * Build the ffmpeg `-af` chain for the audio editor. Order follows audio-engineering
+ * convention: clean the signal (enhance) → gain → loudness-normalize → shape edges (fades).
+ *
+ * Voice enhancement uses the bundled ffmpeg's local DSP filters (no cloud):
+ *  - highpass     : remove low-frequency rumble / handling noise
+ *  - afftdn       : FFT-based broadband denoise (hiss, fans, background hum)
+ *  - deesser      : tame harsh sibilance
+ *  - acompressor  : even out level so quiet speech is audible
+ *  - equalizer    : cut mud (~200 Hz), lift presence (~3 kHz) for an intelligible "studio" voice
+ *  - loudnorm     : land at a consistent -16 LUFS target
+ */
+function buildAudioFilterChain(opts: ProcessAudioOptions): string {
+    const f: string[] = [];
+
+    if (opts.enhance === "light") {
+        f.push("highpass=f=80", "afftdn=nf=-20:nr=12", "deesser=i=0.3");
+    } else if (opts.enhance === "studio") {
+        f.push(
+            "highpass=f=90",
+            "afftdn=nf=-25:nr=20",
+            "deesser=i=0.4",
+            "acompressor=threshold=-18dB:ratio=3:attack=20:release=250:makeup=2",
+            "equalizer=f=200:t=q:w=1:g=-2",
+            "equalizer=f=3000:t=q:w=1.5:g=3",
+        );
+    }
+
+    if (opts.gainDb && opts.gainDb !== 0) f.push(`volume=${opts.gainDb}dB`);
+
+    // "Studio quality" implies a consistent loudness, so enhancement always normalizes.
+    if (opts.normalize || opts.enhance === "light" || opts.enhance === "studio") {
+        f.push("loudnorm=I=-16:TP=-1.5:LRA=11");
+    }
+
+    if (opts.fadeIn && opts.fadeIn > 0) f.push(`afade=t=in:st=0:d=${opts.fadeIn}`);
+    // Fade-out without needing the (possibly unknown) duration: reverse → fade-in → reverse.
+    if (opts.fadeOut && opts.fadeOut > 0) f.push("areverse", `afade=t=in:st=0:d=${opts.fadeOut}`, "areverse");
+
+    return f.join(",");
+}
+
+/**
+ * Unified audio editor: applies any combination of trim, format/bitrate conversion,
+ * gain, loudness normalization, fades, and voice enhancement in a single ffmpeg pass,
+ * then registers the result as a new library item.
+ */
+export async function processAudio(videoId: string, opts: ProcessAudioOptions) {
+    const original = await prisma.video.findUnique({ where: { id: videoId } });
+    if (!original) throw new Error("Audio file not found");
+    if (!fs.existsSync(original.localPath)) throw new Error("Original file missing on disk");
+
+    const parsed = path.parse(original.localPath);
+    const srcExt = parsed.ext.replace(".", "").toLowerCase();
+    const fmt = !opts.format || opts.format === "original" ? srcExt : opts.format;
+    const outExt = fmt === "wav" ? "wav" : fmt === "m4a" ? "m4a" : fmt === "mp3" ? "mp3" : srcExt;
+
+    const newId = Math.random().toString(36).substring(2, 15);
+    const newFilePath = path.join(parsed.dir, `${parsed.name}_audio_${newId}.${outExt}`);
+
+    const filterChain = buildAudioFilterChain(opts);
+    const formatChanged = outExt !== srcExt;
+    // Fast lossless path: pure trim, no filters, same container.
+    const canStreamCopy = !filterChain && !formatChanged;
+
+    const args: string[] = ["-y"];
+    if (opts.startTime !== undefined && opts.startTime !== "") args.push("-ss", opts.startTime);
+    args.push("-i", original.localPath);
+    if (opts.endTime !== undefined && opts.endTime !== "") args.push("-to", opts.endTime);
+
+    if (filterChain) args.push("-af", filterChain);
+
+    if (canStreamCopy) {
+        args.push("-c", "copy");
+    } else if (outExt === "wav") {
+        args.push("-vn", "-c:a", "pcm_s16le");
+    } else if (outExt === "m4a") {
+        args.push("-vn", "-c:a", "aac", "-b:a", opts.bitrate || "192k");
+    } else {
+        args.push("-vn", "-c:a", "libmp3lame", "-b:a", opts.bitrate || "192k");
+    }
+    args.push(newFilePath);
+
+    console.log(`[FFmpeg ProcessAudio] Running: ffmpeg ${args.join(" ")}`);
+    await runFfmpeg(args);
+
+    let fileSize = 0;
+    try { fileSize = fs.statSync(newFilePath).size; } catch { }
+
+    // Derive the output duration: trimmed range, else inherit the source's.
+    let duration = original.duration ?? null;
+    if (opts.startTime !== undefined && opts.endTime !== undefined && opts.startTime !== "" && opts.endTime !== "") {
+        duration = parseTimeToSeconds(opts.endTime) - parseTimeToSeconds(opts.startTime);
+    }
+
+    const suffix = opts.enhance && opts.enhance !== "off" ? "Enhanced" : "Edited";
+
+    return prisma.video.create({
+        data: {
+            title: `${original.title} (${suffix})`,
+            originalUrl: original.originalUrl,
+            sourcePlatform: original.sourcePlatform,
+            localPath: newFilePath,
+            fileSize,
+            mediaType: "audio",
+            duration,
+        },
+    });
+}
+
 export async function trimBurnSubtitles(
     videoId: string,
     startTime: string,
