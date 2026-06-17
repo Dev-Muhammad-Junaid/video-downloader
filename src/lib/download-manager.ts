@@ -625,7 +625,7 @@ export async function startDownload(
                 dbData.labels = {
                     connectOrCreate: finalTags.map(tag => ({
                         where: { name: tag },
-                        create: { name: tag, color: "bg-sage-600/30 text-sage-foreground font-medium border-sage-500/30" }
+                        create: { name: tag, color: "#64748b" }
                     }))
                 };
             }
@@ -695,7 +695,9 @@ export async function startDownload(
             const selectedProfile = profileId ? await prisma.downloadProfile.findUnique({ where: { id: profileId } }) : null;
             const profile = selectedProfile || await getMatchingProfile(url);
             const { args: formatArgs, isAudio } = getYtDlpFormat(profile || { maxResolution: "best", preferredFormat: "mp4" }, formatId);
-            const audioExt = profile?.preferredFormat === "m4a" ? "m4a" : "mp3";
+            const audioExt = profile?.preferredFormat === "m4a" ? "m4a"
+                : profile?.preferredFormat === "wav" ? "wav"
+                : "mp3";
             const fileName = isAudio ? `${safeTitle}_${id}.${audioExt}` : `${safeTitle}_${id}.mp4`;
             const outputPath = path.join(downloadsDir, fileName);
 
@@ -811,8 +813,9 @@ export async function startDownload(
                 const allTags = new Set<string>();
 
                 // Read info JSON for taxonomy scoring
-                const ext = isAudio ? ".mp3" : ".mp4";
-                const infoJsonPath = outputPath.replace(ext, '.info.json');
+                // Derive the info-json path by swapping the actual output extension
+                // (audio may be .mp3 / .m4a / .wav, video is .mp4).
+                const infoJsonPath = outputPath.replace(/\.[^.]+$/, '.info.json');
                 try {
                     if (fs.existsSync(infoJsonPath)) {
                         const infoContent = fs.readFileSync(infoJsonPath, 'utf8');
@@ -831,7 +834,7 @@ export async function startDownload(
                     dbData.labels = {
                         connectOrCreate: finalTags.map(tag => ({
                             where: { name: tag },
-                            create: { name: tag, color: "bg-sage-600/30 text-sage-foreground font-medium border-sage-500/30" }
+                            create: { name: tag, color: "#64748b" }
                         }))
                     };
                 }

@@ -43,6 +43,8 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { MediaPlayerModal } from "@/components/media-player-modal";
 import { ImageEditorModal } from "@/components/image-editor/image-editor-modal";
 import { VideoEditorModal } from "@/components/video-editor/video-editor-modal";
+import { AudioEditorModal } from "@/components/audio-editor/audio-editor-modal";
+import { WaveformPlayer } from "@/components/audio-player";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
     Dialog,
@@ -138,6 +140,7 @@ export default function LibraryPage() {
     // Editor state
     const [editingImageId, setEditingImageId] = useState<string | null>(null);
     const [editingVideoForEditor, setEditingVideoForEditor] = useState<string | null>(null);
+    const [editingAudioForEditor, setEditingAudioForEditor] = useState<string | null>(null);
 
     const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
 
@@ -186,7 +189,7 @@ export default function LibraryPage() {
 
         // Audio-only profile: always match if the source can produce audio.
         // yt-dlp's -x flag extracts audio from any video, so this always works unless it's an image.
-        if (profile.preferredFormat === "mp3") {
+        if (profile.preferredFormat === "mp3" || profile.preferredFormat === "m4a" || profile.preferredFormat === "wav") {
             if (item.mediaType === "image") {
                 return { formatId: undefined, needsReview: true, reviewReason: `"${profile.name}" is audio-only but this link is an image` };
             }
@@ -290,7 +293,7 @@ export default function LibraryPage() {
         const effectiveMode = profile.resolutionMode || (profile.strictResolution ? "strict" : "flexible");
         const resOp = effectiveMode === "strict" ? "=" : effectiveMode === "minimum" ? "≥" : "≤";
         const matchedLabel = picked.formatId === "audio"
-            ? "Audio (MP3)"
+            ? `Audio (${(profile.preferredFormat || "mp3").toUpperCase()})`
             : picked.formatId && item.formats
                 ? (item.formats.find(f => f.formatId === picked.formatId)?.label ?? "Auto")
                 : profile.maxResolution === "best"
@@ -390,6 +393,16 @@ export default function LibraryPage() {
     useEffect(() => {
         setQueue((prev) => prev.map((item) => applyQueueProfileToItem(item)));
     }, [selectedQueueProfile, applyQueueProfileToItem]);
+
+    // Stop any inline card playback when a preview (media player) or editor opens,
+    // so audio/video from a card doesn't keep playing behind the modal.
+    useEffect(() => {
+        if (playerOpen || editingImageId || editingVideoForEditor || editingAudioForEditor) {
+            document.querySelectorAll<HTMLMediaElement>("video, audio").forEach((m) => {
+                try { m.pause(); } catch { /* ignore */ }
+            });
+        }
+    }, [playerOpen, editingImageId, editingVideoForEditor, editingAudioForEditor]);
 
     // WID-300: Bookmarklet Auto-Ingestion
     useEffect(() => {
@@ -1047,7 +1060,7 @@ export default function LibraryPage() {
             const res = await fetch("/api/labels", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: newLabelName, color: "bg-blue-500" }) // Default color for now
+                body: JSON.stringify({ name: newLabelName, color: "#3b82f6" }) // Default label color (blue)
             });
             if (res.ok) {
                 const newLabel = await res.json();
@@ -1199,10 +1212,10 @@ export default function LibraryPage() {
                     </Button>
                 )}
 
-                {/* Duration / size pill */}
+                {/* Duration / size pill — duration is hidden for audio since the player shows it */}
                 {(video.duration || video.fileSize) && (
                     <div className="absolute bottom-2 right-2 z-10 flex gap-1.5">
-                        {video.duration && video.duration > 0 && (
+                        {video.mediaType !== "audio" && video.duration && video.duration > 0 && (
                             <span className="text-[10px] font-medium bg-black/70 text-white backdrop-blur-sm px-1.5 py-0.5 rounded-md">
                                 {Math.floor(video.duration / 60)}:{String(Math.floor(video.duration % 60)).padStart(2, '0')}
                             </span>
@@ -1224,15 +1237,16 @@ export default function LibraryPage() {
                         loading="lazy"
                     />
                 ) : video.mediaType === "audio" ? (
-                    <div className="w-full h-full flex flex-col items-center justify-center gap-3 p-4 bg-gradient-to-br from-muted/20 via-muted/40 to-muted/60">
-                        <Music className="w-10 h-10 text-muted-foreground/30" />
-                        {!selectionMode && (
-                            <audio
+                    <div className="w-full h-full bg-gradient-to-br from-primary/10 via-muted/30 to-muted/55">
+                        {selectionMode ? (
+                            <div className="w-full h-full flex items-center justify-center">
+                                <Music className="w-10 h-10 text-muted-foreground/30" />
+                            </div>
+                        ) : (
+                            <WaveformPlayer
+                                variant="card"
                                 src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
-                                controls
-                                preload="metadata"
-                                className="w-full max-w-[240px]"
-                                onClick={(e) => e.stopPropagation()}
+                                seed={video.id}
                             />
                         )}
                     </div>
@@ -1334,7 +1348,7 @@ export default function LibraryPage() {
             <div className="px-3 pb-3 pt-0 flex items-center justify-between mt-auto">
                 <div className="flex items-center gap-1">
                     {video.cloudKey ? (
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md text-emerald-500 bg-emerald-500/10 hover:bg-orange-500/10 hover:text-orange-500" onClick={() => handleCloudRemove(video)} title="Synced · Click to remove from cloud">
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md text-emerald-500 bg-emerald-500/10 hover:bg-destructive/10 hover:text-destructive" onClick={() => handleCloudRemove(video)} title="Synced · Click to remove from cloud">
                             <Cloud className="h-3.5 w-3.5" />
                         </Button>
                     ) : (
@@ -1354,18 +1368,28 @@ export default function LibraryPage() {
                                     <TooltipContent>Transcribed — available for deep search</TooltipContent>
                                 </Tooltip>
                             ) : video.transcriptStatus === "processing" || transcribingIds.has(video.id) ? (
-                                <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-full px-1.5 py-0.5">
-                                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                    Processing…
-                                </span>
+                                <Tooltip>
+                                    <TooltipTrigger>
+                                        <span className="inline-flex items-center justify-center text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-full w-5 h-5 cursor-default">
+                                            <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                        </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Transcribing…</TooltipContent>
+                                </Tooltip>
                             ) : video.transcriptStatus === "error" ? (
-                                <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1.5 text-destructive hover:bg-destructive/10 rounded-full border border-destructive/20" onClick={() => handleTranscribe(video.id)} title="Retry transcription">
-                                    <AlertCircle className="w-2.5 h-2.5 mr-0.5" /> Retry
-                                </Button>
+                                <Tooltip>
+                                    <TooltipTrigger className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "h-7 w-7 rounded-md text-destructive hover:bg-destructive/10")} onClick={() => handleTranscribe(video.id)}>
+                                        <AlertCircle className="w-3.5 h-3.5" />
+                                    </TooltipTrigger>
+                                    <TooltipContent>Retry transcription</TooltipContent>
+                                </Tooltip>
                             ) : (
-                                <Button variant="ghost" size="sm" className="h-5 text-[10px] px-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-full border border-dashed border-border/50" onClick={() => handleTranscribe(video.id)} title={`Generate AI transcript (${providerLabel})`}>
-                                    <Mic className="w-2.5 h-2.5 mr-0.5" /> Transcribe
-                                </Button>
+                                <Tooltip>
+                                    <TooltipTrigger className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "h-7 w-7 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10")} onClick={() => handleTranscribe(video.id)}>
+                                        <Mic className="w-3.5 h-3.5" />
+                                    </TooltipTrigger>
+                                    <TooltipContent>{`Generate AI transcript (${providerLabel})`}</TooltipContent>
+                                </Tooltip>
                             )}
                         </>
                     )}
@@ -1382,7 +1406,11 @@ export default function LibraryPage() {
                         <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-primary/10 hover:text-primary" onClick={() => setEditingImageId(video.id)} title="Edit Image">
                             <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                    ) : video.mediaType !== "audio" && (
+                    ) : video.mediaType === "audio" ? (
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-primary/10 hover:text-primary" onClick={() => setEditingAudioForEditor(video.id)} title="Edit Audio">
+                            <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                    ) : (
                         <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-primary/10 hover:text-primary" onClick={() => setEditingVideoForEditor(video.id)} title="Edit Video">
                             <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -1433,7 +1461,7 @@ export default function LibraryPage() {
                             </Tooltip>
                         </CardTitle>
                         <CardDescription className="text-sm">
-                            Paste multiple links (one per line) to bulk extract and save.
+                            Paste links, one per line.
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4 relative">
@@ -1452,33 +1480,47 @@ export default function LibraryPage() {
 
                 {/* Right Panel: Active Queue */}
                 <div className="w-full xl:w-2/3 flex flex-col gap-3">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-y-2 gap-x-3">
+                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
                             <h2 className="text-xl font-bold tracking-tight text-foreground/90">
                                 Active Queue
                             </h2>
                             {queue.length > 0 && <span className="text-xs font-normal text-muted-foreground px-2 py-0.5 bg-muted rounded-full">{queue.length}</span>}
                             {profiles.length > 0 && (
-                                <select
-                                    value={selectedQueueProfile}
-                                    onChange={(e) => setSelectedQueueProfile(e.target.value)}
-                                    className="h-7 rounded-md border border-input bg-transparent px-2 text-xs ml-1"
-                                >
-                                    <option value="default-auto">Auto (match by URL)</option>
-                                    {profiles.map((profile) => {
-                                        const tags: string[] = [];
-                                        if (profile.priority === -1) tags.push("default");
-                                        if (profile.requireManualFormat) tags.push("manual");
-                                        const mode = profile.resolutionMode || (profile.strictResolution ? "strict" : "flexible");
-                                        if (mode === "strict") tags.push("strict");
-                                        if (mode === "minimum") tags.push("min");
-                                        return (
-                                            <option key={profile.id} value={profile.id}>
-                                                {profile.name}{tags.length ? ` · ${tags.join(", ")}` : ""}
-                                            </option>
-                                        );
-                                    })}
-                                </select>
+                                <Select value={selectedQueueProfile} onValueChange={(v) => setSelectedQueueProfile(v || "default-auto")}>
+                                    <SelectTrigger size="sm" className="ml-1 max-w-[220px] text-xs">
+                                        <SelectValue>
+                                            {(value) => {
+                                                if (!value || value === "default-auto") return "Auto (match by URL)";
+                                                const p = profiles.find((pr) => pr.id === value);
+                                                if (!p) return "Auto (match by URL)";
+                                                const tags: string[] = [];
+                                                if (p.priority === -1) tags.push("default");
+                                                if (p.requireManualFormat) tags.push("manual");
+                                                const mode = p.resolutionMode || (p.strictResolution ? "strict" : "flexible");
+                                                if (mode === "strict") tags.push("strict");
+                                                if (mode === "minimum") tags.push("min");
+                                                return `${p.name}${tags.length ? ` · ${tags.join(", ")}` : ""}`;
+                                            }}
+                                        </SelectValue>
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="default-auto" className="text-xs">Auto (match by URL)</SelectItem>
+                                        {profiles.map((profile) => {
+                                            const tags: string[] = [];
+                                            if (profile.priority === -1) tags.push("default");
+                                            if (profile.requireManualFormat) tags.push("manual");
+                                            const mode = profile.resolutionMode || (profile.strictResolution ? "strict" : "flexible");
+                                            if (mode === "strict") tags.push("strict");
+                                            if (mode === "minimum") tags.push("min");
+                                            return (
+                                                <SelectItem key={profile.id} value={profile.id} className="text-xs">
+                                                    {profile.name}{tags.length ? ` · ${tags.join(", ")}` : ""}
+                                                </SelectItem>
+                                            );
+                                        })}
+                                    </SelectContent>
+                                </Select>
                             )}
                         </div>
                         {queue.length > 0 && (
@@ -1610,7 +1652,7 @@ export default function LibraryPage() {
                             </div>
                         )}
                     </div>
-                    <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
+                    <div className="flex items-center border border-border/50 rounded-lg overflow-hidden w-fit">
                         <Button
                             variant={queueFilter === "all" ? "secondary" : "ghost"}
                             size="sm"
@@ -1753,22 +1795,33 @@ export default function LibraryPage() {
                                                         </TooltipContent>
                                                     </Tooltip>
                                                 )}
-                                                <select
-                                                    value={item.selectedFormat || ""}
-                                                    onChange={(e) => {
-                                                        const val = e.target.value;
+                                                <Select
+                                                    value={item.selectedFormat || "auto-best"}
+                                                    onValueChange={(v) => {
+                                                        const val = !v || v === "auto-best" ? "" : v;
                                                         setQueue(prev => prev.map(q => q.id === item.id ? { ...q, selectedFormat: val, needsReview: false, reviewReason: undefined } : q));
                                                     }}
-                                                    className="h-7 flex-1 min-w-0 rounded-md border border-input bg-transparent px-2 py-1 text-[11px] shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                                 >
-                                                    <option value="">Best available (auto)</option>
-                                                    <option value="audio">🎵 Audio Only (MP3)</option>
-                                                    {item.formats.slice(0, 8).map(fmt => (
-                                                        <option key={fmt.formatId} value={fmt.formatId}>
-                                                            {fmt.label}{fmt.filesize ? ` (~${(fmt.filesize / (1024 * 1024)).toFixed(0)}MB)` : ''}
-                                                        </option>
-                                                    ))}
-                                                </select>
+                                                    <SelectTrigger size="sm" className="flex-1 min-w-0 text-[11px]">
+                                                        <SelectValue>
+                                                            {(value) => {
+                                                                if (!value || value === "auto-best") return "Best available (auto)";
+                                                                if (value === "audio") return "🎵 Audio Only (MP3)";
+                                                                const fmt = item.formats?.find((f) => f.formatId === value);
+                                                                return fmt ? `${fmt.label}${fmt.filesize ? ` (~${(fmt.filesize / (1024 * 1024)).toFixed(0)}MB)` : ""}` : "Best available (auto)";
+                                                            }}
+                                                        </SelectValue>
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="auto-best" className="text-[11px]">Best available (auto)</SelectItem>
+                                                        <SelectItem value="audio" className="text-[11px]">🎵 Audio Only (MP3)</SelectItem>
+                                                        {item.formats.slice(0, 8).map(fmt => (
+                                                            <SelectItem key={fmt.formatId} value={fmt.formatId} className="text-[11px]">
+                                                                {fmt.label}{fmt.filesize ? ` (~${(fmt.filesize / (1024 * 1024)).toFixed(0)}MB)` : ''}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
                                             </div>
                                         )}
                                     </div>
@@ -1887,7 +1940,7 @@ export default function LibraryPage() {
                 className="space-y-6 pt-4"
             >
                 <div className="flex flex-col gap-3 px-1">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                             <h2 className="text-2xl font-bold tracking-tight">Saved Media</h2>
                             <div className="text-sm text-muted-foreground mt-0.5">
@@ -2130,7 +2183,9 @@ export default function LibraryPage() {
                         <Select value={platformFilter} onValueChange={(val) => setPlatformFilter(val || "all")}>
                             <SelectTrigger className="w-[130px] h-9 bg-background/50 rounded-lg">
                                 <Filter className="w-4 h-4 mr-2 text-muted-foreground" />
-                                <SelectValue placeholder="Platform" />
+                                <SelectValue placeholder="Platform">
+                                    {(value) => (!value || value === "all" ? "All Platforms" : String(value))}
+                                </SelectValue>
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="all">All Platforms</SelectItem>
@@ -2142,7 +2197,14 @@ export default function LibraryPage() {
 
                         <Select value={sortBy} onValueChange={(val) => setSortBy(val as any || "newest")}>
                             <SelectTrigger className="w-[130px] h-9 bg-background/50 rounded-lg">
-                                <SelectValue placeholder="Sort By" />
+                                <SelectValue placeholder="Sort By">
+                                    {(value) => ({
+                                        newest: "Newest First",
+                                        oldest: "Oldest First",
+                                        "size-desc": "Largest Size",
+                                        "size-asc": "Smallest Size",
+                                    }[String(value)] ?? "Newest First")}
+                                </SelectValue>
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="newest">Newest First</SelectItem>
@@ -2230,7 +2292,7 @@ export default function LibraryPage() {
                     </div>
                 ) : videos.length === 0 ? (
                     <div className="min-h-[400px] flex items-center justify-center text-muted-foreground border border-dashed rounded-2xl bg-muted/10">
-                        Library is empty. Download some videos above to get started.
+                        Library is empty — add some links above.
                     </div>
                 ) : displayedVideos.length === 0 ? (
                     <div className="min-h-[400px] flex flex-col items-center justify-center text-muted-foreground border border-dashed rounded-2xl bg-muted/10 gap-2">
@@ -2262,7 +2324,7 @@ export default function LibraryPage() {
                                     }, {} as Record<string, Video[]>)
                                 ).map(([dateObj, groupVids]) => (
                                     <div key={dateObj} className="space-y-4">
-                                        <h3 className="text-xl font-bold tracking-tight text-foreground/90 border-b border-border/40 pb-2 mb-4 sticky top-[72px] bg-background/80 backdrop-blur z-20 py-2">
+                                        <h3 className="text-xl font-bold tracking-tight text-foreground/90 border-b border-border/40 pb-2 mb-4 sticky top-0 bg-background/80 backdrop-blur z-20 py-2">
                                             {dateObj}
                                         </h3>
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
@@ -2320,6 +2382,17 @@ export default function LibraryPage() {
                     <VideoEditorModal
                         video={vid}
                         onClose={() => setEditingVideoForEditor(null)}
+                        onRefreshLibrary={fetchLibrary}
+                    />
+                ) : null;
+            })()}
+
+            {editingAudioForEditor && (() => {
+                const aud = videos.find(v => v.id === editingAudioForEditor);
+                return aud ? (
+                    <AudioEditorModal
+                        audio={aud}
+                        onClose={() => setEditingAudioForEditor(null)}
                         onRefreshLibrary={fetchLibrary}
                     />
                 ) : null;

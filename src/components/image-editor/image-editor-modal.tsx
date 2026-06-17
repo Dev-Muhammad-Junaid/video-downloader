@@ -226,14 +226,15 @@ export function ImageEditorModal({ image, onClose, onRefreshLibrary }: ImageEdit
             className="fixed inset-0 z-[60] bg-background text-foreground flex flex-col"
         >
             {/* ── Header ── */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-border/60 bg-background/80 backdrop-blur-md shrink-0">
-                <div className="flex items-center gap-3">
-                    <FileImage className="w-4 h-4 text-primary" />
-                    <h2 className="font-semibold text-sm truncate max-w-[320px]" title={image.title}>{image.title}</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-5 py-2 sm:py-3 border-b border-border/60 bg-background/80 backdrop-blur-md shrink-0">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                    <FileImage className="w-4 h-4 text-primary shrink-0" />
+                    <h2 className="font-semibold text-sm truncate max-w-[140px] sm:max-w-[320px]" title={image.title}>{image.title}</h2>
                 </div>
 
-                {/* Mode Tabs */}
-                <div className="flex items-center gap-1 bg-muted/60 rounded-xl p-1 border border-border/40">
+                {/* Mode Tabs — own full-width row on mobile, inline on desktop */}
+                <div className="order-last w-full sm:order-none sm:w-auto flex justify-center">
+                  <div className="flex items-center gap-1 bg-muted/60 rounded-xl p-1 border border-border/40">
                     {([
                         { id: "crop",   label: "Crop",    Icon: CropIcon          },
                         { id: "adjust", label: "Adjust",  Icon: SlidersHorizontal },
@@ -253,6 +254,7 @@ export function ImageEditorModal({ image, onClose, onRefreshLibrary }: ImageEdit
                             {label}
                         </button>
                     ))}
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2">

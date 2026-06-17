@@ -32,6 +32,8 @@ import {
 import { toast } from "sonner";
 import { VideoEditorModal } from "./video-editor/video-editor-modal";
 import { ImageEditorModal } from "./image-editor/image-editor-modal";
+import { AudioEditorModal } from "./audio-editor/audio-editor-modal";
+import { WaveformPlayer } from "./audio-player";
 
 type Video = {
     id: string;
@@ -151,13 +153,13 @@ export function MediaPlayerModal({
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent
-                className="max-w-[95vw] sm:max-w-[1200px] md:w-[1200px] max-h-[90vh] p-0 gap-0 overflow-hidden bg-background"
+                className="w-[95vw] max-w-[1200px] sm:max-w-[1200px] max-h-[90vh] p-0 gap-0 overflow-hidden bg-background"
                 onKeyDown={handleKeyDown}
             >
                 <DialogTitle className="sr-only">{video.title}</DialogTitle>
-                <div className="flex flex-col lg:flex-row h-[85vh] min-h-0">
+                <div className="flex flex-col lg:flex-row h-[85vh] min-h-0 w-full min-w-0">
                     {/* Left: Media Player */}
-                    <div className="flex-1 bg-black flex items-center justify-center relative min-h-[300px] lg:min-h-0 overflow-hidden">
+                    <div className="flex-1 bg-black flex items-center justify-center relative min-h-[300px] lg:min-h-0 overflow-hidden min-w-0">
                         {/* Navigation Arrows */}
                         {hasPrev && (
                             <button
@@ -176,8 +178,8 @@ export function MediaPlayerModal({
                             </button>
                         )}
 
-                        {/* Counter */}
-                        <div className="absolute top-3 right-3 z-10 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
+                        {/* Counter — top-left so it never collides with the dialog close button */}
+                        <div className="absolute top-3 left-3 z-10 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
                             {currentIndex + 1} / {videos.length}
                         </div>
 
@@ -189,32 +191,25 @@ export function MediaPlayerModal({
                                 className="w-full h-full object-contain"
                             />
                         ) : video.mediaType === "audio" ? (
-                            <div className="flex flex-col items-center justify-center gap-4 p-8">
-                                <div className="w-24 h-24 rounded-full bg-muted/30 flex items-center justify-center">
-                                    <Mic className="w-12 h-12 text-muted-foreground/40" />
-                                </div>
-                                <audio
-                                    key={video.id}
-                                    src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
-                                    controls
-                                    autoPlay
-                                    className="w-full max-w-md"
-                                />
-                            </div>
+                            <WaveformPlayer
+                                key={video.id}
+                                variant="full"
+                                src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
+                                seed={video.id}
+                            />
                         ) : (
                             <video
                                 ref={videoRef}
                                 key={video.id}
                                 src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
                                 controls
-                                autoPlay
                                 className="w-full h-full object-contain outline-none"
                             />
                         )}
                     </div>
 
                     {/* Right: Metadata Panel */}
-                    <div className="w-full lg:w-[340px] border-l border-border flex flex-col overflow-y-auto">
+                    <div className="w-full lg:w-[340px] border-t lg:border-t-0 lg:border-l border-border flex flex-col overflow-y-auto min-h-0 min-w-0 flex-1 lg:flex-none lg:shrink-0">
                         {/* Title */}
                         <div className="p-4 border-b border-border">
                             {isEditingTitle ? (
@@ -300,10 +295,10 @@ export function MediaPlayerModal({
                                     href={video.originalUrl}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="text-xs text-primary hover:underline flex items-center gap-1 truncate"
+                                    className="text-xs text-primary hover:underline flex items-center gap-1 min-w-0"
                                 >
                                     <ExternalLink className="w-3 h-3 flex-shrink-0" />
-                                    <span className="truncate">{video.originalUrl}</span>
+                                    <span className="truncate min-w-0">{video.originalUrl}</span>
                                 </a>
                             </div>
                         )}
@@ -388,7 +383,7 @@ export function MediaPlayerModal({
                                     className="w-full h-9 text-xs"
                                     onClick={() => setIsEditingMedia(true)}
                                 >
-                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Trim Audio
+                                    <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Audio
                                 </Button>
                             ) : (
                                 <>
@@ -447,7 +442,7 @@ export function MediaPlayerModal({
                                     <Button
                                         variant="outline"
                                         size="sm"
-                                        className="h-9 text-xs text-orange-500 hover:text-orange-500"
+                                        className="h-9 text-xs text-destructive hover:text-destructive"
                                         onClick={() => onCloudRemove?.(video)}
                                     >
                                         <CloudOff className="w-3.5 h-3.5 mr-1.5" /> Remove Cloud
@@ -486,7 +481,14 @@ export function MediaPlayerModal({
                     onRefreshLibrary={onRefreshLibrary}
                 />
             )}
-            {isEditingMedia && (!video.mediaType || video.mediaType === "video" || video.mediaType === "audio") && (
+            {isEditingMedia && video.mediaType === "audio" && (
+                <AudioEditorModal
+                    audio={video}
+                    onClose={() => setIsEditingMedia(false)}
+                    onRefreshLibrary={onRefreshLibrary}
+                />
+            )}
+            {isEditingMedia && (!video.mediaType || video.mediaType === "video") && (
                 <VideoEditorModal
                     video={video}
                     onClose={() => setIsEditingMedia(false)}

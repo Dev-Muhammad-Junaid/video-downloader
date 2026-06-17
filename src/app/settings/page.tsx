@@ -14,6 +14,47 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
+// Value→label maps so each Select trigger shows the readable label (not the raw
+// stored value like "604800" / "best" / "flexible") in its default state.
+const EXPIRY_LABELS: Record<string, string> = {
+    "3600": "1 hour",
+    "21600": "6 hours",
+    "86400": "24 hours",
+    "259200": "3 days",
+    "604800": "7 days (default)",
+};
+const PROVIDER_LABELS: Record<string, string> = { openai: "OpenAI", groq: "Groq" };
+const RESOLUTION_LABELS: Record<string, string> = {
+    best: "Best Available",
+    "2160": "4K (2160p)",
+    "1440": "2K (1440p)",
+    "1080": "1080p",
+    "720": "720p",
+    "480": "480p",
+    "360": "360p",
+};
+const RESOLUTION_MODE_LABELS: Record<string, string> = {
+    flexible: "Flexible (≤ target)",
+    strict: "Strict (= target)",
+    minimum: "Minimum (≥ target)",
+};
+const FORMAT_LABELS: Record<string, string> = {
+    mp4: "MP4 (Recommended)",
+    mkv: "MKV (lossless container)",
+    webm: "WebM",
+    best: "Best (let yt-dlp decide)",
+    mp3: "MP3 (extract audio)",
+    m4a: "M4A (AAC audio)",
+    wav: "WAV (lossless audio)",
+};
+const IMAGE_FORMAT_LABELS: Record<string, string> = {
+    original: "Original (keep as-is)",
+    jpg: "JPG (smaller, lossy)",
+    png: "PNG (lossless)",
+    webp: "WebP (modern, efficient)",
+    avif: "AVIF (next-gen compression)",
+};
+
 export default function SettingsPage() {
     const [settings, setSettings] = useState({
         s3Endpoint: "",
@@ -323,7 +364,7 @@ export default function SettingsPage() {
                             Download Destination
                         </CardTitle>
                         <CardDescription>
-                            Where downloaded videos and images are saved on your computer.
+                            Where downloaded files are saved.
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -367,7 +408,7 @@ export default function SettingsPage() {
                             Watch Folder
                         </CardTitle>
                         <CardDescription>
-                            Drop media files here to auto-import them into your library. This should be a separate folder from the download destination.
+                            Files dropped here are auto-imported. Keep it separate from your download folder.
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -408,7 +449,7 @@ export default function SettingsPage() {
                     <CardHeader>
                         <CardTitle>Cloudflare R2 / S3 Credentials</CardTitle>
                         <CardDescription>
-                            Enter your S3-compatible cloud storage credentials to enable direct cloud syncing.
+                            S3-compatible credentials for cloud sync.
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -471,7 +512,7 @@ export default function SettingsPage() {
                                 onValueChange={(val) => setSettings({ ...settings, urlExpiry: Number(val) })}
                             >
                                 <SelectTrigger id="urlExpiry">
-                                    <SelectValue />
+                                    <SelectValue>{(v) => EXPIRY_LABELS[String(v)] ?? "7 days (default)"}</SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="3600">1 hour</SelectItem>
@@ -481,7 +522,7 @@ export default function SettingsPage() {
                                     <SelectItem value="604800">7 days (default)</SelectItem>
                                 </SelectContent>
                             </Select>
-                            <p className="text-xs text-muted-foreground">How long preview and download links stay valid before expiring.</p>
+                            <p className="text-xs text-muted-foreground">How long shared links stay valid.</p>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="storageLimit" className="flex items-center gap-2">
@@ -496,7 +537,7 @@ export default function SettingsPage() {
                                 onChange={(e) => setSettings({ ...settings, storageLimit: Number(e.target.value) || 10 })}
                                 placeholder="10"
                             />
-                            <p className="text-xs text-muted-foreground">R2 storage quota in GB (free tier: 10 GB). Used to display usage warnings.</p>
+                            <p className="text-xs text-muted-foreground">Used for usage warnings. R2 free tier is 10 GB.</p>
                         </div>
                         <Button onClick={handleSaveCredentials} className="w-full sm:col-span-2">Save Credentials</Button>
                     </CardContent>
@@ -511,7 +552,7 @@ export default function SettingsPage() {
                             <FileDown className="w-5 h-5 text-primary" />
                             Export & Backup
                         </CardTitle>
-                        <CardDescription>Export your library metadata or backup the entire database.</CardDescription>
+                        <CardDescription>Export metadata or back up the database.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -552,7 +593,6 @@ export default function SettingsPage() {
                                 <span className="text-[10px] text-muted-foreground">Raw SQLite file</span>
                             </Button>
                         </div>
-                        <p className="text-xs text-muted-foreground">JSON and CSV export library metadata. Database backup includes raw SQLite for full restoration.</p>
                     </CardContent>
                 </Card>
                 </motion.div>
@@ -566,7 +606,7 @@ export default function SettingsPage() {
                             AI Transcription
                         </CardTitle>
                         <CardDescription>
-                            Choose OpenAI or Groq for speech-to-text. API keys are stored locally and never shared.
+                            Speech-to-text via OpenAI or Groq. Keys stay on your machine.
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -582,7 +622,7 @@ export default function SettingsPage() {
                                 }
                             >
                                 <SelectTrigger id="transcriptionProvider">
-                                    <SelectValue placeholder="Select provider" />
+                                    <SelectValue placeholder="Select provider">{(v) => PROVIDER_LABELS[String(v)] ?? "OpenAI"}</SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="openai">OpenAI</SelectItem>
@@ -602,7 +642,7 @@ export default function SettingsPage() {
                                 value={settings.openaiApiKey}
                                 onChange={(e) => setSettings({ ...settings, openaiApiKey: e.target.value })}
                             />
-                            <p className="text-xs text-muted-foreground">Required for AI transcription. Get it at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">platform.openai.com</a>.</p>
+                            <p className="text-xs text-muted-foreground">Get a key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">platform.openai.com</a>.</p>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="groqKey" className="flex items-center gap-2">
@@ -616,7 +656,7 @@ export default function SettingsPage() {
                                 value={settings.groqApiKey}
                                 onChange={(e) => setSettings({ ...settings, groqApiKey: e.target.value })}
                             />
-                            <p className="text-xs text-muted-foreground">Used when provider is set to Groq. Get it at <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">console.groq.com</a>.</p>
+                            <p className="text-xs text-muted-foreground">Get a key at <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">console.groq.com</a>.</p>
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="whisperLang">Language (optional)</Label>
@@ -657,15 +697,15 @@ export default function SettingsPage() {
                 {/* Quality & Format Profiles (WID-306) */}
                 <motion.div variants={fadeUp} className="lg:col-span-2">
                 <Card>
-                    <CardHeader className="flex flex-row items-center justify-between gap-2">
+                    <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                             <CardTitle className="text-xl flex items-center gap-2">
                                 <Settings2 className="w-5 h-5 text-primary" />
                                 Quality & Format Profiles
                             </CardTitle>
-                            <CardDescription>Pick a preset or define your own resolution and format rules.</CardDescription>
+                            <CardDescription>Presets or your own resolution &amp; format rules.</CardDescription>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
                             <Button
                                 size="sm"
                                 variant="outline"
@@ -713,11 +753,12 @@ export default function SettingsPage() {
                                     <DialogDescription>Apply rules based on the video URL.</DialogDescription>
                                 </DialogHeader>
                                 <form
+                                    id="profile-form"
                                     onSubmit={handleSaveProfile}
                                     className="space-y-3 py-3 max-h-[72vh] overflow-y-auto pr-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                                 >
                                     {/* Basic Info */}
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
                                         <div className="grid gap-1.5">
                                             <Label htmlFor="prof-name">Profile Name</Label>
                                             <Input id="prof-name" value={editingProfile?.name || ""} onChange={e => setEditingProfile({...editingProfile, name: e.target.value})} placeholder="e.g. YouTube 4K" required />
@@ -735,7 +776,7 @@ export default function SettingsPage() {
                                             <Film className="w-3.5 h-3.5 text-primary" />
                                             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Video</span>
                                         </div>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
                                             <div className="grid gap-1.5">
                                                 <Label>Target Resolution</Label>
                                                 <Select
@@ -746,9 +787,9 @@ export default function SettingsPage() {
                                                         resolutionMode: v === "best" ? "flexible" : (p?.resolutionMode || "flexible"),
                                                     }))}
                                                 >
-                                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                                    <SelectTrigger className="w-full"><SelectValue>{(v) => RESOLUTION_LABELS[String(v)] ?? "Best Available"}</SelectValue></SelectTrigger>
                                                     <SelectContent>
-                                                        <SelectItem value="best">Best Available (no limit)</SelectItem>
+                                                        <SelectItem value="best">Best Available</SelectItem>
                                                         <SelectItem value="2160">4K (2160p)</SelectItem>
                                                         <SelectItem value="1440">2K (1440p)</SelectItem>
                                                         <SelectItem value="1080">1080p</SelectItem>
@@ -765,11 +806,11 @@ export default function SettingsPage() {
                                                     onValueChange={v => setEditingProfile((p: any) => ({ ...p, resolutionMode: v, strictResolution: v === "strict" }))}
                                                     disabled={editingProfile?.maxResolution === "best" || editingProfile?.preferredFormat === "mp3" || editingProfile?.preferredFormat === "m4a"}
                                                 >
-                                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                                    <SelectTrigger className="w-full"><SelectValue>{(v) => RESOLUTION_MODE_LABELS[String(v)] ?? "Flexible (≤ target)"}</SelectValue></SelectTrigger>
                                                     <SelectContent>
-                                                        <SelectItem value="flexible">Flexible — up to target (≤)</SelectItem>
-                                                        <SelectItem value="strict">Strict — exactly target (=)</SelectItem>
-                                                        <SelectItem value="minimum">Minimum — at least target (≥)</SelectItem>
+                                                        <SelectItem value="flexible">Flexible (≤ target)</SelectItem>
+                                                        <SelectItem value="strict">Strict (= target)</SelectItem>
+                                                        <SelectItem value="minimum">Minimum (≥ target)</SelectItem>
                                                     </SelectContent>
                                                 </Select>
                                                 <p className="text-[11px] text-muted-foreground">
@@ -790,7 +831,7 @@ export default function SettingsPage() {
                                                     maxResolution: (v === "mp3" || v === "m4a") ? "best" : (p?.maxResolution || "best"),
                                                 }))}
                                             >
-                                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                                <SelectTrigger className="w-full"><SelectValue>{(v) => FORMAT_LABELS[String(v)] ?? "MP4 (Recommended)"}</SelectValue></SelectTrigger>
                                                 <SelectContent>
                                                     <SelectGroup>
                                                         <SelectLabel>Video</SelectLabel>
@@ -803,6 +844,7 @@ export default function SettingsPage() {
                                                         <SelectLabel>Audio Only</SelectLabel>
                                                         <SelectItem value="mp3">MP3 (extract audio)</SelectItem>
                                                         <SelectItem value="m4a">M4A (AAC audio)</SelectItem>
+                                                        <SelectItem value="wav">WAV (lossless audio)</SelectItem>
                                                     </SelectGroup>
                                                 </SelectContent>
                                             </Select>
@@ -824,7 +866,7 @@ export default function SettingsPage() {
                                                 value={editingProfile?.preferredImageFormat || "original"}
                                                 onValueChange={v => setEditingProfile((p: any) => ({...p, preferredImageFormat: v}))}
                                             >
-                                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                                <SelectTrigger className="w-full"><SelectValue>{(v) => IMAGE_FORMAT_LABELS[String(v)] ?? "Original (keep as-is)"}</SelectValue></SelectTrigger>
                                                 <SelectContent>
                                                     <SelectItem value="original">Original (keep as-is)</SelectItem>
                                                     <SelectItem value="jpg">JPG (smaller, lossy)</SelectItem>
@@ -833,20 +875,32 @@ export default function SettingsPage() {
                                                     <SelectItem value="avif">AVIF (next-gen compression)</SelectItem>
                                                 </SelectContent>
                                             </Select>
-                                            <p className="text-[11px] text-muted-foreground">Applies only to image posts (e.g. Twitter/Instagram photos). Videos are unaffected.</p>
+                                            <p className="text-[11px] text-muted-foreground">Applies to image posts only.</p>
                                         </div>
                                     </div>
 
-                                    {/* AUDIO section — Coming Soon */}
-                                    <div className="rounded-lg border border-dashed border-border/40 bg-muted/10 p-3 space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                                <Music className="w-3.5 h-3.5 text-muted-foreground" />
-                                                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Audio</span>
-                                            </div>
-                                            <span className="text-[10px] bg-muted text-muted-foreground px-2 py-0.5 rounded-full font-medium">Coming Soon</span>
+                                    {/* AUDIO section */}
+                                    <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
+                                        <div className="flex items-center gap-2">
+                                            <Music className="w-3.5 h-3.5 text-primary" />
+                                            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Audio</span>
                                         </div>
-                                        <p className="text-[11px] text-muted-foreground">Per-profile audio bitrate, quality, and codec settings will be available here in a future update.</p>
+                                        <div className="grid gap-1.5">
+                                            <Label>Bitrate</Label>
+                                            <Select
+                                                value={editingProfile?.audioBitrate || "192k"}
+                                                onValueChange={v => setEditingProfile((p: any) => ({ ...p, audioBitrate: v }))}
+                                            >
+                                                <SelectTrigger className="w-full"><SelectValue>{(v) => `${String(v).replace("k", "")} kbps`}</SelectValue></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="128k">128 kbps</SelectItem>
+                                                    <SelectItem value="192k">192 kbps</SelectItem>
+                                                    <SelectItem value="256k">256 kbps</SelectItem>
+                                                    <SelectItem value="320k">320 kbps</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            <p className="text-[11px] text-muted-foreground">Used when the download format is MP3 or M4A. WAV is lossless.</p>
+                                        </div>
                                     </div>
 
                                     {/* BEHAVIOUR section */}
@@ -884,7 +938,7 @@ export default function SettingsPage() {
                                                 htmlFor="prof-strict"
                                                 className={cn(
                                                     "flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border/60 bg-muted/30 hover:bg-muted/60 cursor-pointer transition-colors",
-                                                    (editingProfile?.maxResolution === "best" || editingProfile?.preferredFormat === "mp3") && "opacity-50 cursor-not-allowed"
+                                                    (editingProfile?.maxResolution === "best" || editingProfile?.preferredFormat === "mp3") && "cursor-not-allowed [&>*]:opacity-50"
                                                 )}
                                             >
                                                 <Checkbox
@@ -913,16 +967,16 @@ export default function SettingsPage() {
                                         </div>
                                     </div>
 
-                                    <DialogFooter className="pt-2 gap-2">
-                                        <button type="button" onClick={() => setIsProfileDialogOpen(false)} className={cn(buttonVariants({ variant: "outline" }))}>
-                                            Cancel
-                                        </button>
-                                        {/* Native submit button — base-ui Button primitive ignores type="submit". */}
-                                        <button type="submit" className={cn(buttonVariants({ variant: "default" }))}>
-                                            Save Profile
-                                        </button>
-                                    </DialogFooter>
                                 </form>
+                                <DialogFooter className="gap-2">
+                                    <button type="button" onClick={() => setIsProfileDialogOpen(false)} className={cn(buttonVariants({ variant: "outline" }))}>
+                                        Cancel
+                                    </button>
+                                    {/* Native submit button — base-ui Button primitive ignores type="submit"; `form` ties it to the form it now lives outside of. */}
+                                    <button type="submit" form="profile-form" className={cn(buttonVariants({ variant: "default" }))}>
+                                        Save Profile
+                                    </button>
+                                </DialogFooter>
                             </DialogContent>
                         </Dialog>
                         </div>
@@ -930,7 +984,7 @@ export default function SettingsPage() {
                     <CardContent>
                         <div className="rounded-lg border border-border/50 divide-y divide-border/50">
                             {profiles.length === 0 ? (
-                                <div className="p-8 text-center text-muted-foreground text-sm">No profiles defined. Click &quot;Reset to Defaults&quot; above to restore the 5 presets, or &quot;Add Profile&quot; to create a custom one.</div>
+                                <div className="p-8 text-center text-muted-foreground text-sm">No profiles yet. Use &quot;Reset to Defaults&quot; or &quot;Add Profile&quot;.</div>
                             ) : (
                                 profiles.map((profile) => (
                                     <div key={profile.id} className="p-4 flex items-center justify-between group">
@@ -962,7 +1016,7 @@ export default function SettingsPage() {
                                                 )}
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingProfile(profile); setIsProfileDialogOpen(true); }}>
                                                 <Edit2 className="w-3.5 h-3.5" />
                                             </Button>
@@ -986,7 +1040,7 @@ export default function SettingsPage() {
                             <Tags className="w-5 h-5 text-primary" />
                             Auto-sync by Category
                         </CardTitle>
-                        <CardDescription>Automatically upload videos the cloud if they match these categories.</CardDescription>
+                        <CardDescription>Auto-upload videos in these categories to the cloud.</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -997,9 +1051,15 @@ export default function SettingsPage() {
                                 >
                                     <div className="flex items-center justify-between">
                                         <span className="text-sm font-medium">{label.name}</span>
-                                        <div 
-                                            className={`w-2 h-2 rounded-full ${label.color || 'bg-gray-400'}`} 
-                                            style={label.color?.startsWith('#') ? {backgroundColor: label.color} : {}}
+                                        <div
+                                            className={cn("w-2 h-2 rounded-full", label.color && !label.color.startsWith('#') ? label.color : "")}
+                                            style={
+                                                label.color?.startsWith('#')
+                                                    ? { backgroundColor: label.color }
+                                                    : !label.color
+                                                        ? { backgroundColor: "#9ca3af" }
+                                                        : undefined
+                                            }
                                         />
                                     </div>
                                     <div className="flex items-center justify-between mt-auto">
@@ -1016,7 +1076,7 @@ export default function SettingsPage() {
                             ))}
                         </div>
                         {labels.length === 0 && (
-                            <div className="p-8 text-center text-muted-foreground text-sm border border-dashed rounded-lg">No labels found. They will appear here once you start downloading content.</div>
+                            <div className="p-8 text-center text-muted-foreground text-sm border border-dashed rounded-lg">No labels yet — they appear as you download.</div>
                         )}
                     </CardContent>
                 </Card>
@@ -1038,7 +1098,7 @@ export default function SettingsPage() {
                             {/* Bookmarklet */}
                             <div className="space-y-4 p-4 rounded-xl bg-muted/30 border border-border/60">
                                 <h3 className="font-semibold text-lg">1. Universal Bookmarklet</h3>
-                                <p className="text-sm text-muted-foreground">Works on Desktop & Mobile (Safari/Chrome). Drag this button into your browser's bookmarks bar. Click it when watching a video to send it here!</p>
+                                <p className="text-sm text-muted-foreground">Drag to your bookmarks bar, then click it on any video page. Works on desktop & mobile.</p>
                                 
                                 <div className="flex items-center justify-center p-6 border border-dashed border-border/50 rounded-lg bg-card/30">
                                     <div 
@@ -1052,12 +1112,11 @@ export default function SettingsPage() {
                             {/* Chrome Extension */}
                             <div className="space-y-4 p-4 rounded-xl bg-muted/30 border border-border/60">
                                 <h3 className="font-semibold text-lg">2. Chrome/Edge Extension</h3>
-                                <p className="text-sm text-muted-foreground">For desktop power users. Downloads without opening new tabs.</p>
+                                <p className="text-sm text-muted-foreground">Downloads without opening new tabs.</p>
                                 <ol className="text-sm text-muted-foreground list-decimal pl-5 space-y-2">
-                                    <li>Open your Chrome settings and go to <strong>chrome://extensions</strong></li>
-                                    <li>Enable <strong>Developer Mode</strong> in the top right.</li>
-                                    <li>Click <strong>Load unpacked</strong> and select the <code>extension/</code> folder inside this repository.</li>
-                                    <li>Click the extension icon on any video page!</li>
+                                    <li>Go to <strong>chrome://extensions</strong> and enable <strong>Developer Mode</strong>.</li>
+                                    <li>Click <strong>Load unpacked</strong> and select the <code>extension/</code> folder.</li>
+                                    <li>Click the extension icon on any video page.</li>
                                 </ol>
                             </div>
                         </div>

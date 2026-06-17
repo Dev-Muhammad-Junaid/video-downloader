@@ -44,6 +44,7 @@ export async function POST(req: Request) {
                 maxResolution: data.maxResolution || "best",
                 preferredFormat: data.preferredFormat || "mp4",
                 preferredImageFormat: data.preferredImageFormat || "original",
+                audioBitrate: data.audioBitrate || "192k",
                 autoCloudSync: !!data.autoCloudSync,
                 requireManualFormat: !!data.requireManualFormat,
                 strictResolution: resolvedMode === "strict",
