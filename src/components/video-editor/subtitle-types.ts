@@ -1,6 +1,8 @@
 // ── Subtitle Data Model & Utilities ──
 // Shared types, parsing, and style definitions for the subtitle editor
 
+import { buildAssFile, type SubtitleStyleConfig } from "@/lib/ass-builder";
+
 export interface Subtitle {
     id: number;
     start: string; // SRT format: "HH:MM:SS,mmm"
@@ -754,6 +756,32 @@ export function expandForAnimation(
         default:
             return src;
     }
+}
+
+/**
+ * THE single source of subtitle-ASS truth.
+ *
+ * Given the raw cues, the style config, and the *exact* pixel dimensions the
+ * output frame will have, produce the final ASS string. Both the live JASSUB
+ * preview and the FFmpeg burn-in call this with the same inputs, and the
+ * server writes the result verbatim (it never rebuilds the ASS). So what the
+ * user sees in the preview is byte-for-byte what gets burned — there is no
+ * second code path that can drift.
+ *
+ * `vDim` MUST be the dimensions of the frame the subtitles are rendered onto:
+ *   - preview / plain burn / trim: the video's display size (videoWidth/Height)
+ *   - crop / trim+crop:            the crop output size (w × h)
+ */
+export function composeSubtitleAss(
+    subtitles: Subtitle[],
+    config: SubtitleStyleConfig,
+    vDim: { width: number; height: number },
+): string {
+    return buildAssFile(
+        subtitlesToSrt(expandForAnimation(subtitles, config, vDim)),
+        config,
+        vDim,
+    );
 }
 
 // ── Supported Transcription Languages ──
