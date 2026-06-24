@@ -33,7 +33,7 @@ import {
     parseVtt,
     subtitlesToSrt,
     clipAndShiftSubtitles,
-    expandForAnimation,
+    composeSubtitleAss,
 } from "./subtitle-types";
 import {
     SubtitleStyleConfig,
@@ -428,31 +428,26 @@ export function VideoEditorModal({
 
             const wantSubs = includeSubtitles && hasSubtitles && mode !== "subtitles";
 
-            // Karaoke animation: expand each cue into per-word cues before serialising
-            // expandForAnimation handles karaoke, reveal (with its modifier
-            // flags), and tiktok-box. tiktok-box needs the source video's
-            // dimensions for its per-word \pos math.
+            // The video's display size — exactly the frame the burn renders onto
+            // (FFmpeg auto-rotates to display orientation). Used as the ASS
+            // PlayRes so preview and burn share identical geometry.
             const vWidth  = videoRef.current?.videoWidth  ?? 1280;
             const vHeight = videoRef.current?.videoHeight ?? 720;
-            const burnVDim = { width: vWidth, height: vHeight };
-            const prepareSubsForBurn = (subs: Subtitle[]) =>
-                expandForAnimation(subs, styleConfig, burnVDim);
+            const displayDims = { width: vWidth, height: vHeight };
 
             const clippedSubtitles = mode === "trim"
                 ? clipAndShiftSubtitles(subtitles, trimStart, trimEnd)
                 : subtitles;
 
-            // SRT for burning (may be word-expanded for karaoke)
-            const burnSrtContent = subtitlesToSrt(prepareSubsForBurn(clippedSubtitles));
             // SRT for inheritance (always original timing — user can edit later)
             const inheritSrtContent = hasSubtitles ? subtitlesToSrt(clippedSubtitles) : undefined;
 
-            const burnParams = {
-                srtContent: burnSrtContent,
-                styleConfig,
-            };
-
-            const subsParams = wantSubs ? burnParams : {};
+            // Build the FINAL ASS here, the same way the preview does, and send
+            // it for the server to burn verbatim. One source of truth → the
+            // export is byte-identical to what JASSUB showed. `vDim` is the
+            // frame the subtitles land on: crop output for crop, else display.
+            const composeBurnAss = (subs: Subtitle[], vDim: { width: number; height: number }) =>
+                composeSubtitleAss(subs, styleConfig, vDim);
 
             if (mode === "trim") {
                 if (trimEnd - trimStart <= 0.1) throw new Error("Trim duration is too short.");
@@ -462,13 +457,13 @@ export function VideoEditorModal({
 
                 if (hasCrop && wantSubs) {
                     bodyPayload.action = "trim-crop-burn";
-                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, ...cropPx, ...subsParams, inheritSrtContent };
+                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, ...cropPx, assContent: composeBurnAss(clippedSubtitles, { width: cropPx!.w, height: cropPx!.h }), inheritSrtContent };
                 } else if (hasCrop) {
                     bodyPayload.action = "trim-crop";
                     bodyPayload.params = { startTime: trimStart, endTime: trimEnd, ...cropPx, inheritSrtContent };
                 } else if (wantSubs) {
                     bodyPayload.action = "trim-burn";
-                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, ...subsParams, inheritSrtContent };
+                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, assContent: composeBurnAss(clippedSubtitles, displayDims), inheritSrtContent };
                 } else {
                     bodyPayload.action = "trim";
                     bodyPayload.params = { startTime: trimStart, endTime: trimEnd, inheritSrtContent };
@@ -478,7 +473,7 @@ export function VideoEditorModal({
                 if (!cropPx) throw new Error("Could not detect video resolution.");
                 if (wantSubs) {
                     bodyPayload.action = "crop-burn";
-                    bodyPayload.params = { ...cropPx, ...subsParams, inheritSrtContent };
+                    bodyPayload.params = { ...cropPx, assContent: composeBurnAss(subtitles, { width: cropPx.w, height: cropPx.h }), inheritSrtContent };
                 } else {
                     bodyPayload.action = "crop";
                     bodyPayload.params = { ...cropPx, inheritSrtContent };
@@ -487,8 +482,8 @@ export function VideoEditorModal({
                 if (subtitles.length === 0) throw new Error("No subtitles to burn. Transcribe the video first.");
                 bodyPayload.action = "burn-subtitles";
                 bodyPayload.params = {
-                    srtContent: subtitlesToSrt(prepareSubsForBurn(subtitles)),
-                    styleConfig,
+                    // Identical to the preview ASS (same subs, config, dims).
+                    assContent: composeBurnAss(subtitles, displayDims),
                     // Always inherit original subtitles so the captioned video stays editable
                     inheritSrtContent: subtitlesToSrt(subtitles),
                 };

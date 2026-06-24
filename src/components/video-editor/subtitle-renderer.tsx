@@ -25,8 +25,8 @@
  */
 
 import { useEffect, useCallback, useRef } from "react";
-import { buildAssFile, type SubtitleStyleConfig } from "@/lib/ass-builder";
-import { expandForAnimation, subtitlesToSrt } from "./subtitle-types";
+import type { SubtitleStyleConfig } from "@/lib/ass-builder";
+import { composeSubtitleAss } from "./subtitle-types";
 import type { Subtitle } from "./subtitle-types";
 
 interface SubtitleRendererProps {
@@ -74,15 +74,15 @@ export function SubtitleRenderer({
         if (subs.length === 0 && previewText) {
             subs = makePreviewSubs(previewText);
         }
-        // expandForAnimation handles every per-cue mode (karaoke, reveal,
-        // tiktok-box) and leaves the rest untouched. tiktok-box needs the
-        // real video dimensions for its per-word \pos math.
+        // composeSubtitleAss is the SAME function the export uses. vDim is the
+        // video's display size — exactly what the burn frame will be (FFmpeg
+        // auto-rotates to display orientation), so preview and burn produce
+        // identical ASS.
         const video = videoRef.current;
         const vDim = video && video.videoWidth && video.videoHeight
             ? { width: video.videoWidth, height: video.videoHeight }
             : { width: 1280, height: 720 };
-        const expanded = expandForAnimation(subs, config, vDim);
-        return buildAssFile(subtitlesToSrt(expanded), config, vDim);
+        return composeSubtitleAss(subs, config, vDim);
     }, [subtitles, config, previewText, videoRef]);
 
     // ─── Effect 1: JASSUB lifecycle (create / destroy) ───────────────────────
