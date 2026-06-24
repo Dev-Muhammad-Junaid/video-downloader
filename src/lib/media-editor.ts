@@ -272,9 +272,30 @@ export async function trimAndCrop(
 
 
 /**
- * Probe actual video dimensions by reading the container header.
- * Fast: FFmpeg reads only the container metadata, then exits.
- * Falls back to 1280×720 on any error.
+ * Parse a rotation angle (in degrees, normalised to 0/90/180/270) from FFmpeg's
+ * `-i` stderr. Handles both the modern side-data form
+ *   "displaymatrix: rotation of -90.00 degrees"
+ * and the legacy metadata tag
+ *   "rotate          : 90".
+ * Only the axis matters for dimension-swapping, so we take the magnitude.
+ */
+function parseRotationFromStderr(stderr: string): number {
+    const dm = stderr.match(/rotation of\s+(-?\d+(?:\.\d+)?)\s+degrees/i);
+    const rt = stderr.match(/\brotate\s*:\s*(-?\d+)/i);
+    const raw = dm ? parseFloat(dm[1]) : rt ? parseFloat(rt[1]) : 0;
+    return Math.round(Math.abs(raw)) % 360;
+}
+
+/**
+ * Probe the **display** dimensions of a video — i.e. what a player (and the
+ * browser `<video>` preview, via `videoWidth`/`videoHeight`) actually shows.
+ *
+ * Phone videos are commonly stored landscape (e.g. 1920×1080) with a rotation
+ * flag; FFmpeg auto-rotates on export so the burned frame is display-oriented
+ * (1080×1920). The ASS PlayRes must match that display frame, *and* match the
+ * dims the preview used, or the burned subtitles render at a different scale /
+ * aspect than the preview. So we swap W/H for 90°/270° rotations to return the
+ * post-rotation (display) size. Falls back to 1280×720 on any error.
  */
 async function getVideoDimensions(filePath: string): Promise<{ width: number; height: number }> {
     return new Promise((resolve) => {
@@ -284,7 +305,14 @@ async function getVideoDimensions(filePath: string): Promise<{ width: number; he
         proc.on("close", () => {
             // "Video: h264 ...yuv420p, 1920x1080 [SAR" or "Video: ... 1280x720,"
             const m = stderr.match(/Video:[^\n]*?\s(\d{2,5})x(\d{2,5})[\s,\[]/);
-            resolve(m ? { width: parseInt(m[1]), height: parseInt(m[2]) } : { width: 1280, height: 720 });
+            if (!m) return resolve({ width: 1280, height: 720 });
+            let width = parseInt(m[1]);
+            let height = parseInt(m[2]);
+            const rotation = parseRotationFromStderr(stderr);
+            if (rotation === 90 || rotation === 270) {
+                [width, height] = [height, width];
+            }
+            resolve({ width, height });
         });
         proc.on("error", () => resolve({ width: 1280, height: 720 }));
     });
