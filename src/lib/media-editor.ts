@@ -323,7 +323,7 @@ export async function convertToMp4(videoId: string) {
     const newFileName = `${parsedPath.name}_converted_${newId}.mp4`;
     const newFilePath = path.join(parsedPath.dir, newFileName);
 
-    const args = ["-y", "-i", originalVideo.localPath, "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "aac", "-movflags", "+faststart", newFilePath];
+    const args = ["-y", "-i", originalVideo.localPath, "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", newFilePath];
     console.log(`[FFmpeg Convert] Running: ffmpeg ${args.join(" ")}`);
     await runFfmpeg(args);
 
@@ -533,7 +533,7 @@ export async function trimBurnSubtitles(
 
     try {
         const filterArg = buildSubtitlesFilter(tmpAssPath);
-        const args = ["-y", "-ss", startTime, "-i", originalVideo.localPath, "-to", endTime, "-vf", filterArg, "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", newFilePath];
+        const args = ["-y", "-ss", startTime, "-i", originalVideo.localPath, "-to", endTime, "-vf", filterArg, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p", "-x264-params", "aq-mode=3", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg TrimBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args);
     } finally {
@@ -580,7 +580,7 @@ export async function cropBurnSubtitles(
 
     try {
         const filterArg = `crop=${w}:${h}:${x}:${y},${buildSubtitlesFilter(tmpAssPath)}`;
-        const args = ["-y", "-i", originalVideo.localPath, "-vf", filterArg, "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", newFilePath];
+        const args = ["-y", "-i", originalVideo.localPath, "-vf", filterArg, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p", "-x264-params", "aq-mode=3", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg CropBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args);
     } finally {
@@ -628,7 +628,7 @@ export async function trimCropBurnSubtitles(
 
     try {
         const filterArg = `crop=${w}:${h}:${x}:${y},${buildSubtitlesFilter(tmpAssPath)}`;
-        const args = ["-y", "-ss", startTime, "-i", originalVideo.localPath, "-to", endTime, "-vf", filterArg, "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", newFilePath];
+        const args = ["-y", "-ss", startTime, "-i", originalVideo.localPath, "-to", endTime, "-vf", filterArg, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p", "-x264-params", "aq-mode=3", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg TrimCropBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args);
     } finally {
@@ -677,7 +677,7 @@ export async function burnSubtitles(
 
     try {
         const filterArg = buildSubtitlesFilter(tmpAssPath);
-        const args = ["-y", "-i", originalVideo.localPath, "-vf", filterArg, "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", newFilePath];
+        const args = ["-y", "-i", originalVideo.localPath, "-vf", filterArg, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p", "-x264-params", "aq-mode=3", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg BurnSubs] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args);
     } finally {
