@@ -2,8 +2,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
     Search,
     Copy,
@@ -13,9 +11,12 @@ import {
     ListTodo,
     AlertTriangle,
     X,
-    ChevronUp,
-    ChevronDown,
     Download,
+    Upload,
+    Undo2,
+    Redo2,
+    FileText,
+    Info,
 } from "lucide-react";
 import {
     Subtitle,
@@ -24,6 +25,9 @@ import {
     displayTime,
     shiftTime,
     subtitlesToSrt,
+    subtitlesToVtt,
+    parseSrt,
+    parseVtt,
     findActiveSubtitle,
     findNearestSubtitle,
 } from "./subtitle-types";
@@ -35,6 +39,10 @@ interface SubtitleEditorProps {
     currentTime: number;
     videoRef: React.RefObject<HTMLVideoElement | null>;
     onSeek: (time: number) => void;
+    canUndo?: boolean;
+    canRedo?: boolean;
+    onUndo?: () => void;
+    onRedo?: () => void;
 }
 
 export function SubtitleEditor({
@@ -43,6 +51,10 @@ export function SubtitleEditor({
     currentTime,
     videoRef,
     onSeek,
+    canUndo = false,
+    canRedo = false,
+    onUndo,
+    onRedo,
 }: SubtitleEditorProps) {
     const [searchQuery, setSearchQuery] = useState("");
     const [showReviewQueue, setShowReviewQueue] = useState(false);
@@ -53,6 +65,7 @@ export function SubtitleEditor({
     const [timingOffsetMs, setTimingOffsetMs] = useState(0);
     const [copied, setCopied] = useState(false);
     const [activeId, setActiveId] = useState<number | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
 
     // Stats
@@ -72,10 +85,7 @@ export function SubtitleEditor({
     // Filter subtitles
     const filteredSubtitles = subtitles.filter((s) => {
         if (showReviewQueue && s.confidence >= 0.8) return false;
-        if (
-            searchQuery &&
-            !s.text.toLowerCase().includes(searchQuery.toLowerCase())
-        )
+        if (searchQuery && !s.text.toLowerCase().includes(searchQuery.toLowerCase()))
             return false;
         return true;
     });
@@ -97,17 +107,13 @@ export function SubtitleEditor({
         if (active) {
             if (active.id !== activeId) {
                 setActiveId(active.id);
-                const el = document.getElementById(`sub-${active.id}`);
-                if (el)
-                    el.scrollIntoView({ behavior: "smooth", block: "center" });
+                document.getElementById(`sub-${active.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
             }
         } else {
             const nearest = findNearestSubtitle(filteredSubtitles, currentTime);
             if (nearest && nearest.id !== activeId) {
                 setActiveId(nearest.id);
-                const el = document.getElementById(`sub-${nearest.id}`);
-                if (el)
-                    el.scrollIntoView({ behavior: "smooth", block: "center" });
+                document.getElementById(`sub-${nearest.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
             }
         }
     }, [currentTime, filteredSubtitles, activeId]);
@@ -118,40 +124,37 @@ export function SubtitleEditor({
             const tag = (e.target as HTMLElement)?.tagName;
             if (tag === "INPUT" || tag === "TEXTAREA") return;
 
+            if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
+                e.preventDefault();
+                onUndo?.();
+                return;
+            }
+            if ((e.metaKey || e.ctrlKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+                e.preventDefault();
+                onRedo?.();
+                return;
+            }
+
             switch (e.key) {
                 case "ArrowUp": {
                     e.preventDefault();
-                    const idx = filteredSubtitles.findIndex(
-                        (s) => s.id === activeId
-                    );
+                    const idx = filteredSubtitles.findIndex((s) => s.id === activeId);
                     if (idx > 0) {
                         const prev = filteredSubtitles[idx - 1];
                         setActiveId(prev.id);
                         onSeek(parseSrtTime(prev.start));
-                        document
-                            .getElementById(`sub-${prev.id}`)
-                            ?.scrollIntoView({
-                                behavior: "smooth",
-                                block: "center",
-                            });
+                        document.getElementById(`sub-${prev.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
                     }
                     break;
                 }
                 case "ArrowDown": {
                     e.preventDefault();
-                    const idx = filteredSubtitles.findIndex(
-                        (s) => s.id === activeId
-                    );
+                    const idx = filteredSubtitles.findIndex((s) => s.id === activeId);
                     if (idx < filteredSubtitles.length - 1) {
                         const next = filteredSubtitles[idx + 1];
                         setActiveId(next.id);
                         onSeek(parseSrtTime(next.start));
-                        document
-                            .getElementById(`sub-${next.id}`)
-                            ?.scrollIntoView({
-                                behavior: "smooth",
-                                block: "center",
-                            });
+                        document.getElementById(`sub-${next.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
                     }
                     break;
                 }
@@ -159,20 +162,22 @@ export function SubtitleEditor({
         };
         document.addEventListener("keydown", handler);
         return () => document.removeEventListener("keydown", handler);
-    }, [activeId, filteredSubtitles, onSeek]);
+    }, [activeId, filteredSubtitles, onSeek, onUndo, onRedo]);
 
-    // Edit per-cue timing
     const handleTimeChange = useCallback(
         (id: number, field: "start" | "end", value: string) => {
-            const updated = subtitles.map((s) =>
-                s.id === id ? { ...s, [field]: value } : s
+            const parts = value.split(":");
+            if (parts.length !== 2) return;
+            const m = parseInt(parts[0]) || 0;
+            const s = parseInt(parts[1]) || 0;
+            const updated = subtitles.map((sub) =>
+                sub.id === id ? { ...sub, [field]: formatSrtTime(m * 60 + s) } : sub
             );
             onSubtitlesChange(updated);
         },
         [subtitles, onSubtitlesChange]
     );
 
-    // Export subtitles as SRT file download
     const handleExportSrt = useCallback(() => {
         const srt = subtitlesToSrt(subtitles);
         const blob = new Blob([srt], { type: "text/plain;charset=utf-8" });
@@ -184,7 +189,34 @@ export function SubtitleEditor({
         URL.revokeObjectURL(url);
     }, [subtitles]);
 
-    // Edit subtitle text
+    const handleExportVtt = useCallback(() => {
+        const vtt = subtitlesToVtt(subtitles);
+        const blob = new Blob([vtt], { type: "text/vtt;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "subtitles.vtt";
+        a.click();
+        URL.revokeObjectURL(url);
+    }, [subtitles]);
+
+    const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const content = ev.target?.result as string;
+            if (!content) return;
+            const parsed = file.name.endsWith(".vtt") || content.trimStart().startsWith("WEBVTT")
+                ? parseVtt(content)
+                : parseSrt(content);
+            if (parsed.length > 0) onSubtitlesChange(parsed);
+        };
+        reader.readAsText(file);
+        // Reset so the same file can be re-imported
+        e.target.value = "";
+    }, [onSubtitlesChange]);
+
     const handleTextChange = useCallback(
         (id: number, newText: string) => {
             const updated = subtitles.map((s) =>
@@ -195,7 +227,6 @@ export function SubtitleEditor({
         [subtitles, onSubtitlesChange]
     );
 
-    // Copy transcript
     const handleCopyTranscript = async () => {
         const text = filteredSubtitles.map((s) => s.text).join("\n");
         await navigator.clipboard.writeText(text);
@@ -203,7 +234,6 @@ export function SubtitleEditor({
         setTimeout(() => setCopied(false), 2000);
     };
 
-    // Find & Replace
     const handleReplaceAll = () => {
         if (!findText || findMatchCount === 0) return;
         const escaped = findText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -217,7 +247,6 @@ export function SubtitleEditor({
         setReplaceText("");
     };
 
-    // Timing offset
     const shiftAllTimings = (deltaMs: number) => {
         const updated = subtitles.map((s) => ({
             ...s,
@@ -233,38 +262,63 @@ export function SubtitleEditor({
             {/* Toolbar */}
             <div className="border-b border-border bg-card/90 backdrop-blur-sm shrink-0">
                 <div className="h-12 flex items-center justify-between px-3 gap-2">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1">
+                        {/* Review queue — icon-only with count badge */}
                         <button
-                            onClick={() =>
-                                setShowReviewQueue(!showReviewQueue)
-                            }
+                            onClick={() => setShowReviewQueue(!showReviewQueue)}
+                            title={`Review queue${needsReviewCount > 0 ? ` (${needsReviewCount})` : ""}`}
                             className={cn(
-                                "px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors",
+                                "relative p-1.5 rounded-md transition-colors",
                                 showReviewQueue
                                     ? "bg-primary text-primary-foreground"
                                     : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
                             )}
                         >
                             <ListTodo className="w-3.5 h-3.5" />
-                            Review
                             {needsReviewCount > 0 && (
-                                <span className="bg-red-500 text-white text-[9px] px-1 py-0 rounded-full min-w-[16px] text-center leading-[16px]">
+                                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] px-1 rounded-full min-w-[14px] text-center leading-[14px] font-medium pointer-events-none">
                                     {needsReviewCount}
                                 </span>
                             )}
                         </button>
-                        <span className="text-[10px] text-muted-foreground font-mono tabular-nums ml-1 hidden lg:inline">
-                            {subtitles.length} subs · {totalWords}w ·{" "}
-                            {statsMins}m {String(statsSecs).padStart(2, "0")}s
-                        </span>
+
+                        {/* Transcript stats — tooltip on hover (native title) */}
+                        <button
+                            type="button"
+                            title={`${subtitles.length} subtitles · ${totalWords} words · ${statsMins}m ${String(statsSecs).padStart(2, "0")}s`}
+                            aria-label="Transcript info"
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                        >
+                            <Info className="w-3.5 h-3.5" />
+                        </button>
                     </div>
 
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-0.5">
+                        {/* Undo */}
+                        <button
+                            onClick={onUndo}
+                            disabled={!canUndo}
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Undo (⌘Z)"
+                        >
+                            <Undo2 className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Redo */}
+                        <button
+                            onClick={onRedo}
+                            disabled={!canRedo}
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Redo (⌘Y)"
+                        >
+                            <Redo2 className="w-3.5 h-3.5" />
+                        </button>
+
+                        <div className="w-px h-4 bg-border mx-0.5" />
+
                         {/* Timing offset */}
                         <button
-                            onClick={() =>
-                                setShowTimingOffset(!showTimingOffset)
-                            }
+                            onClick={() => setShowTimingOffset(!showTimingOffset)}
                             className={cn(
                                 "p-1.5 rounded-md transition-colors",
                                 showTimingOffset
@@ -278,9 +332,7 @@ export function SubtitleEditor({
 
                         {/* Find & Replace */}
                         <button
-                            onClick={() =>
-                                setShowFindReplace(!showFindReplace)
-                            }
+                            onClick={() => setShowFindReplace(!showFindReplace)}
                             className={cn(
                                 "p-1.5 rounded-md transition-colors",
                                 showFindReplace
@@ -305,13 +357,38 @@ export function SubtitleEditor({
                             )}
                         </button>
 
+                        {/* Import SRT / VTT */}
+                        <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            title="Import SRT or VTT file"
+                        >
+                            <Upload className="w-3.5 h-3.5" />
+                        </button>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept=".srt,.vtt"
+                            className="hidden"
+                            onChange={handleImportFile}
+                        />
+
                         {/* Export SRT */}
                         <button
                             onClick={handleExportSrt}
                             className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                            title="Export as .srt file"
+                            title="Export as .srt"
                         >
                             <Download className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Export VTT */}
+                        <button
+                            onClick={handleExportVtt}
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            title="Export as .vtt"
+                        >
+                            <FileText className="w-3.5 h-3.5" />
                         </button>
                     </div>
                 </div>
@@ -355,21 +432,17 @@ export function SubtitleEditor({
                                 <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-background border border-border text-foreground">
                                     Current: {timingOffsetMs > 0 ? `+${timingOffsetMs}` : timingOffsetMs}ms
                                 </span>
-                                {[-1000, -500, -100, 100, 500, 1000].map(
-                                    (ms) => (
-                                        <button
-                                            key={ms}
-                                            onClick={() => shiftAllTimings(ms)}
-                                            className="px-2 py-0.5 rounded text-[10px] font-mono bg-muted/60 border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                                        >
-                                            {ms > 0 ? `+${ms}` : ms}ms
-                                        </button>
-                                    )
-                                )}
+                                {[-1000, -500, -100, 100, 500, 1000].map((ms) => (
+                                    <button
+                                        key={ms}
+                                        onClick={() => shiftAllTimings(ms)}
+                                        className="px-2 py-0.5 rounded text-[10px] font-mono bg-muted/60 border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                                    >
+                                        {ms > 0 ? `+${ms}` : ms}ms
+                                    </button>
+                                ))}
                                 <button
-                                    onClick={() => {
-                                        if (timingOffsetMs !== 0) shiftAllTimings(-timingOffsetMs);
-                                    }}
+                                    onClick={() => { if (timingOffsetMs !== 0) shiftAllTimings(-timingOffsetMs); }}
                                     disabled={timingOffsetMs === 0}
                                     className="px-2 py-0.5 rounded text-[10px] font-mono bg-primary/10 border border-primary/20 text-primary hover:bg-primary/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
@@ -396,9 +469,7 @@ export function SubtitleEditor({
                                         type="text"
                                         placeholder="Find..."
                                         value={findText}
-                                        onChange={(e) =>
-                                            setFindText(e.target.value)
-                                        }
+                                        onChange={(e) => setFindText(e.target.value)}
                                         className="flex-1 px-2.5 py-1 bg-muted/50 border border-border rounded text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring transition-all"
                                     />
                                     {findText && (
@@ -412,16 +483,12 @@ export function SubtitleEditor({
                                         type="text"
                                         placeholder="Replace with..."
                                         value={replaceText}
-                                        onChange={(e) =>
-                                            setReplaceText(e.target.value)
-                                        }
+                                        onChange={(e) => setReplaceText(e.target.value)}
                                         className="flex-1 px-2.5 py-1 bg-muted/50 border border-border rounded text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring transition-all"
                                     />
                                     <button
                                         onClick={handleReplaceAll}
-                                        disabled={
-                                            !findText || findMatchCount === 0
-                                        }
+                                        disabled={!findText || findMatchCount === 0}
                                         className="px-3 py-1 rounded text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed transition-all shrink-0"
                                     >
                                         Replace All
@@ -460,8 +527,7 @@ export function SubtitleEditor({
                     <div className="p-2 space-y-1">
                         {filteredSubtitles.map((subtitle) => {
                             const isActive = subtitle.id === activeId;
-                            const isLowConfidence =
-                                subtitle.confidence < 0.8;
+                            const isLowConfidence = subtitle.confidence < 0.8;
 
                             return (
                                 <div
@@ -469,9 +535,7 @@ export function SubtitleEditor({
                                     id={`sub-${subtitle.id}`}
                                     onClick={() => {
                                         setActiveId(subtitle.id);
-                                        onSeek(
-                                            parseSrtTime(subtitle.start)
-                                        );
+                                        onSeek(parseSrtTime(subtitle.start));
                                     }}
                                     className={cn(
                                         "group rounded-lg p-2.5 cursor-pointer transition-all duration-200 border",
@@ -480,20 +544,12 @@ export function SubtitleEditor({
                                             : "bg-transparent border-transparent hover:bg-muted/50 hover:border-border/60"
                                     )}
                                 >
-                                    {/* Time range — click to edit */}
                                     <div className="flex items-center justify-between mb-1.5">
                                         <div className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground tabular-nums">
                                             <input
                                                 type="text"
                                                 value={displayTime(subtitle.start)}
-                                                onChange={(e) => {
-                                                    const parts = e.target.value.split(":");
-                                                    if (parts.length === 2) {
-                                                        const m = parseInt(parts[0]) || 0;
-                                                        const s = parseInt(parts[1]) || 0;
-                                                        handleTimeChange(subtitle.id, "start", formatSrtTime(m * 60 + s));
-                                                    }
-                                                }}
+                                                onChange={(e) => handleTimeChange(subtitle.id, "start", e.target.value)}
                                                 onClick={(e) => e.stopPropagation()}
                                                 className="w-10 bg-transparent text-center outline-none border-b border-transparent hover:border-border focus:border-primary rounded-none transition-colors"
                                                 title="Edit start time (M:SS)"
@@ -502,14 +558,7 @@ export function SubtitleEditor({
                                             <input
                                                 type="text"
                                                 value={displayTime(subtitle.end)}
-                                                onChange={(e) => {
-                                                    const parts = e.target.value.split(":");
-                                                    if (parts.length === 2) {
-                                                        const m = parseInt(parts[0]) || 0;
-                                                        const s = parseInt(parts[1]) || 0;
-                                                        handleTimeChange(subtitle.id, "end", formatSrtTime(m * 60 + s));
-                                                    }
-                                                }}
+                                                onChange={(e) => handleTimeChange(subtitle.id, "end", e.target.value)}
                                                 onClick={(e) => e.stopPropagation()}
                                                 className="w-10 bg-transparent text-center outline-none border-b border-transparent hover:border-border focus:border-primary rounded-none transition-colors"
                                                 title="Edit end time (M:SS)"
@@ -527,22 +576,11 @@ export function SubtitleEditor({
                                         </div>
                                     </div>
 
-                                    {/* Editable text */}
                                     <textarea
                                         value={subtitle.text}
-                                        onChange={(e) =>
-                                            handleTextChange(
-                                                subtitle.id,
-                                                e.target.value
-                                            )
-                                        }
+                                        onChange={(e) => handleTextChange(subtitle.id, e.target.value)}
                                         onClick={(e) => e.stopPropagation()}
-                                        rows={Math.max(
-                                            1,
-                                            Math.ceil(
-                                                subtitle.text.length / 45
-                                            )
-                                        )}
+                                        rows={Math.max(1, Math.ceil(subtitle.text.length / 45))}
                                         className={cn(
                                             "w-full bg-transparent text-xs leading-relaxed text-foreground/90 resize-none outline-none rounded px-1.5 py-1 -mx-1.5 transition-all",
                                             isActive
@@ -560,28 +598,24 @@ export function SubtitleEditor({
             {/* Keyboard shortcut hints */}
             <div className="px-3 py-2 text-[9px] text-muted-foreground text-center border-t border-border flex items-center justify-center gap-2 shrink-0 bg-muted/40">
                 <span>
-                    <kbd className="bg-muted px-1 py-0.5 rounded font-mono text-[8px] border border-border/60">
-                        ↑↓
-                    </kbd>{" "}
+                    <kbd className="bg-muted px-1 py-0.5 rounded font-mono text-[8px] border border-border/60">↑↓</kbd>{" "}
                     Nav
                 </span>
                 <span>
-                    <kbd className="bg-muted px-1 py-0.5 rounded font-mono text-[8px] border border-border/60">
-                        Space
-                    </kbd>{" "}
+                    <kbd className="bg-muted px-1 py-0.5 rounded font-mono text-[8px] border border-border/60">Space</kbd>{" "}
                     Play
                 </span>
                 <span>
-                    <kbd className="bg-muted px-1 py-0.5 rounded font-mono text-[8px] border border-border/60">
-                        J
-                    </kbd>{" "}
+                    <kbd className="bg-muted px-1 py-0.5 rounded font-mono text-[8px] border border-border/60">J</kbd>{" "}
                     -5s
                 </span>
                 <span>
-                    <kbd className="bg-muted px-1 py-0.5 rounded font-mono text-[8px] border border-border/60">
-                        L
-                    </kbd>{" "}
+                    <kbd className="bg-muted px-1 py-0.5 rounded font-mono text-[8px] border border-border/60">L</kbd>{" "}
                     +5s
+                </span>
+                <span>
+                    <kbd className="bg-muted px-1 py-0.5 rounded font-mono text-[8px] border border-border/60">⌘Z</kbd>{" "}
+                    Undo
                 </span>
             </div>
         </div>

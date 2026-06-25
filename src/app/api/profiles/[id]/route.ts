@@ -32,6 +32,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
                 maxResolution: data.maxResolution,
                 preferredFormat: data.preferredFormat,
                 preferredImageFormat: data.preferredImageFormat,
+                audioBitrate: data.audioBitrate,
                 autoCloudSync: data.autoCloudSync,
                 requireManualFormat: data.requireManualFormat,
                 strictResolution: resolvedMode !== undefined ? resolvedMode === "strict" : data.strictResolution,

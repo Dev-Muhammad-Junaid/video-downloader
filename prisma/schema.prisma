@@ -59,8 +59,9 @@ model DownloadProfile {
   sitePattern     String?  // e.g. "youtube.com", "twitter.com", "*"
   
   maxResolution        String?  @default("best") // "720p", "1080p", "1440p", "2160p", "best"
-  preferredFormat      String?  @default("mp4")  // "mp4", "mkv", "webm", "mp3"
+  preferredFormat      String?  @default("mp4")  // "mp4", "mkv", "webm", "mp3", "m4a", "wav"
   preferredImageFormat String?  @default("original") // "original", "jpg", "png", "webp"
+  audioBitrate         String?  @default("192k") // "128k" | "192k" | "256k" | "320k" — for audio-format downloads
 
   autoCloudSync   Boolean  @default(false)
   requireManualFormat Boolean @default(false)
