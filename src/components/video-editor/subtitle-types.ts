@@ -227,23 +227,6 @@ export interface SubtitlePosition {
 
 export const DEFAULT_POSITION: SubtitlePosition = { vertical: "bottom", horizontal: "center" };
 
-export interface SubtitleColorOption {
-    id: string;
-    label: string;
-    hex: string;      // CSS hex color
-    assAbgr: string;  // ASS ABGR format &HAABBGGRR
-}
-
-export const HIGHLIGHT_COLORS: SubtitleColorOption[] = [
-    { id: "yellow",  label: "Yellow",  hex: "#FACC15", assAbgr: "&H0015CCFA" },
-    { id: "white",   label: "White",   hex: "#FFFFFF", assAbgr: "&H00FFFFFF" },
-    { id: "green",   label: "Green",   hex: "#22C55E", assAbgr: "&H005EC522" },
-    { id: "cyan",    label: "Cyan",    hex: "#06B6D4", assAbgr: "&H00D4B606" },
-    { id: "red",     label: "Red",     hex: "#EF4444", assAbgr: "&H004444EF" },
-    { id: "orange",  label: "Orange",  hex: "#F97316", assAbgr: "&H001673F9" },
-    { id: "pink",    label: "Pink",    hex: "#EC4899", assAbgr: "&H009948EC" },
-];
-
 /** Map (vertical, horizontal) to ASS alignment integer (1–9) */
 export function positionToAssAlignment(position: SubtitlePosition): number {
     const rowOffset = { bottom: 0, middle: 3, top: 6 }[position.vertical];
