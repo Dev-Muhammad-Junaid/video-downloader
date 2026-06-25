@@ -16,6 +16,20 @@ function parseTimeToSeconds(time: string): number {
 }
 
 /**
+ * FFmpeg trim args for a [start, end] window. We seek the input with `-ss`
+ * (fast) and limit the OUTPUT with `-t DURATION` — NOT `-to END`. With an
+ * input-side `-ss`, FFmpeg resets output timestamps to 0, so `-to END` is
+ * measured from that new zero and would write END seconds of output (e.g.
+ * trimming 21:40→21:45 of a 44-min clip wrote ~21 min). `-t (end-start)`
+ * writes exactly the intended duration, so the export is both correct and
+ * fast (work is proportional to the clip length, not the source length).
+ */
+function trimArgs(input: string, startTime: string, endTime: string): string[] {
+    const dur = Math.max(0, parseTimeToSeconds(endTime) - parseTimeToSeconds(startTime));
+    return ["-ss", String(startTime), "-i", input, "-t", String(dur)];
+}
+
+/**
  * Absolute path to the subtitle fonts bundled with the app — the *same* TTF
  * files JASSUB loads in the browser preview (`public/fonts`). Handing this to
  * libass through the `subtitles` filter's `fontsdir` option is what makes the
@@ -85,14 +99,11 @@ export async function trimVideo(
     const newFileName = `${parsedPath.name}_clipped_${newId}${parsedPath.ext}`;
     const newFilePath = path.join(parsedPath.dir, newFileName);
 
-    // Build FFmpeg command for fast clipping without re-encoding video if possible,
-    // though if we need frame accuracy, it's safer to re-encode or use fast seek.
-    // -ss [start] -to [end] -i [input] -c copy [output] is fastest.
+    // Fast keyframe-accurate clip via stream copy. trimArgs uses -ss + -t
+    // (duration) so the output is exactly the trimmed length.
     const args = [
         "-y",               // Overwrite
-        "-ss", startTime,
-        "-i", originalVideo.localPath,
-        "-to", endTime,
+        ...trimArgs(originalVideo.localPath, startTime, endTime),
         "-c", "copy",       // Stream copy (very fast, but respects keyframes only)
         newFilePath
     ];
@@ -227,9 +238,7 @@ export async function trimAndCrop(
     const filterArg = `crop=${w}:${h}:${x}:${y}`;
     const args = [
         "-y",
-        "-ss", startTime,
-        "-i", originalVideo.localPath,
-        "-to", endTime,
+        ...trimArgs(originalVideo.localPath, startTime, endTime),
         "-filter:v", filterArg,
         "-c:a", "copy",
         newFilePath
@@ -363,7 +372,7 @@ export async function trimAudio(
     const newFileName = `${parsedPath.name}_trimmed_${newId}${parsedPath.ext}`;
     const newFilePath = path.join(parsedPath.dir, newFileName);
 
-    const args = ["-y", "-ss", startTime, "-i", originalVideo.localPath, "-to", endTime, "-c", "copy", newFilePath];
+    const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime), "-c", "copy", newFilePath];
     console.log(`[FFmpeg TrimAudio] Running: ffmpeg ${args.join(" ")}`);
     await runFfmpeg(args);
 
@@ -465,10 +474,18 @@ export async function processAudio(videoId: string, opts: ProcessAudioOptions) {
     // Fast lossless path: pure trim, no filters, same container.
     const canStreamCopy = !filterChain && !formatChanged;
 
+    const hasStart = opts.startTime !== undefined && opts.startTime !== "";
+    const hasEnd = opts.endTime !== undefined && opts.endTime !== "";
     const args: string[] = ["-y"];
-    if (opts.startTime !== undefined && opts.startTime !== "") args.push("-ss", opts.startTime);
+    if (hasStart) args.push("-ss", opts.startTime!);
     args.push("-i", original.localPath);
-    if (opts.endTime !== undefined && opts.endTime !== "") args.push("-to", opts.endTime);
+    // -t DURATION (not -to END): with input -ss, -to is measured from the
+    // post-seek zero and would write END seconds of output.
+    if (hasEnd) {
+        const startSec = hasStart ? parseTimeToSeconds(opts.startTime!) : 0;
+        const dur = Math.max(0, parseTimeToSeconds(opts.endTime!) - startSec);
+        args.push("-t", String(dur));
+    }
 
     if (filterChain) args.push("-af", filterChain);
 
@@ -533,7 +550,7 @@ export async function trimBurnSubtitles(
 
     try {
         const filterArg = buildSubtitlesFilter(tmpAssPath);
-        const args = ["-y", "-ss", startTime, "-i", originalVideo.localPath, "-to", endTime, "-vf", filterArg, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p", "-x264-params", "aq-mode=3", "-c:a", "copy", newFilePath];
+        const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime), "-vf", filterArg, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p", "-x264-params", "aq-mode=3", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg TrimBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args);
     } finally {
@@ -628,7 +645,7 @@ export async function trimCropBurnSubtitles(
 
     try {
         const filterArg = `crop=${w}:${h}:${x}:${y},${buildSubtitlesFilter(tmpAssPath)}`;
-        const args = ["-y", "-ss", startTime, "-i", originalVideo.localPath, "-to", endTime, "-vf", filterArg, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p", "-x264-params", "aq-mode=3", "-c:a", "copy", newFilePath];
+        const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime), "-vf", filterArg, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p", "-x264-params", "aq-mode=3", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg TrimCropBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args);
     } finally {
