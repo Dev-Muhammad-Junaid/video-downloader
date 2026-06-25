@@ -186,14 +186,14 @@ export default function HistoryPage() {
             className="flex-1 w-full p-8 space-y-6 max-w-[1600px] mx-auto overflow-x-hidden"
         >
             {/* Header */}
-            <motion.div variants={fadeUp} className="flex items-center justify-between">
+            <motion.div variants={fadeUp} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
                         <History className="w-7 h-7 text-primary" />
                         Activity History
                     </h1>
                     <p className="text-muted-foreground text-sm mt-1">
-                        Track all downloads and AI transcriptions with full logs
+                        Downloads and AI transcriptions.
                     </p>
                 </div>
                 <div className="flex gap-2">
@@ -267,11 +267,11 @@ export default function HistoryPage() {
                             </div>
                         </CardContent>
                     </Card>
-                    <Card className="overflow-hidden relative group hover:border-red-500/30 transition-all">
-                        <div className="absolute inset-0 bg-gradient-to-br from-red-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <Card className="overflow-hidden relative group hover:border-destructive/30 transition-all">
+                        <div className="absolute inset-0 bg-gradient-to-br from-destructive/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                         <CardContent className="p-4 flex items-center gap-3 relative">
-                            <div className="p-2 rounded-lg bg-red-500/10">
-                                <XCircle className="w-5 h-5 text-red-500" />
+                            <div className="p-2 rounded-lg bg-destructive/10">
+                                <XCircle className="w-5 h-5 text-destructive" />
                             </div>
                             <div>
                                 <p className="text-2xl font-bold">{stats.failed}</p>
@@ -283,18 +283,18 @@ export default function HistoryPage() {
             ) : null}
 
             {/* Tab Switcher */}
-            <motion.div variants={fadeUp} className="flex items-center gap-1 bg-muted/40 rounded-xl p-1 w-fit border border-border/40">
+            <motion.div variants={fadeUp} className="flex items-center gap-1 bg-muted/40 rounded-xl p-1 w-full sm:w-fit border border-border/40">
                 {TAB_CONFIG.map((tab) => (
                     <button
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab.id
+                        className={`flex flex-1 sm:flex-none items-center justify-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${activeTab === tab.id
                                 ? "bg-foreground text-background shadow-sm"
                                 : "text-muted-foreground hover:text-foreground"
                             }`}
                     >
                         {tab.icon}
-                        {tab.label}
+                        <span className="hidden sm:inline">{tab.label}</span>
                     </button>
                 ))}
             </motion.div>
@@ -352,7 +352,7 @@ export default function HistoryPage() {
                                                 {log.status === "completed" ? (
                                                     <CheckCircle2 className={`w-5 h-5 ${isTranscription ? "text-violet-500" : "text-emerald-500"}`} />
                                                 ) : log.status === "error" ? (
-                                                    <XCircle className="w-5 h-5 text-red-500" />
+                                                    <XCircle className="w-5 h-5 text-destructive" />
                                                 ) : (
                                                     <Loader2 className="w-5 h-5 text-amber-500 animate-spin" />
                                                 )}
@@ -396,7 +396,7 @@ export default function HistoryPage() {
                                                 </div>
                                                 {/* Error message */}
                                                 {log.errorMessage && (
-                                                    <p className="text-[11px] text-red-500 mt-1 line-clamp-1">
+                                                    <p className="text-[11px] text-destructive mt-1 line-clamp-1">
                                                         <AlertCircle className="w-3 h-3 inline mr-0.5 mb-px" />
                                                         {log.errorMessage}
                                                     </p>
@@ -470,7 +470,7 @@ export default function HistoryPage() {
                                         {isExpanded && hasOutput && (
                                             <div className="px-4 pb-4 pt-0">
                                                 <div className={`rounded-lg p-3 border text-xs font-mono leading-relaxed whitespace-pre-wrap break-all max-h-40 overflow-y-auto ${log.status === "error"
-                                                        ? "bg-red-500/5 border-red-500/20 text-red-400"
+                                                        ? "bg-destructive/5 border-destructive/20 text-destructive"
                                                         : "bg-muted/40 border-border/40 text-muted-foreground"
                                                     }`}>
                                                     <div className="flex items-center gap-1.5 text-[10px] font-sans font-semibold uppercase tracking-wider mb-2 opacity-60">

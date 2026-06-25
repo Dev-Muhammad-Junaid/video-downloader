@@ -26,6 +26,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      {/* Preload subtitle-editor fonts so the style picker sample text renders correctly */}
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        {/* eslint-disable-next-line @next/next/no-page-custom-font */}
+        <link
+          href="https://fonts.googleapis.com/css2?family=Anton&family=Lora&family=Nunito&family=Oswald&family=Roboto&family=Space+Mono&display=swap"
+          rel="stylesheet"
+        />
+      </head>
       <body
         className={`${jetbrainsMono.variable} font-sans antialiased`}
       >

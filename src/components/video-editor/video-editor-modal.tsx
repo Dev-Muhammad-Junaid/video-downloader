@@ -3,6 +3,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
     X,
     Play,
@@ -15,21 +17,28 @@ import {
     Download,
     Mic,
     RectangleHorizontal,
+    Palette,
 } from "lucide-react";
 import { TimelineScrubber } from "./timeline-scrubber";
 import { toast } from "sonner";
 import { motion, AnimatePresence, useAnimationFrame } from "framer-motion";
 import { CropOverlay, CropState } from "./crop-overlay";
-import { SubtitleOverlay } from "./subtitle-overlay";
+import { SubtitleRenderer } from "./subtitle-renderer";
 import { SubtitleEditor } from "./subtitle-editor";
-import { StylePresetSelector } from "./style-preset-selector";
+import { SubtitleStylePanel } from "./subtitle-style-panel";
 import {
     Subtitle,
+    TRANSCRIPTION_LANGUAGES,
     parseSrt,
     parseVtt,
     subtitlesToSrt,
     clipAndShiftSubtitles,
+    composeSubtitleAss,
 } from "./subtitle-types";
+import {
+    SubtitleStyleConfig,
+    createDefaultStyleConfig,
+} from "@/lib/ass-builder";
 
 interface Video {
     id: string;
@@ -81,10 +90,21 @@ export function VideoEditorModal({
 
     // Subtitle state
     const [subtitles, setSubtitles] = useState<Subtitle[]>([]);
-    const [stylePreset, setStylePreset] = useState("classic");
-    const [fontFamily, setFontFamily] = useState("Arial");
+    const [styleConfig, setStyleConfig] = useState<SubtitleStyleConfig>(() =>
+        createDefaultStyleConfig("classic")
+    );
+    const updateStyleConfig = (updates: Partial<SubtitleStyleConfig>) =>
+        setStyleConfig((prev) => ({ ...prev, ...updates }));
     const [isTranscribing, setIsTranscribing] = useState(false);
     const [transcriptionProvider, setTranscriptionProvider] = useState<"openai" | "groq">("openai");
+    const [transcriptionLanguage, setTranscriptionLanguage] = useState("");
+
+    // Subtitle sidebar tab
+    const [sidebarTab, setSidebarTab] = useState<"style" | "cues">("style");
+
+    // Undo/Redo history — max 50 states
+    const [subtitleHistory, setSubtitleHistory] = useState<Subtitle[][]>([[]]);
+    const [historyIdx, setHistoryIdx] = useState(0);
 
     const [isExporting, setIsExporting] = useState(false);
     const [includeSubtitles, setIncludeSubtitles] = useState(false);
@@ -178,9 +198,9 @@ export function VideoEditorModal({
                 if (!res.ok) return;
                 const content = await res.text();
                 if (content.trim().startsWith("WEBVTT") || video.transcriptPath?.endsWith(".vtt")) {
-                    setSubtitles(parseVtt(content));
+                    seedHistory(parseVtt(content));
                 } else {
-                    setSubtitles(parseSrt(content));
+                    seedHistory(parseSrt(content));
                 }
             } catch (err) {
                 if (process.env.NODE_ENV !== "production") {
@@ -200,6 +220,38 @@ export function VideoEditorModal({
                 }
             })
             .catch(() => {});
+    }, []);
+
+    // Subtitle change handler — pushes to undo history
+    const handleSubtitlesChange = useCallback((newSubs: Subtitle[]) => {
+        setSubtitles(newSubs);
+        setSubtitleHistory(prev => {
+            const sliced = prev.slice(0, historyIdx + 1);
+            const next = [...sliced, newSubs].slice(-50);
+            return next;
+        });
+        setHistoryIdx(prev => Math.min(prev + 1, 49));
+    }, [historyIdx]);
+
+    const handleUndo = useCallback(() => {
+        if (historyIdx <= 0) return;
+        const newIdx = historyIdx - 1;
+        setHistoryIdx(newIdx);
+        setSubtitles(subtitleHistory[newIdx] ?? []);
+    }, [historyIdx, subtitleHistory]);
+
+    const handleRedo = useCallback(() => {
+        if (historyIdx >= subtitleHistory.length - 1) return;
+        const newIdx = historyIdx + 1;
+        setHistoryIdx(newIdx);
+        setSubtitles(subtitleHistory[newIdx] ?? []);
+    }, [historyIdx, subtitleHistory]);
+
+    // Seed history when subtitles are first loaded
+    const seedHistory = useCallback((subs: Subtitle[]) => {
+        setSubtitles(subs);
+        setSubtitleHistory([subs]);
+        setHistoryIdx(0);
     }, []);
 
     const handleLoadedMetadata = () => {
@@ -301,7 +353,7 @@ export function VideoEditorModal({
             const res = await fetch(`/api/transcription/${video.id}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({}),
+                body: JSON.stringify(transcriptionLanguage ? { language: transcriptionLanguage } : {}),
             });
             if (!res.ok) {
                 const d = await res.json();
@@ -331,7 +383,7 @@ export function VideoEditorModal({
                         if (statusData.vttPath) {
                             try {
                                 const vttRes = await fetch(`/api/media?path=${encodeURIComponent(statusData.vttPath)}`);
-                                if (vttRes.ok) setSubtitles(parseVtt(await vttRes.text()));
+                                if (vttRes.ok) seedHistory(parseVtt(await vttRes.text()));
                             } catch { /* ignore */ }
                         }
                         onRefreshLibrary?.();
@@ -375,13 +427,27 @@ export function VideoEditorModal({
             const bodyPayload: Record<string, unknown> = { videoId: video.id };
 
             const wantSubs = includeSubtitles && hasSubtitles && mode !== "subtitles";
-            const subsParams = wantSubs ? {
-                srtContent: subtitlesToSrt(
-                    mode === "trim" ? clipAndShiftSubtitles(subtitles, trimStart, trimEnd) : subtitles
-                ),
-                stylePreset,
-                fontFamily,
-            } : {};
+
+            // The video's display size — exactly the frame the burn renders onto
+            // (FFmpeg auto-rotates to display orientation). Used as the ASS
+            // PlayRes so preview and burn share identical geometry.
+            const vWidth  = videoRef.current?.videoWidth  ?? 1280;
+            const vHeight = videoRef.current?.videoHeight ?? 720;
+            const displayDims = { width: vWidth, height: vHeight };
+
+            const clippedSubtitles = mode === "trim"
+                ? clipAndShiftSubtitles(subtitles, trimStart, trimEnd)
+                : subtitles;
+
+            // SRT for inheritance (always original timing — user can edit later)
+            const inheritSrtContent = hasSubtitles ? subtitlesToSrt(clippedSubtitles) : undefined;
+
+            // Build the FINAL ASS here, the same way the preview does, and send
+            // it for the server to burn verbatim. One source of truth → the
+            // export is byte-identical to what JASSUB showed. `vDim` is the
+            // frame the subtitles land on: crop output for crop, else display.
+            const composeBurnAss = (subs: Subtitle[], vDim: { width: number; height: number }) =>
+                composeSubtitleAss(subs, styleConfig, vDim);
 
             if (mode === "trim") {
                 if (trimEnd - trimStart <= 0.1) throw new Error("Trim duration is too short.");
@@ -391,34 +457,35 @@ export function VideoEditorModal({
 
                 if (hasCrop && wantSubs) {
                     bodyPayload.action = "trim-crop-burn";
-                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, ...cropPx, ...subsParams };
+                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, ...cropPx, assContent: composeBurnAss(clippedSubtitles, { width: cropPx!.w, height: cropPx!.h }), inheritSrtContent };
                 } else if (hasCrop) {
                     bodyPayload.action = "trim-crop";
-                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, ...cropPx };
+                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, ...cropPx, inheritSrtContent };
                 } else if (wantSubs) {
                     bodyPayload.action = "trim-burn";
-                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, ...subsParams };
+                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, assContent: composeBurnAss(clippedSubtitles, displayDims), inheritSrtContent };
                 } else {
                     bodyPayload.action = "trim";
-                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd };
+                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, inheritSrtContent };
                 }
             } else if (mode === "crop") {
                 const cropPx = getCropPixels();
                 if (!cropPx) throw new Error("Could not detect video resolution.");
                 if (wantSubs) {
                     bodyPayload.action = "crop-burn";
-                    bodyPayload.params = { ...cropPx, ...subsParams };
+                    bodyPayload.params = { ...cropPx, assContent: composeBurnAss(subtitles, { width: cropPx.w, height: cropPx.h }), inheritSrtContent };
                 } else {
                     bodyPayload.action = "crop";
-                    bodyPayload.params = cropPx;
+                    bodyPayload.params = { ...cropPx, inheritSrtContent };
                 }
             } else if (mode === "subtitles") {
                 if (subtitles.length === 0) throw new Error("No subtitles to burn. Transcribe the video first.");
                 bodyPayload.action = "burn-subtitles";
                 bodyPayload.params = {
-                    srtContent: subtitlesToSrt(subtitles),
-                    stylePreset,
-                    fontFamily,
+                    // Identical to the preview ASS (same subs, config, dims).
+                    assContent: composeBurnAss(subtitles, displayDims),
+                    // Always inherit original subtitles so the captioned video stays editable
+                    inheritSrtContent: subtitlesToSrt(subtitles),
                 };
             }
 
@@ -449,6 +516,8 @@ export function VideoEditorModal({
         const p = ASPECT_RATIOS.find(a => a.id === aspectRatio);
         return p && p.w ? p.w / p.h : 16 / 9;
     }, [aspectRatio]);
+
+    const isMobile = useIsMobile();
 
     // Tailwind max-w-* in px (16px rem) — animated via Framer Motion so width cap eases with the frame
     const previewMaxWidthPx = useMemo(() => {
@@ -487,23 +556,24 @@ export function VideoEditorModal({
             className="fixed inset-0 z-[60] bg-background text-foreground flex flex-col"
         >
             {/* ── Header ── */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-border/60 bg-background/80 backdrop-blur-md relative shrink-0">
-                <div className="flex items-center gap-4">
+            <div className="relative flex flex-wrap items-center gap-2 px-3 sm:px-5 py-2 sm:py-3 border-b border-border/60 bg-background/80 backdrop-blur-md shrink-0">
+                <div className="flex items-center gap-2 sm:gap-4 min-w-0 mr-auto">
                     <Button
                         variant="ghost"
                         size="icon"
                         onClick={onClose}
-                        className="rounded-full hover:bg-muted text-foreground"
+                        className="rounded-full hover:bg-muted text-foreground shrink-0"
                     >
                         <X className="w-5 h-5" />
                     </Button>
-                    <h2 className="text-lg font-medium tracking-tight text-foreground truncate max-w-sm">
+                    <h2 className="hidden xl:block text-lg font-medium tracking-tight text-foreground truncate max-w-xs 2xl:max-w-sm">
                         Editing {video.title}
                     </h2>
                 </div>
 
-                {/* Mode Tabs */}
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1 bg-muted/60 rounded-xl p-1 border border-border/40">
+                {/* Mode Tabs — own full-width row on mobile, absolute-centered on desktop */}
+                <div className="order-last w-full sm:order-none sm:w-auto sm:absolute sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 flex justify-center">
+                  <div className="flex items-center gap-1 bg-muted/60 rounded-xl p-1 border border-border/40">
                     {([
                         { id: "trim",      label: "Trim",      Icon: Scissors },
                         { id: "crop",      label: "Crop",      Icon: CropIcon },
@@ -523,20 +593,24 @@ export function VideoEditorModal({
                             {label}
                         </button>
                     ))}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3">
                     {/* Include Subtitles toggle — visible in trim/crop when subtitles exist */}
                     {mode !== "subtitles" && hasSubtitles && (
-                        <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                        <label
+                            className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none whitespace-nowrap"
+                            title="Include subtitles in the export"
+                        >
                             <input
                                 type="checkbox"
                                 checked={includeSubtitles}
                                 onChange={(e) => setIncludeSubtitles(e.target.checked)}
                                 className="rounded border-border"
                             />
-                            <Captions className="w-3.5 h-3.5" />
-                            Include Subtitles
+                            <Captions className="w-3.5 h-3.5 shrink-0" />
+                            <span className="hidden xl:inline">Include Subtitles</span>
                         </label>
                     )}
                     <Button
@@ -546,7 +620,7 @@ export function VideoEditorModal({
                             setAspectRatio("original");
                             if (mode === "trim") { setTrimStart(0); setTrimEnd(duration); handleSeek(0); }
                             else if (mode === "crop") { setCrop({ x: 10, y: 10, w: 80, h: 80 }); }
-                            else { setStylePreset("classic"); setFontFamily("Arial"); }
+                            else { setStyleConfig(createDefaultStyleConfig("classic")); }
                         }}
                     >
                         <RotateCcw className="w-4 h-4 mr-2" /> Reset
@@ -566,13 +640,13 @@ export function VideoEditorModal({
                         ) : (
                             <Download className="w-4 h-4 mr-2" />
                         )}
-                        Export {mode === "trim" ? "Trim" : mode === "crop" ? "Crop" : "with Subtitles"}
+                        Export<span className="hidden sm:inline"> {mode === "trim" ? "Trim" : mode === "crop" ? "Crop" : "with Subtitles"}</span>
                     </Button>
                 </div>
             </div>
 
             {/* ── Main Content ── */}
-            <div className="flex-1 overflow-hidden flex">
+            <div className="flex-1 overflow-hidden flex flex-col sm:flex-row">
                 {/* Video Stage */}
                 <div className="flex-1 overflow-hidden relative bg-muted/40 dark:bg-muted/25 flex flex-col min-w-0">
                     {/* Video container — always has a defined aspect-ratio; CSS transition morphs it smoothly */}
@@ -635,13 +709,12 @@ export function VideoEditorModal({
                                     )}
                                 </AnimatePresence>
 
-                                {/* Subtitle Overlay — inside the shaped frame, positioning always relative to output */}
+                                {/* JASSUB subtitle renderer — identical styling to the FFmpeg export */}
                                 {(mode === "subtitles" || (includeSubtitles && hasSubtitles)) && (
-                                    <SubtitleOverlay
+                                    <SubtitleRenderer
                                         subtitles={subtitles}
-                                        currentTime={currentTime}
-                                        stylePreset={stylePreset}
-                                        fontFamily={fontFamily}
+                                        config={styleConfig}
+                                        videoRef={videoRef}
                                         previewText={!hasSubtitles ? "Your subtitles will appear here" : undefined}
                                     />
                                 )}
@@ -653,69 +726,108 @@ export function VideoEditorModal({
                         )}
                     </div>
 
-                    {/* Style + Font Selector Panel — shrink-0 so it's always visible */}
-                    <AnimatePresence>
-                        {(mode === "subtitles" || (includeSubtitles && hasSubtitles)) && (
-                            <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: "auto" }}
-                                exit={{ opacity: 0, height: 0 }}
-                                transition={{ duration: 0.18 }}
-                                className="shrink-0"
-                            >
-                                <StylePresetSelector
-                                    activePreset={stylePreset}
-                                    onSelect={setStylePreset}
-                                    fontFamily={fontFamily}
-                                    onFontChange={setFontFamily}
-                                />
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                    {/* Style panel is now a floating overlay — see SubtitleStylePanel below */}
                 </div>
 
-                {/* Subtitle Editor Panel — slides in from the right */}
+                {/* ── Subtitle Sidebar (Style + Cues tabs) ── */}
                 <AnimatePresence>
                     {mode === "subtitles" && (
                         <motion.div
-                            initial={{ width: 0, opacity: 0 }}
-                            animate={{ width: 360, opacity: 1 }}
-                            exit={{ width: 0, opacity: 0 }}
+                            initial={isMobile ? { height: 0, opacity: 0 } : { width: 0, opacity: 0 }}
+                            animate={isMobile ? { height: "45vh", opacity: 1 } : { width: 320, opacity: 1 }}
+                            exit={isMobile ? { height: 0, opacity: 0 } : { width: 0, opacity: 0 }}
                             transition={{ duration: 0.18 }}
-                            className="overflow-hidden shrink-0"
+                            className="flex flex-col overflow-hidden shrink-0 bg-background w-full sm:w-auto border-t sm:border-t-0 sm:border-l border-border"
                         >
-                            {hasSubtitles ? (
-                                <SubtitleEditor
-                                    subtitles={subtitles}
-                                    onSubtitlesChange={setSubtitles}
-                                    currentTime={currentTime}
-                                    videoRef={videoRef}
-                                    onSeek={handleSeek}
+                            {/* Tab bar — same pill pattern as the header Trim / Crop / Subtitles tabs */}
+                            <div className="px-3 py-2 border-b border-border/60 shrink-0">
+                                <div className="flex items-center gap-1 bg-muted/60 rounded-xl p-1 border border-border/40">
+                                    {([
+                                        { id: "style", label: "Style", Icon: Palette  },
+                                        { id: "cues",  label: "Cues",  Icon: Captions },
+                                    ] as const).map(({ id, label, Icon }) => (
+                                        <button
+                                            key={id}
+                                            onClick={() => setSidebarTab(id)}
+                                            className={cn(
+                                                "flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
+                                                sidebarTab === id
+                                                    ? "bg-foreground text-background shadow-sm"
+                                                    : "text-muted-foreground hover:text-foreground"
+                                            )}
+                                        >
+                                            <Icon className="w-3.5 h-3.5" />
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Tab content — `flex-1 min-h-0` confines the inner
+                                scroll area to the space below the tab bar, so
+                                the tab bar itself stays pinned at the top. */}
+                            <div className="flex-1 min-h-0 flex flex-col">
+                            {sidebarTab === "style" && (
+                                <SubtitleStylePanel
+                                    config={styleConfig}
+                                    onChange={updateStyleConfig}
+                                    embedded
                                 />
-                            ) : (
-                                <div className="flex flex-col items-center justify-center h-full bg-background border-l border-border px-8 text-center">
-                                    <motion.div
-                                        initial={{ scale: 0.8, opacity: 0 }}
-                                        animate={{ scale: 1, opacity: 1 }}
-                                        transition={{ duration: 0.18, delay: 0.1 }}
-                                        className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4"
-                                    >
-                                        <Captions className="w-8 h-8 text-muted-foreground/50" />
-                                    </motion.div>
-                                    <motion.div
-                                        initial={{ y: 10, opacity: 0 }}
-                                        animate={{ y: 0, opacity: 1 }}
-                                        transition={{ duration: 0.18, delay: 0.15 }}
-                                    >
-                                        <h3 className="text-sm font-medium text-foreground mb-2">No Subtitles Yet</h3>
-                                        <p className="text-xs text-muted-foreground mb-6 max-w-[220px]">
-                                            Transcribe this video to generate subtitles you can edit and burn into the video.
+                            )}
+
+                            {/* Cues tab */}
+                            {sidebarTab === "cues" && (
+                                hasSubtitles ? (
+                                    <SubtitleEditor
+                                        subtitles={subtitles}
+                                        onSubtitlesChange={handleSubtitlesChange}
+                                        currentTime={currentTime}
+                                        videoRef={videoRef}
+                                        onSeek={handleSeek}
+                                        canUndo={historyIdx > 0}
+                                        canRedo={historyIdx < subtitleHistory.length - 1}
+                                        onUndo={handleUndo}
+                                        onRedo={handleRedo}
+                                    />
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center flex-1 px-6 text-center">
+                                        <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+                                            <Captions className="w-6 h-6 text-muted-foreground/50" />
+                                        </div>
+                                        <h3 className="text-sm font-medium text-foreground mb-1.5">No Subtitles Yet</h3>
+                                        <p className="text-xs text-muted-foreground mb-4 max-w-[200px]">
+                                            Transcribe this video to generate subtitles you can edit and burn in.
                                         </p>
+                                        <div className="w-full mb-3">
+                                            <label className="text-[10px] text-muted-foreground block mb-1 font-medium uppercase tracking-wider">
+                                                Language
+                                            </label>
+                                            <Select
+                                                value={transcriptionLanguage || "auto-detect"}
+                                                onValueChange={(v) => setTranscriptionLanguage(v === "auto-detect" ? "" : (v ?? ""))}
+                                            >
+                                                <SelectTrigger size="sm" className="w-full text-xs">
+                                                    <SelectValue>
+                                                        {(v) => {
+                                                            const code = v === "auto-detect" ? "" : v;
+                                                            return TRANSCRIPTION_LANGUAGES.find((l) => l.code === code)?.label ?? "Auto Detect";
+                                                        }}
+                                                    </SelectValue>
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {TRANSCRIPTION_LANGUAGES.map((lang) => (
+                                                        <SelectItem key={lang.code} value={lang.code || "auto-detect"} className="text-xs">
+                                                            {lang.label}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
                                         <Button
                                             size="sm"
                                             onClick={handleTranscribe}
                                             disabled={isTranscribing}
-                                            className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20"
+                                            className="w-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20"
                                             title={`Transcribe using ${transcriptionProvider === "groq" ? "Groq" : "OpenAI"}`}
                                         >
                                             {isTranscribing ? (
@@ -726,11 +838,12 @@ export function VideoEditorModal({
                                             {isTranscribing ? "Transcribing..." : "Transcribe Video"}
                                         </Button>
                                         <div className="mt-2 text-[10px] text-muted-foreground">
-                                            Provider: {transcriptionProvider === "groq" ? "Groq" : "OpenAI"}
+                                            via {transcriptionProvider === "groq" ? "Groq" : "OpenAI"}
                                         </div>
-                                    </motion.div>
-                                </div>
+                                    </div>
+                                )
                             )}
+                            </div>
                         </motion.div>
                     )}
                 </AnimatePresence>
@@ -739,7 +852,7 @@ export function VideoEditorModal({
             {/* ── Timeline & Controls ── */}
             <div className="border-t border-border bg-card/80 backdrop-blur-sm shrink-0 relative z-[70]">
                 {/* Seek bar (crop + subtitle modes) */}
-                <div className="px-5 pt-4 pb-1">
+                <div className="px-3 sm:px-5 pt-4 pb-1">
                     {mode !== "trim" && duration > 0 && (
                         <div className="group relative">
                             <input
@@ -768,7 +881,7 @@ export function VideoEditorModal({
                 </div>
 
                 {/* Compact Playback Bar */}
-                <div className="px-5 pb-2 flex items-center gap-3">
+                <div className="px-3 sm:px-5 pb-2 flex flex-wrap items-center gap-2 sm:gap-3">
                     <span ref={timeDisplayRef} className="text-[11px] text-muted-foreground font-mono tabular-nums min-w-[40px]">
                         {formatTime(currentTime)}
                     </span>
@@ -816,10 +929,10 @@ export function VideoEditorModal({
                         -{formatTime(Math.max(0, duration - currentTime))}
                     </span>
 
-                    <div className="flex-1" />
+                    <div className="hidden sm:block sm:flex-1" />
 
-                    {/* Aspect Ratio selector — animated sliding pill */}
-                    <div className="flex items-center gap-1 bg-muted/80 rounded-lg p-0.5 ring-1 ring-border/50">
+                    {/* Aspect Ratio selector — animated sliding pill (own row on mobile) */}
+                    <div className="order-last w-full sm:order-none sm:w-auto flex items-center justify-center sm:justify-start gap-1 bg-muted/80 rounded-lg p-0.5 ring-1 ring-border/50">
                         <RectangleHorizontal className="w-3 h-3 text-muted-foreground ml-1.5 mr-0.5" />
                         {ASPECT_RATIOS.map((ar) => (
                             <button
@@ -853,7 +966,7 @@ export function VideoEditorModal({
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
                             transition={{ duration: 0.18 }}
-                            className="px-5 pb-4"
+                            className="px-3 sm:px-5 pb-4"
                         >
                             <TimelineScrubber
                                 duration={duration}
@@ -867,6 +980,27 @@ export function VideoEditorModal({
                     )}
                 </AnimatePresence>
             </div>
+
+            {/* Floating style panel for trim/crop modes with "Include Subtitles" on */}
+            <AnimatePresence>
+                {mode !== "subtitles" && includeSubtitles && hasSubtitles && (
+                    <motion.div
+                        key="style-panel-float"
+                        initial={{ opacity: 0, scale: 0.94 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.94 }}
+                        transition={{ duration: 0.15 }}
+                        style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 200 }}
+                    >
+                        <div style={{ pointerEvents: "auto", display: "contents" }}>
+                            <SubtitleStylePanel
+                                config={styleConfig}
+                                onChange={updateStyleConfig}
+                            />
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </motion.div>
     );
 }

@@ -1,6 +1,8 @@
 // ── Subtitle Data Model & Utilities ──
 // Shared types, parsing, and style definitions for the subtitle editor
 
+import { buildAssFile, type SubtitleStyleConfig } from "@/lib/ass-builder";
+
 export interface Subtitle {
     id: number;
     start: string; // SRT format: "HH:MM:SS,mmm"
@@ -17,12 +19,24 @@ export interface StylePreset {
 }
 
 export const STYLE_PRESETS: StylePreset[] = [
-    { id: "classic", name: "Classic", desc: "Standard bottom text", icon: "📺" },
-    { id: "tiktok", name: "TikTok", desc: "Yellow highlights, word-by-word", icon: "🎯" },
-    { id: "box", name: "Modern Box", desc: "Text with solid background", icon: "◻️" },
-    { id: "cinematic", name: "Cinematic", desc: "Subtle drop shadow", icon: "🎬" },
-    { id: "outline", name: "Outline", desc: "White text, black stroke", icon: "✏️" },
-    { id: "bold-center", name: "Bold Center", desc: "Large centered, glow effect", icon: "💥" },
+    /** Standard subtitle — white text in a translucent rounded black box. */
+    { id: "classic",     name: "Classic",   desc: "White text, soft black box",       icon: "📺" },
+    /** Real TikTok look — yellow rounded box behind the active spoken word. */
+    { id: "tiktok",      name: "TikTok",    desc: "Yellow box on spoken word",        icon: "🎯" },
+    /** Black text on a solid white block with a drop shadow. */
+    { id: "box",         name: "Modern Box", desc: "Black text on white block",       icon: "⬜" },
+    /** Delicate light italic, wide tracking, soft cinematic shadow. */
+    { id: "cinematic",   name: "Cinematic", desc: "Light italic, soft shadow",        icon: "🎬" },
+    /** Bold white text with a clean black stroke — universal hero caption. */
+    { id: "outline",     name: "Outline",   desc: "Bold white, black stroke",         icon: "✏️" },
+    /** Huge centred uppercase hero text with stroke + glow. */
+    { id: "bold-center", name: "Bold Center", desc: "Huge centred hero text",         icon: "💥" },
+    /**
+     * Sentence-level reveal with optional Spotlight / Cascade modifiers.
+     * Default: each word turns yellow as it's spoken. Toggle "Fade inactive"
+     * for Spotlight-style dim, "Word entrance" for Cascade-style pop-in.
+     */
+    { id: "reveal",      name: "Reveal",    desc: "Word-by-word highlight",           icon: "💡" },
 ];
 
 // ── SRT Time Parsing ──
@@ -200,3 +214,574 @@ export function findNearestSubtitle(
     }
     return closest;
 }
+
+// ── Position & Color ──
+
+export type SubtitleVertical = "top" | "middle" | "bottom";
+export type SubtitleHorizontal = "left" | "center" | "right";
+
+export interface SubtitlePosition {
+    vertical: SubtitleVertical;
+    horizontal: SubtitleHorizontal;
+}
+
+export const DEFAULT_POSITION: SubtitlePosition = { vertical: "bottom", horizontal: "center" };
+
+/** Map (vertical, horizontal) to ASS alignment integer (1–9) */
+export function positionToAssAlignment(position: SubtitlePosition): number {
+    const rowOffset = { bottom: 0, middle: 3, top: 6 }[position.vertical];
+    const col = { left: 1, center: 2, right: 3 }[position.horizontal];
+    return rowOffset + col;
+}
+
+// ── VTT Export ──
+
+/** Convert Subtitle array to WebVTT string */
+export function subtitlesToVtt(subtitles: Subtitle[]): string {
+    const body = subtitles
+        .map((s, i) => {
+            const start = s.start.replace(",", ".");
+            const end = s.end.replace(",", ".");
+            return `${i + 1}\n${start} --> ${end}\n${s.text}\n`;
+        })
+        .join("\n");
+    return `WEBVTT\n\n${body}`;
+}
+
+// ── TikTok Word-by-Word Expansion ──
+
+/**
+ * Expand each subtitle cue into per-word cues for TikTok-style export.
+ * Each word gets an equal share of the cue's duration.
+ */
+export function expandTikTokSubtitles(subtitles: Subtitle[]): Subtitle[] {
+    const expanded: Subtitle[] = [];
+    let newId = 1;
+    for (const sub of subtitles) {
+        const startSec = parseSrtTime(sub.start);
+        const endSec = parseSrtTime(sub.end);
+        const words = sub.text.split(/\s+/).filter(Boolean);
+        if (words.length === 0) continue;
+        const durPerWord = (endSec - startSec) / words.length;
+        for (let i = 0; i < words.length; i++) {
+            expanded.push({
+                id: newId++,
+                start: formatSrtTime(startSec + i * durPerWord),
+                end: formatSrtTime(startSec + (i + 1) * durPerWord),
+                text: words[i],
+                confidence: sub.confidence,
+            });
+        }
+    }
+    return expanded;
+}
+
+// ── Advanced per-word ASS expanders ──────────────────────────────────────────
+//
+// These build a `Subtitle[]` whose `.text` already contains ASS override tags
+// (`{\k20}`, `{\fscx80\\t(...)}`, etc.). Those tags survive `subtitlesToSrt`
+// round-tripping and `buildAssFile` injects them straight into the Dialogue
+// text — so the same expanded form drives both the JASSUB preview and the
+// FFmpeg burn pipeline.
+
+/** Internal: "#RRGGBB" → ASS "&H00BBGGRR" (opaque). Kept local to avoid
+ *  a hard import dependency from subtitle-types.ts onto ass-builder.ts. */
+function rgbToAssBgr(hex: string): string {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    const h = (n: number) => n.toString(16).padStart(2, "0").toUpperCase();
+    return `&H00${h(b)}${h(g)}${h(r)}&`;
+}
+
+/** Per-word scale variance for cascade entrance — deterministic so a given
+ *  word always lays out the same way (95 / 100 / 105 / 110 %). */
+function cascadeWordScale(word: string, idx: number): number {
+    const seed = (word.length * 7 + idx * 13) % 4;
+    return 95 + seed * 5;
+}
+
+/**
+ * One Dialogue per cue with `\k` (instant) or `\kf` (smooth-fill) karaoke
+ * tags between words. The active word transitions from SecondaryColour to
+ * PrimaryColour as it's spoken; libass handles the rest.
+ *
+ * Used by the Reveal preset when `revealWordEntrance` is false:
+ *   - tag="k":  sharp color shift — each word snaps to PrimaryColour as
+ *               its tick passes (cumulative buildup across the line).
+ *   - tag="kf": smooth fill — paired with a faded SecondaryColour (set by
+ *               buildAssFile when revealFadeInactive=true), this gives a
+ *               Spotlight-style "dim → bright as spoken" effect.
+ */
+export function expandKaraokeInline(
+    subtitles: Subtitle[],
+    tag: "k" | "kf" = "k",
+): Subtitle[] {
+    return subtitles.map((sub) => {
+        const words = sub.text.split(/\s+/).filter(Boolean);
+        if (words.length <= 1) return sub;
+
+        const durationCs = Math.max(
+            words.length,
+            Math.round((parseSrtTime(sub.end) - parseSrtTime(sub.start)) * 100),
+        );
+        // Distribute centiseconds across words; integer arithmetic so the
+        // sum stays a clean count (no fractional dropout on a sentence end).
+        const perWord = Math.floor(durationCs / words.length);
+        const remainder = durationCs - perWord * words.length;
+
+        const text = words
+            .map((w, i) => {
+                const cs = perWord + (i < remainder ? 1 : 0);
+                return `{\\${tag}${cs}}${w}`;
+            })
+            .join(" ");
+
+        return { ...sub, text };
+    });
+}
+
+/**
+ * Cascade-style Reveal: N progressive snapshot Dialogues per cue, each
+ * snapshot showing words 0..i with the newest word arriving via a blur +
+ * scale + fade entrance. Per-word scale variance gives the line a
+ * hand-keyed rhythm.
+ *
+ *   - fadeInactive=false: older words sit at full opacity once they've
+ *                         appeared (CapCut "typing-on" look).
+ *   - fadeInactive=true:  older words dim back to ~35% opacity once a
+ *                         new word arrives — the spotlight follows the
+ *                         speaker word by word.
+ */
+export function expandRevealCascade(
+    subtitles: Subtitle[],
+    fadeInactive: boolean,
+): Subtitle[] {
+    const out: Subtitle[] = [];
+    let nextId = 1;
+
+    for (const sub of subtitles) {
+        const words = sub.text.split(/\s+/).filter(Boolean);
+        const startSec = parseSrtTime(sub.start);
+        const endSec = parseSrtTime(sub.end);
+
+        if (words.length <= 1) {
+            out.push({ ...sub, id: nextId++ });
+            continue;
+        }
+
+        const totalMs = Math.max(words.length * 60, (endSec - startSec) * 1000);
+        const perWordMs = totalMs / words.length;
+        // Cap entrance to 70% of the per-word slot so the next snapshot
+        // doesn't cut it off; 80 ms floor keeps it feeling snappy.
+        const entranceMs = Math.max(80, Math.min(220, Math.round(perWordMs * 0.7)));
+        // 35% visible ≈ alpha 0xA6. Used to dim older words when fadeInactive.
+        const dimAlpha = "A6";
+
+        for (let i = 0; i < words.length; i++) {
+            const snapStart = startSec + (i * perWordMs) / 1000;
+            const snapEnd = i === words.length - 1
+                ? endSec
+                : startSec + ((i + 1) * perWordMs) / 1000;
+
+            const segments: string[] = [];
+            for (let k = 0; k <= i; k++) {
+                const s = cascadeWordScale(words[k], k);
+                if (k === i) {
+                    // Newest word — entrance: blur, sub-100% scale, transparent,
+                    // all animating to the resting state over `entranceMs`.
+                    const s0 = Math.round(s * 0.75);
+                    segments.push(
+                        `{\\fscx${s0}\\fscy${s0}\\blur5\\alpha&HFF&` +
+                        `\\t(0,${entranceMs},\\fscx${s}\\fscy${s}\\blur0\\alpha&H00&)}` +
+                        words[k]
+                    );
+                } else {
+                    // Older word — settled. Dim if fadeInactive, else full opacity.
+                    const a = fadeInactive ? dimAlpha : "00";
+                    segments.push(`{\\fscx${s}\\fscy${s}\\alpha&H${a}&}${words[k]}`);
+                }
+            }
+
+            out.push({
+                id: nextId++,
+                start: formatSrtTime(snapStart),
+                end: formatSrtTime(snapEnd),
+                text: segments.join(" "),
+                confidence: sub.confidence,
+            });
+        }
+    }
+    return out;
+}
+
+// ── TikTok per-word box overlay ──────────────────────────────────────────────
+//
+// Fallback width factors used only when Canvas `measureText` is unavailable
+// (server-side burn path, SSR). When running in a browser we measure the
+// actual rendered text instead — the Google Fonts <link> in app/layout.tsx
+// registers every preset font with `document.fonts` early in app boot, so
+// Canvas hits the same glyph metrics libass uses and the per-word \pos
+// math lines up with the rendered base sentence.
+const FONT_WIDTH_FACTORS: Record<string, number> = {
+    "Roboto":     0.50,
+    "Anton":      0.40,
+    "Lora":       0.50,
+    "Oswald":     0.42,
+    "Space Mono": 0.60,
+    "Nunito":     0.55,
+};
+const SPACE_WIDTH_FACTOR_FALLBACK = 0.32;
+/** Sentence is constrained to this fraction of the video width — anything
+ *  longer wraps onto additional lines. 0.85 ≈ 7.5% margin on each side,
+ *  which is roughly what TikTok itself uses. */
+const MAX_LINE_RATIO = 0.85;
+/** Per-line vertical spacing as a multiple of font size. Tuned for Anton's
+ *  tight metric; close enough on the other sans-serifs we ship. */
+const LINE_HEIGHT_FACTOR = 1.20;
+
+/** Lazily-allocated 2D context, reused across calls to avoid re-creating
+ *  a Canvas element on every word. SSR / non-browser → returns null. */
+let _measureCtx: CanvasRenderingContext2D | null | undefined;
+function getMeasureCtx(): CanvasRenderingContext2D | null {
+    if (_measureCtx !== undefined) return _measureCtx;
+    if (typeof document === "undefined") return (_measureCtx = null);
+    try {
+        _measureCtx = document.createElement("canvas").getContext("2d");
+    } catch {
+        _measureCtx = null;
+    }
+    return _measureCtx;
+}
+
+function estimateWordWidth(word: string, fontFamily: string, fontSize: number): number {
+    const ctx = getMeasureCtx();
+    if (ctx) {
+        // 700 weight matches the TikTok preset's `bold: true`. Quotes around
+        // the family allow names containing spaces ("Space Mono").
+        ctx.font = `700 ${fontSize}px "${fontFamily}", sans-serif`;
+        const w = ctx.measureText(word).width;
+        if (w > 0) return w;
+    }
+    const factor = FONT_WIDTH_FACTORS[fontFamily] ?? 0.50;
+    return word.length * fontSize * factor;
+}
+
+function estimateSpaceWidth(fontFamily: string, fontSize: number): number {
+    const ctx = getMeasureCtx();
+    if (ctx) {
+        ctx.font = `700 ${fontSize}px "${fontFamily}", sans-serif`;
+        const w = ctx.measureText(" ").width;
+        if (w > 0) return w;
+    }
+    return fontSize * SPACE_WIDTH_FACTOR_FALLBACK;
+}
+
+interface LaidOutLine {
+    /** Words in this line, in order. */
+    words: string[];
+    /** Estimated pixel width per word. */
+    widths: number[];
+    /** Index in the original sentence of this line's first word — used to
+     *  preserve per-word karaoke timing across the line break. */
+    startIdx: number;
+    /** Total pixel width of the line (sum of word widths + interword spaces). */
+    totalWidth: number;
+}
+
+/** Greedy word-wrap: pack words into lines, breaking as soon as the next
+ *  word would push the line past `maxLineWidth`. */
+function layoutLines(
+    words: string[],
+    widths: number[],
+    maxLineWidth: number,
+    spaceW: number,
+): LaidOutLine[] {
+    const out: LaidOutLine[] = [];
+    let cur: LaidOutLine = { words: [], widths: [], startIdx: 0, totalWidth: 0 };
+
+    for (let i = 0; i < words.length; i++) {
+        const wW = widths[i];
+        const space = cur.words.length > 0 ? spaceW : 0;
+        if (cur.words.length > 0 && cur.totalWidth + space + wW > maxLineWidth) {
+            out.push(cur);
+            cur = { words: [], widths: [], startIdx: i, totalWidth: 0 };
+        }
+        cur.words.push(words[i]);
+        cur.widths.push(wW);
+        cur.totalWidth += space + wW;
+    }
+    if (cur.words.length > 0) out.push(cur);
+    return out;
+}
+
+/**
+ * Build an ASS vector-drawing path for a rounded rectangle with its TOP-LEFT
+ * at the drawing origin (0,0), spanning to (w,h). Pair with `\an7\pos(x,y)`
+ * — empirically, libass places a drawing's (0,0) exactly at `\pos` under
+ * `\an7` (whereas `\an5` does NOT centre a drawing reliably). Corner radius
+ * `r`; integer PlayRes pixels; `\p1` (scale 1) renders them 1:1.
+ */
+function roundedRectPath(w: number, h: number, r: number): string {
+    r = Math.max(0, Math.min(r, w / 2, h / 2));
+    const k = 0.5523;            // cubic-bezier circle approximation
+    const o = r * (1 - k);       // control-point inset from the corner
+    const R = (n: number) => Math.round(n);
+    return [
+        `m ${R(r)} 0`,
+        `l ${R(w - r)} 0`,
+        `b ${R(w - o)} 0 ${R(w)} ${R(o)} ${R(w)} ${R(r)}`,
+        `l ${R(w)} ${R(h - r)}`,
+        `b ${R(w)} ${R(h - o)} ${R(w - o)} ${R(h)} ${R(w - r)} ${R(h)}`,
+        `l ${R(r)} ${R(h)}`,
+        `b ${R(o)} ${R(h)} 0 ${R(h - o)} 0 ${R(h - r)}`,
+        `l 0 ${R(r)}`,
+        `b 0 ${R(o)} ${R(o)} 0 ${R(r)} 0`,
+    ].join(" ");
+}
+
+/**
+ * Real TikTok caption look — full sentence in white with the currently-spoken
+ * word sitting on a solid rounded highlight box (black text on colour).
+ *
+ * Every word is positioned individually with `\pos` (we never let libass lay
+ * out the line). Each word is drawn as a persistent white token for the whole
+ * cue; during its active window the same anchor additionally gets a coloured
+ * rounded box (vector `\p1` drawing) and the word repeated in black on top.
+ * Because the box and the word share the exact same `\pos`, the box can never
+ * drift off its word — the failure mode of trying to predict libass's own
+ * line-height and word positions. We own vertical stacking too.
+ *
+ * Word widths come from Canvas measureText in the browser (both the preview
+ * and the exported ASS are composed client-side), so spacing is consistent
+ * between preview and burn. A real drawn rectangle (not a thick `\bord` halo)
+ * gives the clean pill TikTok uses, with consistent height per word.
+ *
+ * @param boxHex      "#RRGGBB" of the highlight box
+ * @param fontFamily  Drives both the rendered font and the width estimate
+ * @param fontSize    Already in the target video's pixel space
+ * @param vDim        Target video dimensions for `\pos` math
+ * @param positionV   bottom / middle / top — picks the y origin
+ */
+export function expandTikTokBox(
+    subtitles: Subtitle[],
+    boxHex: string,
+    fontFamily: string,
+    fontSize: number,
+    vDim: { width: number; height: number },
+    positionV: "top" | "middle" | "bottom",
+): Subtitle[] {
+    const out: Subtitle[] = [];
+    let nextId = 1;
+
+    const boxAss = rgbToAssBgr(boxHex);
+    const spaceW = estimateSpaceWidth(fontFamily, fontSize);
+    const maxLineWidth = vDim.width * MAX_LINE_RATIO;
+    const lineHeight = fontSize * LINE_HEIGHT_FACTOR;
+    const marginV = (positionV === "middle" ? 8 : 45) * (vDim.height / 720);
+
+    // Box geometry, all derived from the rendered font size.
+    const padX = fontSize * 0.22;        // horizontal breathing room
+    const boxHalfH = fontSize * 0.60;    // half the pill height
+    const cornerR = fontSize * 0.16;     // rounded corner radius
+    const baseStroke = Math.max(2, Math.round(fontSize * 0.06));
+
+    for (const sub of subtitles) {
+        const words = sub.text.split(/\s+/).filter(Boolean);
+        if (words.length === 0) continue;
+
+        const widths = words.map((w) => estimateWordWidth(w, fontFamily, fontSize));
+        const lines = layoutLines(words, widths, maxLineWidth, spaceW);
+        const numLines = lines.length;
+
+        const startSec = parseSrtTime(sub.start);
+        const perWordSec = (parseSrtTime(sub.end) - startSec) / words.length;
+
+        // Every word is positioned individually with `\pos`, so the highlight
+        // box ALWAYS shares the exact anchor of its word — they can never drift
+        // (we never rely on libass's own line/word layout). Each word is drawn
+        // as a persistent white token for the whole cue; the active word then
+        // gets a coloured box + black text stacked on top during its window.
+        for (let li = 0; li < numLines; li++) {
+            const line = lines[li];
+
+            // Y centre of this line — we own the vertical stacking entirely.
+            const halfFont = fontSize / 2;
+            const lineY = Math.round(
+                positionV === "top"
+                    ? marginV + li * lineHeight + halfFont
+                    : positionV === "middle"
+                        ? vDim.height / 2 - (numLines * lineHeight) / 2 + li * lineHeight + halfFont
+                        : vDim.height - marginV - (numLines - 1 - li) * lineHeight - halfFont,
+            );
+
+            let cursorX = vDim.width / 2 - line.totalWidth / 2;
+            for (let wi = 0; wi < line.words.length; wi++) {
+                const w = line.widths[wi];
+                const cx = Math.round(cursorX + w / 2);
+                cursorX += w + spaceW;
+                const word = line.words[wi];
+
+                // Persistent white word (entire cue) — the always-visible sentence.
+                out.push({
+                    id: nextId++,
+                    start: sub.start,
+                    end:   sub.end,
+                    text:
+                        `{\\an5\\pos(${cx},${lineY})\\1c&HFFFFFF&\\3c&H000000&` +
+                        `\\bord${baseStroke}\\shad0\\b1}${word}`,
+                    confidence: sub.confidence,
+                });
+
+                // Active window: coloured box + black word, on top.
+                const globalIdx = line.startIdx + wi;
+                const startStr = formatSrtTime(startSec + globalIdx * perWordSec);
+                const endStr   = formatSrtTime(startSec + (globalIdx + 1) * perWordSec);
+                // Box drawn top-left at origin, anchored with \an7 so its
+                // top-left lands at (cx-halfW, lineY-halfH) → centred on word.
+                const boxW = Math.round(w + padX * 2);
+                const boxH = Math.round(boxHalfH * 2);
+                const path = roundedRectPath(boxW, boxH, cornerR);
+                out.push({
+                    id: nextId++,
+                    start: startStr,
+                    end:   endStr,
+                    text:
+                        `{\\an7\\pos(${cx - Math.round(boxW / 2)},${lineY - Math.round(boxH / 2)})` +
+                        `\\1c${boxAss}\\bord0\\shad0\\p1}${path}{\\p0}`,
+                    confidence: sub.confidence,
+                });
+                out.push({
+                    id: nextId++,
+                    start: startStr,
+                    end:   endStr,
+                    text:
+                        `{\\an5\\pos(${cx},${lineY})\\1c&H000000&\\bord0\\shad0\\b1}${word}`,
+                    confidence: sub.confidence,
+                });
+            }
+        }
+    }
+    return out;
+}
+
+
+/**
+ * Dispatch helper: given the chosen animation mode + the config + target
+ * video dimensions, return the correctly pre-expanded `Subtitle[]` so the
+ * next stage (`subtitlesToSrt → buildAssFile`) doesn't have to know about
+ * per-cue effects. Both the JASSUB preview pipeline and the FFmpeg burn
+ * pipeline call this so preview and export stay byte-identical.
+ */
+export function expandForAnimation(
+    subtitles: Subtitle[],
+    config: {
+        animation: string;
+        preset?: string;
+        revealFadeInactive?: boolean;
+        revealWordEntrance?: boolean;
+        uppercase?: boolean;
+        primaryColor?: string;
+        outlineColor?: string;
+        outlineSize?: number;
+        fontFamily?: string;
+        fontSizeScale?: number;
+        positionV?: "top" | "middle" | "bottom";
+        positionH?: "left" | "center" | "right";
+    },
+    vDim: { width: number; height: number } = { width: 1280, height: 720 },
+): Subtitle[] {
+    // Casing transform first, so every downstream expander (and the plain
+    // pass-through) works on the already-cased text — and both preview and
+    // burn, which both call this, stay identical.
+    const src = config.uppercase
+        ? subtitles.map((s) => ({ ...s, text: s.text.toUpperCase() }))
+        : subtitles;
+
+    switch (config.animation) {
+        case "karaoke":
+            return expandTikTokSubtitles(src);
+
+        case "reveal": {
+            const wordEntrance = config.revealWordEntrance ?? false;
+            const fadeInactive = config.revealFadeInactive ?? false;
+            return wordEntrance
+                ? expandRevealCascade(src, fadeInactive)
+                : expandKaraokeInline(src, fadeInactive ? "kf" : "k");
+        }
+
+        case "tiktok-box": {
+            const boxHex = config.primaryColor ?? "#FACC15";
+            // Word-position math needs the rendered font size in target-video
+            // pixels. 50 is BASE_FONT_SIZES.tiktok, kept literal so this file
+            // stays free of an ass-builder import.
+            const tiktokBase = 50;
+            const scale = vDim.height / 720;
+            const fontSize = Math.round(
+                tiktokBase * (config.fontSizeScale ?? 1.15) * scale
+            );
+            return expandTikTokBox(
+                src,
+                boxHex,
+                config.fontFamily ?? "Roboto",
+                fontSize,
+                vDim,
+                config.positionV ?? "bottom",
+            );
+        }
+
+        default:
+            return src;
+    }
+}
+
+/**
+ * THE single source of subtitle-ASS truth.
+ *
+ * Given the raw cues, the style config, and the *exact* pixel dimensions the
+ * output frame will have, produce the final ASS string. Both the live JASSUB
+ * preview and the FFmpeg burn-in call this with the same inputs, and the
+ * server writes the result verbatim (it never rebuilds the ASS). So what the
+ * user sees in the preview is byte-for-byte what gets burned — there is no
+ * second code path that can drift.
+ *
+ * `vDim` MUST be the dimensions of the frame the subtitles are rendered onto:
+ *   - preview / plain burn / trim: the video's display size (videoWidth/Height)
+ *   - crop / trim+crop:            the crop output size (w × h)
+ */
+export function composeSubtitleAss(
+    subtitles: Subtitle[],
+    config: SubtitleStyleConfig,
+    vDim: { width: number; height: number },
+): string {
+    return buildAssFile(
+        subtitlesToSrt(expandForAnimation(subtitles, config, vDim)),
+        config,
+        vDim,
+    );
+}
+
+// ── Supported Transcription Languages ──
+
+export const TRANSCRIPTION_LANGUAGES = [
+    { code: "",   label: "Auto Detect" },
+    { code: "en", label: "English" },
+    { code: "es", label: "Spanish" },
+    { code: "fr", label: "French" },
+    { code: "de", label: "German" },
+    { code: "it", label: "Italian" },
+    { code: "pt", label: "Portuguese" },
+    { code: "ja", label: "Japanese" },
+    { code: "ko", label: "Korean" },
+    { code: "zh", label: "Chinese" },
+    { code: "ar", label: "Arabic" },
+    { code: "ru", label: "Russian" },
+    { code: "nl", label: "Dutch" },
+    { code: "pl", label: "Polish" },
+    { code: "tr", label: "Turkish" },
+    { code: "vi", label: "Vietnamese" },
+    { code: "hi", label: "Hindi" },
+    { code: "id", label: "Indonesian" },
+    { code: "th", label: "Thai" },
+    { code: "uk", label: "Ukrainian" },
+];

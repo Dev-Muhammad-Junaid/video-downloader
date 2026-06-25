@@ -163,15 +163,25 @@ export function getYtDlpFormat(
         preferredFormat: string | null;
         strictResolution?: boolean | null;
         resolutionMode?: string | null;
+        audioBitrate?: string | null;
     },
     formatId?: string
 ) {
+    // yt-dlp's --audio-quality takes a target bitrate like "192K" (or 0 for best).
+    const audioQuality = profile.audioBitrate
+        ? profile.audioBitrate.toUpperCase().replace(/K$/i, "K")
+        : "0";
+
     // Explicit audio-only requests
     if (formatId === "audio" || profile.preferredFormat === "mp3") {
-        return { args: ["-x", "--audio-format", "mp3", "--audio-quality", "0"], isAudio: true };
+        return { args: ["-x", "--audio-format", "mp3", "--audio-quality", audioQuality], isAudio: true };
     }
     if (profile.preferredFormat === "m4a") {
-        return { args: ["-x", "--audio-format", "m4a", "--audio-quality", "0"], isAudio: true };
+        return { args: ["-x", "--audio-format", "m4a", "--audio-quality", audioQuality], isAudio: true };
+    }
+    if (profile.preferredFormat === "wav") {
+        // WAV is lossless; audio-quality is irrelevant.
+        return { args: ["-x", "--audio-format", "wav"], isAudio: true };
     }
 
     // Specific platform-provided format ID — use it directly with audio fallback

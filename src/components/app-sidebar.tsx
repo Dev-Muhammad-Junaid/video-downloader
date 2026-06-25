@@ -59,9 +59,9 @@ export function AppSidebar() {
 
     return (
         <Sidebar>
-            <SidebarHeader className="p-4 flex items-center gap-2 flex-row border-b">
-                <Image src="/logo.png" alt="SnapDown Logo" width={32} height={32} className="rounded-sm" />
-                <span className="font-bold text-lg leading-none">SnapDown</span>
+            <SidebarHeader className="px-3 py-2.5 flex items-center gap-2 flex-row border-b">
+                <Image src="/logo.png" alt="SnapDown Logo" width={26} height={26} className="rounded-sm" />
+                <span className="font-bold text-base leading-none">SnapDown</span>
             </SidebarHeader>
             <SidebarContent>
                 <SidebarGroup>
@@ -83,11 +83,11 @@ export function AppSidebar() {
                     </SidebarGroupContent>
                 </SidebarGroup>
             </SidebarContent>
-            <SidebarFooter className="p-3 border-t">
+            <SidebarFooter className="p-2 border-t">
                 {mounted && (
                     <Button
                         variant="ghost"
-                        className="w-full justify-start gap-2 h-9 text-sm text-muted-foreground hover:text-foreground"
+                        className="w-full justify-start gap-2 h-8 text-sm text-muted-foreground hover:text-foreground"
                         onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
                     >
                         {theme === "dark" ? (
