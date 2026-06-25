@@ -218,6 +218,17 @@ export function SubtitleStylePanel({ config, onChange, embedded = false }: Subti
 
     const isBoxStyle = BOX_STYLE_PRESETS.has(config.preset);
 
+    // For TikTok / Reveal, `primaryColor` is the highlight colour (the box /
+    // the spoken-word colour), not the body text colour — so label it clearly.
+    const isHighlightPreset = config.preset === "tiktok" || config.preset === "reveal";
+    const colorLabel = isHighlightPreset ? "Highlight Color" : "Text Color";
+    const colorHint =
+        config.preset === "tiktok" ? "Colour of the box behind the spoken word."
+        : config.preset === "reveal" ? "Colour each word turns as it's spoken."
+        : null;
+    // TikTok renders its own fixed stroke, so the outline controls do nothing.
+    const showOutlineSection = !isBoxStyle && config.preset !== "tiktok";
+
     // ── Shared panel body (used in both embedded and floating modes) ─────────
     const panelBody = (
         <div className="overflow-y-auto flex-1 min-h-0">
@@ -413,8 +424,11 @@ export function SubtitleStylePanel({ config, onChange, embedded = false }: Subti
                 </div>
             </Section>
 
-            {/* ── Text colour ── */}
-            <Section title="Text Color">
+            {/* ── Text / highlight colour ── */}
+            <Section title={colorLabel}>
+                {colorHint && (
+                    <p className="text-[9px] text-muted-foreground/70 mb-1.5 leading-snug">{colorHint}</p>
+                )}
                 <div className="flex items-center gap-1.5 flex-wrap">
                     {TEXT_COLORS.map(hex => {
                         const active = config.primaryColor.toUpperCase() === hex.toUpperCase();
@@ -461,8 +475,8 @@ export function SubtitleStylePanel({ config, onChange, embedded = false }: Subti
                 />
             </Section>
 
-            {/* ── Outline & shadow (hidden for box styles) ── */}
-            {!isBoxStyle && (
+            {/* ── Outline & shadow (hidden for box + TikTok, which fix their own) ── */}
+            {showOutlineSection && (
                 <Section title="Outline & Shadow">
                     <SliderRow
                         label="Outline"
