@@ -533,27 +533,27 @@ function layoutLines(
 }
 
 /**
- * Build an ASS vector-drawing path for a rounded rectangle centred on the
- * origin (so `\an5\pos(cx,cy)` drops it exactly on a point). Half-width `hw`,
- * half-height `hh`, corner radius `r`. Coordinates are integers in PlayRes
- * pixel space; `\p1` (scale 1) renders them 1:1.
+ * Build an ASS vector-drawing path for a rounded rectangle with its TOP-LEFT
+ * at the drawing origin (0,0), spanning to (w,h). Pair with `\an7\pos(x,y)`
+ * — empirically, libass places a drawing's (0,0) exactly at `\pos` under
+ * `\an7` (whereas `\an5` does NOT centre a drawing reliably). Corner radius
+ * `r`; integer PlayRes pixels; `\p1` (scale 1) renders them 1:1.
  */
-function roundedRectPath(hw: number, hh: number, r: number): string {
-    r = Math.max(0, Math.min(r, hw, hh));
+function roundedRectPath(w: number, h: number, r: number): string {
+    r = Math.max(0, Math.min(r, w / 2, h / 2));
     const k = 0.5523;            // cubic-bezier circle approximation
     const o = r * (1 - k);       // control-point inset from the corner
     const R = (n: number) => Math.round(n);
-    const L = -hw, Rt = hw, T = -hh, B = hh;
     return [
-        `m ${R(L + r)} ${R(T)}`,
-        `l ${R(Rt - r)} ${R(T)}`,
-        `b ${R(Rt - o)} ${R(T)} ${R(Rt)} ${R(T + o)} ${R(Rt)} ${R(T + r)}`,
-        `l ${R(Rt)} ${R(B - r)}`,
-        `b ${R(Rt)} ${R(B - o)} ${R(Rt - o)} ${R(B)} ${R(Rt - r)} ${R(B)}`,
-        `l ${R(L + r)} ${R(B)}`,
-        `b ${R(L + o)} ${R(B)} ${R(L)} ${R(B - o)} ${R(L)} ${R(B - r)}`,
-        `l ${R(L)} ${R(T + r)}`,
-        `b ${R(L)} ${R(T + o)} ${R(L + o)} ${R(T)} ${R(L + r)} ${R(T)}`,
+        `m ${R(r)} 0`,
+        `l ${R(w - r)} 0`,
+        `b ${R(w - o)} 0 ${R(w)} ${R(o)} ${R(w)} ${R(r)}`,
+        `l ${R(w)} ${R(h - r)}`,
+        `b ${R(w)} ${R(h - o)} ${R(w - o)} ${R(h)} ${R(w - r)} ${R(h)}`,
+        `l ${R(r)} ${R(h)}`,
+        `b ${R(o)} ${R(h)} 0 ${R(h - o)} 0 ${R(h - r)}`,
+        `l 0 ${R(r)}`,
+        `b 0 ${R(o)} ${R(o)} 0 ${R(r)} 0`,
     ].join(" ");
 }
 
@@ -561,20 +561,18 @@ function roundedRectPath(hw: number, hh: number, r: number): string {
  * Real TikTok caption look — full sentence in white with the currently-spoken
  * word sitting on a solid rounded highlight box (black text on colour).
  *
- * Per cue we emit:
- *   1. A "base" event: the wrapped sentence in white with a black stroke,
- *      joined by `\N` and `\q2` so libass honours our wrap points.
- *   2. For each word, during its active window, two stacked events:
- *        a. a filled rounded rectangle (vector drawing) in the box colour;
- *        b. the word again in black, on top of that box.
- *      All three layers share `\an5\pos(cx,cy)` so the box and black word
- *      land exactly over the white word underneath. Same-layer events render
- *      in file order, so base → box → black word composites correctly.
+ * Every word is positioned individually with `\pos` (we never let libass lay
+ * out the line). Each word is drawn as a persistent white token for the whole
+ * cue; during its active window the same anchor additionally gets a coloured
+ * rounded box (vector `\p1` drawing) and the word repeated in black on top.
+ * Because the box and the word share the exact same `\pos`, the box can never
+ * drift off its word — the failure mode of trying to predict libass's own
+ * line-height and word positions. We own vertical stacking too.
  *
- * Word x/y come from Canvas-measured widths (browser) baked into the SRT, so
- * the preview and the burn consume the *identical* positions — 1:1 by
- * construction. A real drawn rectangle (not a thick `\bord` halo) gives the
- * clean pill TikTok uses, with consistent height regardless of glyph shape.
+ * Word widths come from Canvas measureText in the browser (both the preview
+ * and the exported ASS are composed client-side), so spacing is consistent
+ * between preview and burn. A real drawn rectangle (not a thick `\bord` halo)
+ * gives the clean pill TikTok uses, with consistent height per word.
  *
  * @param boxHex      "#RRGGBB" of the highlight box
  * @param fontFamily  Drives both the rendered font and the width estimate
@@ -597,14 +595,12 @@ export function expandTikTokBox(
     const spaceW = estimateSpaceWidth(fontFamily, fontSize);
     const maxLineWidth = vDim.width * MAX_LINE_RATIO;
     const lineHeight = fontSize * LINE_HEIGHT_FACTOR;
-    // Must match buildAssFile's marginV (which scales 45/8 by height/720) so the
-    // per-word boxes sit on the same baseline as the style-positioned base text.
     const marginV = (positionV === "middle" ? 8 : 45) * (vDim.height / 720);
 
     // Box geometry, all derived from the rendered font size.
     const padX = fontSize * 0.22;        // horizontal breathing room
-    const boxHalfH = fontSize * 0.62;    // half the pill height
-    const cornerR = fontSize * 0.18;     // rounded corner radius
+    const boxHalfH = fontSize * 0.60;    // half the pill height
+    const cornerR = fontSize * 0.16;     // rounded corner radius
     const baseStroke = Math.max(2, Math.round(fontSize * 0.06));
 
     for (const sub of subtitles) {
@@ -615,71 +611,69 @@ export function expandTikTokBox(
         const lines = layoutLines(words, widths, maxLineWidth, spaceW);
         const numLines = lines.length;
 
-        // 1) Base sentence with our explicit wrap. `\q2` = no libass auto-wrap.
-        const baseText = lines.map((l) => l.words.join(" ")).join("\\N");
-        out.push({
-            id: nextId++,
-            start: sub.start,
-            end:   sub.end,
-            text:
-                `{\\q2\\an${positionV === "top" ? 8 : positionV === "middle" ? 5 : 2}` +
-                `\\1c&HFFFFFF&\\3c&H000000&\\bord${baseStroke}\\shad0\\b1}${baseText}`,
-            confidence: sub.confidence,
-        });
-
-        // 2) Per-word highlight box + black word, timed to each word.
         const startSec = parseSrtTime(sub.start);
         const perWordSec = (parseSrtTime(sub.end) - startSec) / words.length;
 
+        // Every word is positioned individually with `\pos`, so the highlight
+        // box ALWAYS shares the exact anchor of its word — they can never drift
+        // (we never rely on libass's own line/word layout). Each word is drawn
+        // as a persistent white token for the whole cue; the active word then
+        // gets a coloured box + black text stacked on top during its window.
         for (let li = 0; li < numLines; li++) {
             const line = lines[li];
 
-            // Y centre of this wrapped line, mirroring how the base text stacks.
-            const lineY = (() => {
-                const halfFont = fontSize / 2;
-                if (positionV === "top") {
-                    return marginV + li * lineHeight + halfFont;
-                }
-                if (positionV === "middle") {
-                    const blockTop = vDim.height / 2 - (numLines * lineHeight) / 2;
-                    return blockTop + li * lineHeight + halfFont;
-                }
-                return vDim.height - marginV - (numLines - 1 - li) * lineHeight - halfFont;
-            })();
+            // Y centre of this line — we own the vertical stacking entirely.
+            const halfFont = fontSize / 2;
+            const lineY = Math.round(
+                positionV === "top"
+                    ? marginV + li * lineHeight + halfFont
+                    : positionV === "middle"
+                        ? vDim.height / 2 - (numLines * lineHeight) / 2 + li * lineHeight + halfFont
+                        : vDim.height - marginV - (numLines - 1 - li) * lineHeight - halfFont,
+            );
 
             let cursorX = vDim.width / 2 - line.totalWidth / 2;
             for (let wi = 0; wi < line.words.length; wi++) {
                 const w = line.widths[wi];
-                const centerX = Math.round(cursorX + w / 2);
-                const cy = Math.round(lineY);
+                const cx = Math.round(cursorX + w / 2);
                 cursorX += w + spaceW;
+                const word = line.words[wi];
 
-                const globalIdx = line.startIdx + wi;
-                const wStart = startSec + globalIdx * perWordSec;
-                const wEnd   = startSec + (globalIdx + 1) * perWordSec;
-                const startStr = formatSrtTime(wStart);
-                const endStr   = formatSrtTime(wEnd);
-
-                // a. Filled rounded rectangle behind the word.
-                const path = roundedRectPath(w / 2 + padX, boxHalfH, cornerR);
+                // Persistent white word (entire cue) — the always-visible sentence.
                 out.push({
                     id: nextId++,
-                    start: startStr,
-                    end:   endStr,
+                    start: sub.start,
+                    end:   sub.end,
                     text:
-                        `{\\an5\\pos(${centerX},${cy})\\1c${boxAss}\\bord0\\shad0\\p1}` +
-                        `${path}{\\p0}`,
+                        `{\\an5\\pos(${cx},${lineY})\\1c&HFFFFFF&\\3c&H000000&` +
+                        `\\bord${baseStroke}\\shad0\\b1}${word}`,
                     confidence: sub.confidence,
                 });
 
-                // b. The word again in black, on top of the box.
+                // Active window: coloured box + black word, on top.
+                const globalIdx = line.startIdx + wi;
+                const startStr = formatSrtTime(startSec + globalIdx * perWordSec);
+                const endStr   = formatSrtTime(startSec + (globalIdx + 1) * perWordSec);
+                // Box drawn top-left at origin, anchored with \an7 so its
+                // top-left lands at (cx-halfW, lineY-halfH) → centred on word.
+                const boxW = Math.round(w + padX * 2);
+                const boxH = Math.round(boxHalfH * 2);
+                const path = roundedRectPath(boxW, boxH, cornerR);
                 out.push({
                     id: nextId++,
                     start: startStr,
                     end:   endStr,
                     text:
-                        `{\\an5\\pos(${centerX},${cy})\\1c&H000000&\\bord0\\shad0\\b1}` +
-                        line.words[wi],
+                        `{\\an7\\pos(${cx - Math.round(boxW / 2)},${lineY - Math.round(boxH / 2)})` +
+                        `\\1c${boxAss}\\bord0\\shad0\\p1}${path}{\\p0}`,
+                    confidence: sub.confidence,
+                });
+                out.push({
+                    id: nextId++,
+                    start: startStr,
+                    end:   endStr,
+                    text:
+                        `{\\an5\\pos(${cx},${lineY})\\1c&H000000&\\bord0\\shad0\\b1}${word}`,
                     confidence: sub.confidence,
                 });
             }

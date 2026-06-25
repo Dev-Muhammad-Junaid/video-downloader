@@ -323,14 +323,21 @@ export function buildAssFile(
     const base = BASE_FONT_SIZES[preset] ?? 36;
     const fontSize = Math.round(base * fontSizeScale * scale);
 
-    // Box styles use BorderStyle=3 (opaque box fill via BackColour)
-    // All other styles use BorderStyle=1 (outline + shadow model)
+    // Box styles use BorderStyle=3 (opaque box), the rest BorderStyle=1
+    // (outline + shadow). Critical libass detail: with BorderStyle=3 the box
+    // is filled with the *OutlineColour* (3c), NOT BackColour — BackColour is
+    // only the box's drop shadow. So for box styles the background colour must
+    // go into the OutlineColour field, and Outline is the box padding.
     const isBoxStyle = BOX_STYLE_PRESETS.has(preset);
     const borderStyle = isBoxStyle ? 3 : 1;
 
     const primaryAss = hexToAss(primaryColor, 100);
-    const outlineAss = hexToAss(outlineColor, 100);
-    const backAss = hexToAss(backgroundColor, isBoxStyle ? backgroundOpacity : 100);
+    const outlineAss = isBoxStyle
+        ? hexToAss(backgroundColor, backgroundOpacity)   // box fill (3c)
+        : hexToAss(outlineColor, 100);                    // text stroke (3c)
+    const backAss = isBoxStyle
+        ? hexToAss("#000000", 55)                         // box drop shadow (4c)
+        : hexToAss(backgroundColor, 100);                 // text shadow (4c)
 
     // SecondaryColour governs the un-highlighted state of `\k` / `\kf`
     // karaoke segments. For the Reveal preset it's the colour each word
