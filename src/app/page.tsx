@@ -2011,7 +2011,9 @@ export default function LibraryPage() {
                                                     </Tooltip>
                                                 </>
                                             )}
-                                            {(item.status === 'error' || item.status === 'cancelled') && (
+                                            {/* Retry is download-only — exports can't be re-run from the
+                                                queue (their parameters live in the editor). */}
+                                            {(item.status === 'error' || item.status === 'cancelled') && item.kind !== 'export' && (
                                                 <Tooltip>
                                                     <TooltipTrigger
                                                         className={cn(iconBtnOutline, retryingQueueIds.has(item.id) && "opacity-50 pointer-events-none")}
