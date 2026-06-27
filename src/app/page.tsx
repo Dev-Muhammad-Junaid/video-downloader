@@ -107,6 +107,9 @@ type DownloadProfile = {
     maxResolution: string | null;
     preferredFormat: string | null;
     preferredImageFormat: string | null;
+    audioFormat?: string | null;
+    audioBitrate?: string | null;
+    extractAudio?: boolean;
     priority: number;
     isActive: boolean;
     requireManualFormat?: boolean;
@@ -187,9 +190,10 @@ export default function LibraryPage() {
     const pickFormatForProfile = useCallback((item: QueueItem, profile: DownloadProfile) => {
         const formats = item.formats || [];
 
-        // Audio-only profile: always match if the source can produce audio.
-        // yt-dlp's -x flag extracts audio from any video, so this always works unless it's an image.
-        if (profile.preferredFormat === "mp3" || profile.preferredFormat === "m4a" || profile.preferredFormat === "wav") {
+        // Audio output: an audio-only profile (extractAudio), an audio source, or a legacy
+        // audio-format profile. yt-dlp's -x extracts audio from any video.
+        const legacyAudio = ["mp3", "m4a", "wav"].includes((profile.preferredFormat || "").toLowerCase());
+        if (profile.extractAudio || item.mediaType === "audio" || legacyAudio) {
             if (item.mediaType === "image") {
                 return { formatId: undefined, needsReview: true, reviewReason: `"${profile.name}" is audio-only but this link is an image` };
             }
@@ -293,7 +297,7 @@ export default function LibraryPage() {
         const effectiveMode = profile.resolutionMode || (profile.strictResolution ? "strict" : "flexible");
         const resOp = effectiveMode === "strict" ? "=" : effectiveMode === "minimum" ? "≥" : "≤";
         const matchedLabel = picked.formatId === "audio"
-            ? `Audio (${(profile.preferredFormat || "mp3").toUpperCase()})`
+            ? `Audio (${(profile.audioFormat || (["mp3", "m4a", "wav"].includes((profile.preferredFormat || "").toLowerCase()) ? profile.preferredFormat : "mp3") || "mp3").toUpperCase()})`
             : picked.formatId && item.formats
                 ? (item.formats.find(f => f.formatId === picked.formatId)?.label ?? "Auto")
                 : profile.maxResolution === "best"
@@ -1054,21 +1058,24 @@ export default function LibraryPage() {
         }
     };
 
-    const createLabel = async () => {
-        if (!newLabelName.trim()) return;
+    // Create a label (or reuse an existing one — the API upserts) and attach it to the
+    // given item in one step, straight from the label search box.
+    const createAndAttachLabel = async (videoId: string, name: string) => {
+        const trimmed = name.trim();
+        if (!trimmed) return;
         try {
             const res = await fetch("/api/labels", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: newLabelName, color: "#3b82f6" }) // Default label color (blue)
+                body: JSON.stringify({ name: trimmed, color: "#3b82f6" }),
             });
-            if (res.ok) {
-                const newLabel = await res.json();
-                setGlobalLabels(prev => [...prev, newLabel]);
-                setNewLabelName("");
-                toast.success("Label created");
-            }
-        } catch (e) {
+            if (!res.ok) throw new Error("create failed");
+            const newLabel = await res.json();
+            setGlobalLabels(prev => prev.some(l => l.id === newLabel.id) ? prev : [...prev, newLabel]);
+            setNewLabelName("");
+            await attachLabel(videoId, newLabel.id);
+            toast.success(`Added "${newLabel.name}"`);
+        } catch {
             toast.error("Failed to create label");
         }
     };
@@ -1154,6 +1161,11 @@ export default function LibraryPage() {
 
     const renderVideoCard = (video: Video) => {
         const isSelected = selectedIds.has(video.id);
+        const openInPlayer = () => {
+            const idx = displayedVideos.findIndex(v => v.id === video.id);
+            setPlayerIndex(idx >= 0 ? idx : 0);
+            setPlayerOpen(true);
+        };
         return (
         <Card
             key={video.id}
@@ -1166,18 +1178,12 @@ export default function LibraryPage() {
             )}
             onClick={selectionMode ? (e) => toggleSelection(video.id, e) : undefined}
         >
-            {/* Media Preview — thumbnail-first layout */}
+            {/* Media Preview — clean, uniform thumbnail for every media type */}
             <div
                 className={cn(
-                    "relative overflow-hidden",
-                    video.mediaType === "audio" ? "h-[140px]" : "h-[200px]"
+                    "relative overflow-hidden h-[180px]",
+                    video.mediaType === "image" ? "bg-muted/40" : video.mediaType === "audio" ? "" : "bg-muted/40"
                 )}
-                style={video.mediaType === "image" ? {
-                    backgroundColor: "hsl(var(--background))",
-                    backgroundImage: "linear-gradient(45deg, hsl(var(--muted)) 25%, transparent 25%), linear-gradient(-45deg, hsl(var(--muted)) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, hsl(var(--muted)) 75%), linear-gradient(-45deg, transparent 75%, hsl(var(--muted)) 75%)",
-                    backgroundSize: "16px 16px",
-                    backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
-                } : video.mediaType !== "audio" ? { backgroundColor: "black" } : undefined}
             >
                 {/* Selection checkbox overlay */}
                 {selectionMode && (
@@ -1202,9 +1208,7 @@ export default function LibraryPage() {
                         onClick={(e) => {
                             e.stopPropagation();
                             e.preventDefault();
-                            const idx = displayedVideos.findIndex(v => v.id === video.id);
-                            setPlayerIndex(idx >= 0 ? idx : 0);
-                            setPlayerOpen(true);
+                            openInPlayer();
                         }}
                         title="Open in Media Player"
                     >
@@ -1230,12 +1234,17 @@ export default function LibraryPage() {
 
 
                 {video.mediaType === "image" ? (
-                    <img
-                        src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
-                        alt={video.title}
-                        className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-[1.03]"
-                        loading="lazy"
-                    />
+                    <div
+                        className={cn("w-full h-full", !selectionMode && "cursor-pointer")}
+                        onClick={selectionMode ? undefined : (e) => { e.stopPropagation(); openInPlayer(); }}
+                    >
+                        <img
+                            src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
+                            alt={video.title}
+                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                            loading="lazy"
+                        />
+                    </div>
                 ) : video.mediaType === "audio" ? (
                     <div className="w-full h-full bg-gradient-to-br from-primary/10 via-muted/30 to-muted/55">
                         {selectionMode ? (
@@ -1251,23 +1260,26 @@ export default function LibraryPage() {
                         )}
                     </div>
                 ) : (
-                    selectionMode ? (
-                        video.thumbnailPath ? (
-                            <img src={`/api/thumbnail/${video.id}`} alt={video.title} className="w-full h-full object-cover" loading="lazy" />
+                    // Video: a clean poster thumbnail with a play overlay — opens the media player.
+                    <div
+                        className={cn("w-full h-full relative", !selectionMode && "cursor-pointer")}
+                        onClick={selectionMode ? undefined : (e) => { e.stopPropagation(); openInPlayer(); }}
+                    >
+                        {video.thumbnailPath ? (
+                            <img src={`/api/thumbnail/${video.id}`} alt={video.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" loading="lazy" />
                         ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-muted/30">
+                            <div className="w-full h-full flex items-center justify-center">
                                 <VideoIcon className="w-10 h-10 text-muted-foreground/30" />
                             </div>
-                        )
-                    ) : (
-                        <video
-                            src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
-                            controls
-                            preload={video.thumbnailPath ? "none" : "metadata"}
-                            poster={video.thumbnailPath ? `/api/thumbnail/${video.id}` : undefined}
-                            className="w-full h-full object-cover"
-                        />
-                    )
+                        )}
+                        {!selectionMode && (
+                            <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <span className="w-12 h-12 rounded-full bg-black/45 backdrop-blur-sm flex items-center justify-center text-white transition-all group-hover:bg-black/65 group-hover:scale-105">
+                                    <Play className="w-5 h-5 fill-white ml-0.5" />
+                                </span>
+                            </span>
+                        )}
+                    </div>
                 )}
             </div>
 
@@ -1297,35 +1309,69 @@ export default function LibraryPage() {
                         ))}
 
                         {!selectionMode && (
-                            <Popover>
+                            <Popover onOpenChange={(open) => { if (open) setNewLabelName(""); }}>
                                 <PopoverTrigger className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-[18px] text-[10px] px-1.5 py-0 text-muted-foreground hover:text-foreground border border-dashed border-border/50 rounded-full")} onClick={(e) => e.stopPropagation()}>
                                     <PlusCircle className="w-3 h-3 mr-1" /> Label
                                 </PopoverTrigger>
-                                <PopoverContent className="w-52 p-0" align="start">
-                                    <Command>
-                                        <CommandInput placeholder="Search labels..." className="h-8 text-xs" />
+                                <PopoverContent className="w-56 p-0" align="start" onClick={(e) => e.stopPropagation()}>
+                                    {/* Single search box — type to filter existing labels, or create a new
+                                        one inline when there's no exact match. */}
+                                    <Command shouldFilter={false}>
+                                        <CommandInput
+                                            placeholder="Search or create label…"
+                                            value={newLabelName}
+                                            onValueChange={setNewLabelName}
+                                            className="h-9 text-xs"
+                                            onKeyDown={(e) => {
+                                                // Enter creates the typed label when it doesn't already exist.
+                                                const q = newLabelName.trim();
+                                                if (e.key === "Enter" && q && !globalLabels.some(l => l.name.toLowerCase() === q.toLowerCase())) {
+                                                    e.preventDefault();
+                                                    createAndAttachLabel(video.id, q);
+                                                }
+                                            }}
+                                        />
                                         <CommandList>
-                                            <CommandEmpty className="py-2 px-2">
-                                                <div className="flex flex-col gap-2">
-                                                    <span className="text-xs text-muted-foreground">No label found.</span>
-                                                    <div className="flex bg-muted/40 p-1 rounded-md">
-                                                        <Input placeholder="New label name" value={newLabelName} onChange={e => setNewLabelName(e.target.value)} className="h-7 text-xs border-r-0 rounded-r-none focus-visible:ring-0 shadow-none border -mr-px" onKeyDown={e => e.key === 'Enter' && createLabel()} />
-                                                        <Button size="sm" onClick={createLabel} className="h-7 rounded-l-none text-xs px-2 shadow-none border">Add</Button>
-                                                    </div>
-                                                </div>
-                                            </CommandEmpty>
-                                            <CommandGroup>
-                                                {globalLabels.filter(gl => !(video.labels || []).find(vl => vl.id === gl.id)).map(label => (
-                                                    <CommandItem
-                                                        key={label.id}
-                                                        onSelect={() => attachLabel(video.id, label.id)}
-                                                        className="text-xs py-1"
-                                                    >
-                                                        <Tags className="mr-2 h-3 w-3 opacity-50" />
-                                                        {label.name}
-                                                    </CommandItem>
-                                                ))}
-                                            </CommandGroup>
+                                            {(() => {
+                                                const q = newLabelName.trim().toLowerCase();
+                                                const available = globalLabels.filter(gl => !(video.labels || []).find(vl => vl.id === gl.id));
+                                                const matches = q ? available.filter(gl => gl.name.toLowerCase().includes(q)) : available;
+                                                const exactExists = !!q && globalLabels.some(gl => gl.name.toLowerCase() === q);
+                                                return (
+                                                    <>
+                                                        {matches.length > 0 && (
+                                                            <CommandGroup>
+                                                                {matches.map(label => (
+                                                                    <CommandItem
+                                                                        key={label.id}
+                                                                        value={label.id}
+                                                                        onSelect={() => { attachLabel(video.id, label.id); setNewLabelName(""); }}
+                                                                        className="text-xs py-1.5"
+                                                                    >
+                                                                        <Tags className="mr-2 h-3 w-3 opacity-50" />
+                                                                        {label.name}
+                                                                    </CommandItem>
+                                                                ))}
+                                                            </CommandGroup>
+                                                        )}
+                                                        {q && !exactExists && (
+                                                            <CommandGroup>
+                                                                <CommandItem
+                                                                    value="__create__"
+                                                                    onSelect={() => createAndAttachLabel(video.id, newLabelName)}
+                                                                    className="text-xs py-1.5 text-primary"
+                                                                >
+                                                                    <PlusCircle className="mr-2 h-3 w-3" />
+                                                                    Create &ldquo;{newLabelName.trim()}&rdquo;
+                                                                </CommandItem>
+                                                            </CommandGroup>
+                                                        )}
+                                                        {matches.length === 0 && !q && (
+                                                            <div className="py-3 px-2 text-center text-xs text-muted-foreground">Type to search or create a label.</div>
+                                                        )}
+                                                    </>
+                                                );
+                                            })()}
                                         </CommandList>
                                     </Command>
                                 </PopoverContent>
@@ -1497,6 +1543,7 @@ export default function LibraryPage() {
                                                 const tags: string[] = [];
                                                 if (p.priority === -1) tags.push("default");
                                                 if (p.requireManualFormat) tags.push("manual");
+                                                if (p.extractAudio) tags.push("audio");
                                                 const mode = p.resolutionMode || (p.strictResolution ? "strict" : "flexible");
                                                 if (mode === "strict") tags.push("strict");
                                                 if (mode === "minimum") tags.push("min");
@@ -1510,6 +1557,7 @@ export default function LibraryPage() {
                                             const tags: string[] = [];
                                             if (profile.priority === -1) tags.push("default");
                                             if (profile.requireManualFormat) tags.push("manual");
+                                            if (profile.extractAudio) tags.push("audio");
                                             const mode = profile.resolutionMode || (profile.strictResolution ? "strict" : "flexible");
                                             if (mode === "strict") tags.push("strict");
                                             if (mode === "minimum") tags.push("min");
@@ -2278,7 +2326,7 @@ export default function LibraryPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 min-h-[400px]">
                         {Array.from({ length: 8 }).map((_, i) => (
                             <div key={i} className="flex flex-col rounded-xl border border-border/40 bg-card/50 overflow-hidden">
-                                <Skeleton className="h-[200px] w-full bg-muted/15" />
+                                <Skeleton className="h-[180px] w-full bg-muted/15" />
                                 <div className="p-3 space-y-2">
                                     <Skeleton className="h-4 w-4/5 bg-muted/15" />
                                     <Skeleton className="h-3.5 w-1/2 bg-muted/15" />
