@@ -38,7 +38,7 @@ import {
     CommandList
 } from "@/components/ui/command";
 import { toast } from "sonner";
-import { Trash2, Tags, PlusCircle, CheckSquare, Square, Music, X } from "lucide-react";
+import { Trash2, Tags, PlusCircle, CheckSquare, Square, Music, X, Scissors } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { MediaPlayerModal } from "@/components/media-player-modal";
 import { ImageEditorModal } from "@/components/image-editor/image-editor-modal";
@@ -87,6 +87,7 @@ type QueueItem = {
     sourcePlatform?: string;
     duration?: number;
     status: 'parsing' | 'pending' | 'queued' | 'downloading' | 'processing' | 'paused' | 'completed' | 'error' | 'cancelled';
+    kind?: 'download' | 'export';
     jobId?: string;
     progress?: number;
     errorText?: string;
@@ -522,6 +523,7 @@ export default function LibraryPage() {
                 const activeJobs: QueueItem[] = (Array.isArray(jobs) ? jobs : []).map((j: any) => ({
                     id: j.id,
                     jobId: j.id,
+                    kind: j.kind === "export" ? "export" : "download",
                     originalUrl: j.url,
                     title: j.title,
                     status: j.status,
@@ -798,6 +800,7 @@ export default function LibraryPage() {
                 if (data._heartbeat || data._connected) return;
 
                 const completedNow = new Set<string>();
+                const completedKinds: Record<string, string> = {};
                 setQueue(prev => {
                     let changed = false;
                     const next = prev.map(q => {
@@ -813,16 +816,19 @@ export default function LibraryPage() {
                         } else {
                             updated.errorText = undefined;
                         }
-                        if (live.status === "completed") completedNow.add(q.jobId!);
+                        if (live.status === "completed") {
+                            completedNow.add(q.jobId!);
+                            completedKinds[q.jobId!] = q.kind || "download";
+                        }
                         return updated;
                     });
                     return changed ? next : prev;
                 });
 
-                // Check for newly completed downloads
+                // Check for newly completed jobs (downloads and exports)
                 for (const jobId of completedNow) {
                     if (!prevCompletedSet.has(jobId)) {
-                        toast.success("Download complete!");
+                        toast.success(completedKinds[jobId] === "export" ? "Export complete!" : "Download complete!");
                         fetchLibrary();
                     }
                 }
@@ -1796,6 +1802,11 @@ export default function LibraryPage() {
                                                     {item.status}
                                                 </Badge>
                                             </motion.div>
+                                            {item.kind === "export" && (
+                                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-sky-500/40 text-sky-600 dark:text-sky-400 gap-1">
+                                                    <Scissors className="w-2.5 h-2.5 flex-shrink-0" /> Export
+                                                </Badge>
+                                            )}
                                             {item.matchedProfileName && !item.needsReview && (
                                                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-primary/40 text-primary/80 gap-1 max-w-full truncate">
                                                     <Sparkles className="w-2.5 h-2.5 flex-shrink-0" />
@@ -1817,20 +1828,26 @@ export default function LibraryPage() {
                                         {item.status === "queued" && (
                                             <p className="text-[11px] text-muted-foreground">Queued, waiting for worker…</p>
                                         )}
-                                        {(item.status === "downloading" || item.status === "paused" || item.status === "processing") && (
+                                        {(item.status === "downloading" || item.status === "paused" || item.status === "processing") && (() => {
+                                            // Downloads briefly sit at "processing" (muxing) with no % → show 100%.
+                                            // Exports report real ffmpeg progress while "processing", so use it.
+                                            const indeterminate = item.status === "processing" && item.kind !== "export";
+                                            const pct = Math.round(item.progress || 0);
+                                            return (
                                             <div className="flex items-center gap-2">
-                                                <Progress value={item.status === "processing" ? 100 : (item.progress ?? 0)} className="h-1.5 flex-1 bg-muted/80" />
+                                                <Progress value={indeterminate ? 100 : pct} className="h-1.5 flex-1 bg-muted/80" />
                                                 <motion.span
-                                                    key={`${item.id}-${item.status}-${Math.round(item.progress || 0)}`}
+                                                    key={`${item.id}-${item.status}-${pct}`}
                                                     initial={{ opacity: 0.55, y: 2 }}
                                                     animate={{ opacity: 1, y: 0 }}
                                                     transition={{ duration: 0.16 }}
                                                     className="text-[11px] font-bold text-primary w-10 text-right flex-shrink-0"
                                                 >
-                                                    {item.status === "processing" ? "100%" : `${Math.round(item.progress || 0)}%`}
+                                                    {indeterminate ? "100%" : `${pct}%`}
                                                 </motion.span>
                                             </div>
-                                        )}
+                                            );
+                                        })()}
                                         {item.formats && item.formats.length > 0 && !['queued', 'downloading', 'processing', 'paused', 'completed', 'cancelled'].includes(item.status) && (
                                             <div className="flex items-center gap-1.5 w-full" onClick={stop}>
                                                 {item.needsReview && item.status === "pending" && (
