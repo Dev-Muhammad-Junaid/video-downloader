@@ -7,6 +7,7 @@ import {
     resumeInterruptedJobs,
     updateJobPositions,
 } from "@/lib/download-manager";
+import { retryExport } from "@/lib/export-runner";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
@@ -139,33 +140,40 @@ export async function PATCH(req: Request) {
         if (body.action !== "retryFailed") {
             return NextResponse.json({ error: "Unsupported queue action" }, { status: 400 });
         }
-        // Only downloads can be re-run from the queue. Export jobs (subtitle
-        // burn / trim / crop) have no URL and their parameters live in the
-        // editor, so they're excluded — including them would call startDownload
-        // with an empty URL and fail the whole batch.
         const failedJobs = await prisma.downloadQueueJob.findMany({
-            where: { status: { in: ["error", "cancelled"] }, kind: { not: "export" } },
+            where: { status: { in: ["error", "cancelled"] } },
             orderBy: { updatedAt: "desc" },
             take: 100,
         });
         let retried = 0;
         for (const job of failedJobs) {
-            await startDownload(
-                job.url,
-                job.title,
-                job.sourcePlatform || "unknown",
-                job.mediaType || "video",
-                job.imageUrl || undefined,
-                job.formatId || undefined,
-                false,
-                "skip",
-                undefined,
-                job.qualityPreset?.startsWith("profile:") ? job.qualityPreset.replace("profile:", "") : undefined,
-                job.id,
-                job.thumbnailUrl || job.imageUrl || undefined,
-                job.duration ?? undefined,
-            );
-            retried++;
+            try {
+                if (job.kind === "export") {
+                    // Replay the export from its stored request.
+                    const r = await retryExport(job.id);
+                    if (r.ok) retried++;
+                } else {
+                    await startDownload(
+                        job.url,
+                        job.title,
+                        job.sourcePlatform || "unknown",
+                        job.mediaType || "video",
+                        job.imageUrl || undefined,
+                        job.formatId || undefined,
+                        false,
+                        "skip",
+                        undefined,
+                        job.qualityPreset?.startsWith("profile:") ? job.qualityPreset.replace("profile:", "") : undefined,
+                        job.id,
+                        job.thumbnailUrl || job.imageUrl || undefined,
+                        job.duration ?? undefined,
+                    );
+                    retried++;
+                }
+            } catch (e) {
+                // One bad row shouldn't fail the whole batch.
+                console.error("[Queue] retryFailed: job", job.id, "failed", e);
+            }
         }
         return NextResponse.json({ success: true, retried });
     } catch (error: any) {
