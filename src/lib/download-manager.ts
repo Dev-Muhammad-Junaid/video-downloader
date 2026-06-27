@@ -170,6 +170,7 @@ export async function getAllJobs() {
         const live = activeDownloads.get(job.id);
         return {
             id: job.id,
+            kind: (job as { kind?: string }).kind ?? "download",
             url: job.url,
             title: live?.title || job.title,
             status: (live?.status || job.status) as DownloadStatus,
@@ -930,4 +931,78 @@ export async function startDownload(
     }); // End limit()
     
     return job;
+}
+
+// ── Export (local edit/burn) jobs ─────────────────────────────────────────────
+//
+// Edit/export operations (trim, crop, subtitle burn) reuse the download queue's
+// progress plumbing: they get a DownloadQueueJob row with kind="export" plus an
+// in-memory activeDownloads entry, so the existing SSE stream and queue UI show
+// their ffmpeg progress exactly like a download. They never spawn yt-dlp.
+
+/** Create an export job (status "processing") and return its id. */
+export async function createExportJob(opts: { title: string; mediaType?: string }): Promise<string> {
+    const id = `export_${Math.random().toString(36).substring(2, 15)}`;
+    const job: DownloadJob = {
+        id,
+        url: "",
+        title: opts.title,
+        status: "processing",
+        progress: 0,
+    };
+    activeDownloads.set(id, job);
+    try {
+        await prisma.downloadQueueJob.create({
+            data: {
+                id,
+                kind: "export",
+                url: "",
+                title: opts.title,
+                mediaType: opts.mediaType ?? "video",
+                sourcePlatform: "local",
+                status: "processing",
+                progress: 0,
+            },
+        });
+    } catch (err) {
+        console.error("[Export] Failed to persist export job", err);
+    }
+    return id;
+}
+
+/** Update an export job's progress (0–100). Memory-only — the SSE reads this;
+ *  the DB row is finalised on completion to avoid a write per ffmpeg tick. */
+export function updateExportProgress(id: string, progress: number): void {
+    const job = activeDownloads.get(id);
+    if (job) job.progress = Math.max(0, Math.min(100, progress));
+}
+
+/** Mark an export job finished (or failed) and persist the final state. */
+export async function finishExportJob(
+    id: string,
+    result: { downloadPath?: string; error?: string },
+): Promise<void> {
+    const job = activeDownloads.get(id);
+    const status: DownloadStatus = result.error ? "error" : "completed";
+    if (job) {
+        job.status = status;
+        job.progress = result.error ? job.progress : 100;
+        job.downloadPath = result.downloadPath;
+        job.error = result.error;
+        job.completedAt = Date.now();
+    }
+    try {
+        await prisma.downloadQueueJob.update({
+            where: { id },
+            data: {
+                status,
+                progress: result.error ? undefined : 100,
+                downloadPath: result.downloadPath,
+                error: result.error ?? null,
+                completedAt: new Date(),
+            },
+        });
+    } catch (err) {
+        console.error("[Export] Failed to finalise export job", err);
+    }
 }

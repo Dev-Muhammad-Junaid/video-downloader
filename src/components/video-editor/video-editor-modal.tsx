@@ -497,7 +497,14 @@ export function VideoEditorModal({
             const data = await res.json();
             if (!res.ok) throw new Error(data.details || data.error || "Failed to edit media");
 
-            toast.success(`Media successfully ${actionLabel}!`, { id: toastId });
+            // Video exports now run as background jobs (response carries a jobId,
+            // not the finished video). Hand off to the queue and close the editor;
+            // synchronous actions (audio/image) still return the video directly.
+            if (data.jobId) {
+                toast.success(`Export started — track progress in the queue`, { id: toastId });
+            } else {
+                toast.success(`Media successfully ${actionLabel}!`, { id: toastId });
+            }
             onRefreshLibrary?.();
             onClose();
         } catch (error: any) {
