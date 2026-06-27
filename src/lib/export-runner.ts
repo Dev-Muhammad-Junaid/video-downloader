@@ -1,0 +1,169 @@
+import {
+    trimVideo,
+    cropVideo,
+    trimAndCrop,
+    burnSubtitles,
+    trimBurnSubtitles,
+    cropBurnSubtitles,
+    trimCropBurnSubtitles,
+} from "@/lib/media-editor";
+import {
+    createExportJob,
+    resetExportJob,
+    updateExportProgress,
+    finishExportJob,
+    registerExportProcess,
+} from "@/lib/download-manager";
+import { prisma } from "@/lib/prisma";
+
+/**
+ * Single source of truth for running a video export (trim / crop / subtitle
+ * burn) as a background queue job. Used by the initial submit (library/edit
+ * route) and by Retry (both per-item and bulk), so there's one code path and
+ * no duplicated dispatch.
+ */
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type ExportParams = Record<string, any>;
+export interface ExportSpec {
+    videoId: string;
+    action: string;
+    params: ExportParams;
+}
+
+/** Human label per action, used for the job title. */
+export const EXPORT_LABELS: Record<string, string> = {
+    "trim": "Trimmed",
+    "crop": "Cropped",
+    "trim-crop": "Trimmed & Cropped",
+    "burn-subtitles": "Captioned",
+    "trim-burn": "Trimmed & Captioned",
+    "crop-burn": "Cropped & Captioned",
+    "trim-crop-burn": "Trimmed, Cropped & Captioned",
+};
+
+export function isExportAction(action: string): boolean {
+    return action in EXPORT_LABELS;
+}
+
+/** Best-effort seconds parser for trim values ("12.5" or "00:01:05"). */
+function toSeconds(v: unknown): number {
+    if (typeof v === "number") return v;
+    const s = String(v ?? "");
+    if (s.includes(":")) {
+        const p = s.split(":").map(Number);
+        if (p.length === 3) return p[0] * 3600 + p[1] * 60 + p[2];
+        if (p.length === 2) return p[0] * 60 + p[1];
+    }
+    return parseFloat(s) || 0;
+}
+
+/** Validate an export request's params. Returns an error string, or null. */
+export function validateExportParams(action: string, p: ExportParams): string | null {
+    const isTrim = action.startsWith("trim");
+    const needsCrop = action.includes("crop");
+    const needsSubs = action.includes("burn");
+    if (isTrim && (p.startTime === undefined || p.endTime === undefined)) {
+        return `${action} requires startTime and endTime`;
+    }
+    if (needsCrop && (p.w === undefined || p.h === undefined || p.x === undefined || p.y === undefined)) {
+        return `${action} requires w, h, x, y`;
+    }
+    if (needsSubs && !p.assContent) {
+        return `${action} requires assContent`;
+    }
+    return null;
+}
+
+/** Run the chosen export action in the background against an existing job id. */
+function launchExport(jobId: string, spec: ExportSpec, total: number): void {
+    const { videoId, action, params: p } = spec;
+    const onProgress = (secs: number) =>
+        updateExportProgress(jobId, total > 0 ? (secs / total) * 100 : 0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const registerProc = (proc: any) => registerExportProcess(jobId, proc);
+
+    (async () => {
+        try {
+            let out;
+            if (action === "trim") {
+                out = await trimVideo(videoId, p.startTime, p.endTime, p.inheritSrtContent, onProgress, registerProc);
+            } else if (action === "crop") {
+                out = await cropVideo(videoId, p.w, p.h, p.x, p.y, p.inheritSrtContent, onProgress, registerProc);
+            } else if (action === "trim-crop") {
+                out = await trimAndCrop(videoId, p.startTime, p.endTime, p.w, p.h, p.x, p.y, p.inheritSrtContent, onProgress, registerProc);
+            } else if (action === "burn-subtitles") {
+                out = await burnSubtitles(videoId, p.assContent, p.inheritSrtContent, onProgress, registerProc);
+            } else if (action === "trim-burn") {
+                out = await trimBurnSubtitles(videoId, p.startTime, p.endTime, p.assContent, p.inheritSrtContent, onProgress, registerProc);
+            } else if (action === "crop-burn") {
+                out = await cropBurnSubtitles(videoId, p.w, p.h, p.x, p.y, p.assContent, p.inheritSrtContent, onProgress, registerProc);
+            } else { // trim-crop-burn
+                out = await trimCropBurnSubtitles(videoId, p.startTime, p.endTime, p.w, p.h, p.x, p.y, p.assContent, p.inheritSrtContent, onProgress, registerProc);
+            }
+            await finishExportJob(jobId, { downloadPath: out?.localPath });
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : "Export failed";
+            console.error(`[Export ${action}] failed:`, err);
+            await finishExportJob(jobId, { error: message });
+        }
+    })();
+}
+
+/** Compute the output duration for the % bar (trim length, or source length). */
+async function exportTotalSeconds(spec: ExportSpec, videoDuration: number | null): Promise<number> {
+    if (spec.action.startsWith("trim")) {
+        return Math.max(0, toSeconds(spec.params.endTime) - toSeconds(spec.params.startTime));
+    }
+    return videoDuration || 0;
+}
+
+/**
+ * Submit a new export: validate, create a tracked job (persisting the spec for
+ * Retry), and launch it in the background. Returns the jobId, or an error.
+ */
+export async function submitExport(spec: ExportSpec): Promise<{ jobId?: string; error?: string; status?: number }> {
+    const err = validateExportParams(spec.action, spec.params);
+    if (err) return { error: err, status: 400 };
+
+    const video = await prisma.video.findUnique({ where: { id: spec.videoId } });
+    if (!video) return { error: "Video not found", status: 404 };
+
+    const total = await exportTotalSeconds(spec, video.duration);
+    const jobId = await createExportJob({
+        title: `${video.title} (${EXPORT_LABELS[spec.action]})`,
+        mediaType: video.mediaType ?? "video",
+        exportSpec: JSON.stringify(spec),
+    });
+    launchExport(jobId, spec, total);
+    return { jobId };
+}
+
+/**
+ * Retry an existing export job in place: read its stored spec, reset the row to
+ * processing, and relaunch. Reuses the same jobId/row so the queue updates in
+ * place instead of spawning a duplicate.
+ */
+export async function retryExport(jobId: string): Promise<{ ok: boolean; error?: string; status?: number }> {
+    const job = await prisma.downloadQueueJob.findUnique({ where: { id: jobId } });
+    if (!job || job.kind !== "export") return { ok: false, error: "Export job not found", status: 404 };
+    if (!job.exportSpec) return { ok: false, error: "This export can't be retried (no saved settings)", status: 400 };
+
+    let spec: ExportSpec;
+    try {
+        spec = JSON.parse(job.exportSpec);
+    } catch {
+        return { ok: false, error: "Saved export settings are corrupt", status: 400 };
+    }
+
+    const err = validateExportParams(spec.action, spec.params);
+    if (err) return { ok: false, error: err, status: 400 };
+
+    const video = await prisma.video.findUnique({ where: { id: spec.videoId } });
+    if (!video) return { ok: false, error: "Source video no longer exists", status: 404 };
+
+    const total = await exportTotalSeconds(spec, video.duration);
+    await resetExportJob(jobId, job.title);
+    launchExport(jobId, spec, total);
+    return { ok: true };
+}

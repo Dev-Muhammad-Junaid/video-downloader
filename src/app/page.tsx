@@ -787,6 +787,31 @@ export default function LibraryPage() {
         return startDownloadJobForItem(item);
     };
 
+    // Retry a failed/cancelled export by replaying its stored request server-side.
+    const retryExportJob = async (item: QueueItem) => {
+        if (!item.jobId || retryingQueueIds.has(item.id)) return;
+        try {
+            setRetryingQueueIds((prev) => new Set(prev).add(item.id));
+            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "processing", progress: 0, errorText: undefined } : q));
+            const res = await fetch("/api/library/edit", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "retry-export", jobId: item.jobId }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Retry failed");
+        } catch (error: any) {
+            setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "error", errorText: error.message } : q));
+            toast.error(error.message || "Failed to retry export");
+        } finally {
+            setRetryingQueueIds((prev) => {
+                const next = new Set(prev);
+                next.delete(item.id);
+                return next;
+            });
+        }
+    };
+
     // SSE-based progress: single connection streams all active job progress
     const setupSSE = useCallback(() => {
         if (sseRef.current) return;
@@ -2011,13 +2036,13 @@ export default function LibraryPage() {
                                                     </Tooltip>
                                                 </>
                                             )}
-                                            {/* Retry is download-only — exports can't be re-run from the
-                                                queue (their parameters live in the editor). */}
-                                            {(item.status === 'error' || item.status === 'cancelled') && item.kind !== 'export' && (
+                                            {/* Retry: downloads re-download; exports replay their stored
+                                                request (an export with no saved spec can't be retried). */}
+                                            {(item.status === 'error' || item.status === 'cancelled') && (
                                                 <Tooltip>
                                                     <TooltipTrigger
                                                         className={cn(iconBtnOutline, retryingQueueIds.has(item.id) && "opacity-50 pointer-events-none")}
-                                                        onClick={() => startDownloadJob(item.id)}
+                                                        onClick={() => item.kind === 'export' ? retryExportJob(item) : startDownloadJob(item.id)}
                                                     >
                                                         <RotateCcw className="w-3.5 h-3.5" />
                                                     </TooltipTrigger>
