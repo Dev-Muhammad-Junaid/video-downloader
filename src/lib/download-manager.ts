@@ -24,6 +24,7 @@ export interface DownloadJob {
     downloadPath?: string;
     error?: string;
     completedAt?: number; // timestamp for auto-cleanup
+    kind?: "download" | "export"; // export jobs resume to "processing", not "downloading"
 }
 
 const globalForDownloads = global as unknown as { 
@@ -272,7 +273,8 @@ export async function resumeJob(id: string) {
     const job = activeDownloads.get(id);
     if (!proc || !job) throw new Error("Paused job not found");
     process.kill(proc.pid!, "SIGCONT");
-    job.status = "downloading";
+    // Exports run under the "processing" status; downloads under "downloading".
+    job.status = job.kind === "export" ? "processing" : "downloading";
     activeDownloads.set(id, job);
     await persistJob(job);
 }
@@ -949,6 +951,7 @@ export async function createExportJob(opts: { title: string; mediaType?: string 
         title: opts.title,
         status: "processing",
         progress: 0,
+        kind: "export",
     };
     activeDownloads.set(id, job);
     try {
@@ -974,7 +977,19 @@ export async function createExportJob(opts: { title: string; mediaType?: string 
  *  the DB row is finalised on completion to avoid a write per ffmpeg tick. */
 export function updateExportProgress(id: string, progress: number): void {
     const job = activeDownloads.get(id);
-    if (job) job.progress = Math.max(0, Math.min(100, progress));
+    // Don't move the bar for a job the user paused/cancelled.
+    if (job && job.status !== "paused" && job.status !== "cancelled") {
+        job.progress = Math.max(0, Math.min(100, progress));
+    }
+}
+
+/**
+ * Register the export's ffmpeg child process under its job id so the shared
+ * pauseJob (SIGSTOP) / resumeJob (SIGCONT) / cancelJob (SIGTERM) — and clearing
+ * the queue, which cancels active jobs — all act on it just like a download.
+ */
+export function registerExportProcess(id: string, proc: ReturnType<typeof spawn>): void {
+    jobProcesses.set(id, proc);
 }
 
 /** Mark an export job finished (or failed) and persist the final state. */
@@ -982,7 +997,13 @@ export async function finishExportJob(
     id: string,
     result: { downloadPath?: string; error?: string },
 ): Promise<void> {
+    jobProcesses.delete(id);
     const job = activeDownloads.get(id);
+
+    // If the user cancelled mid-encode, ffmpeg's non-zero exit lands here as an
+    // "error" — but the job is already terminal. Don't clobber that state.
+    if (job && job.status === "cancelled") return;
+
     const status: DownloadStatus = result.error ? "error" : "completed";
     if (job) {
         job.status = status;
