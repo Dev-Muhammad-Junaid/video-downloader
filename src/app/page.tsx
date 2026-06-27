@@ -1903,6 +1903,42 @@ export default function LibraryPage() {
                                                     <TooltipContent>Download</TooltipContent>
                                                 </Tooltip>
                                             )}
+                                            {item.kind === 'export' && item.status === 'processing' && item.jobId && (
+                                                <>
+                                                    <Tooltip>
+                                                        <TooltipTrigger
+                                                            className={iconBtnOutline}
+                                                            onClick={async () => {
+                                                                await fetch(`/api/download/${item.jobId}`, {
+                                                                    method: "PATCH",
+                                                                    headers: { "Content-Type": "application/json" },
+                                                                    body: JSON.stringify({ action: "pause" }),
+                                                                });
+                                                                setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "paused" } : q));
+                                                            }}
+                                                        >
+                                                            <Pause className="w-3.5 h-3.5" />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>Pause export</TooltipContent>
+                                                    </Tooltip>
+                                                    <Tooltip>
+                                                        <TooltipTrigger
+                                                            className={iconBtnDestructive}
+                                                            onClick={async () => {
+                                                                await fetch(`/api/download/${item.jobId}`, {
+                                                                    method: "PATCH",
+                                                                    headers: { "Content-Type": "application/json" },
+                                                                    body: JSON.stringify({ action: "cancel" }),
+                                                                });
+                                                                setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "cancelled", errorText: "Cancelled by user" } : q));
+                                                            }}
+                                                        >
+                                                            <Ban className="w-3.5 h-3.5" />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>Cancel export</TooltipContent>
+                                                    </Tooltip>
+                                                </>
+                                            )}
                                             {item.status === 'downloading' && item.jobId && (
                                                 <>
                                                     <Tooltip>
@@ -1950,7 +1986,7 @@ export default function LibraryPage() {
                                                                     headers: { "Content-Type": "application/json" },
                                                                     body: JSON.stringify({ action: "resume" }),
                                                                 });
-                                                                setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "downloading" } : q));
+                                                                setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: q.kind === "export" ? "processing" : "downloading" } : q));
                                                             }}
                                                         >
                                                             <Play className="w-3.5 h-3.5" />

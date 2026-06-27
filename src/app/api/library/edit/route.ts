@@ -12,7 +12,7 @@ import {
     convertToMp4,
     editImage,
 } from "@/lib/media-editor";
-import { createExportJob, updateExportProgress, finishExportJob } from "@/lib/download-manager";
+import { createExportJob, updateExportProgress, finishExportJob, registerExportProcess } from "@/lib/download-manager";
 import { prisma } from "@/lib/prisma";
 
 /** Best-effort seconds parser for trim values ("12.5" or "00:01:05"). */
@@ -86,25 +86,29 @@ export async function POST(req: Request) {
             });
             const onProgress: OnProgress = (secs) =>
                 updateExportProgress(jobId, total > 0 ? (secs / total) * 100 : 0);
+            // Register the ffmpeg process so cancel / pause / resume / clear-queue
+            // can act on the running export.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const registerProc = (proc: any) => registerExportProcess(jobId, proc);
 
             // Run in the background — do NOT await; return the jobId now.
             (async () => {
                 try {
                     let out;
                     if (action === "trim") {
-                        out = await trimVideo(videoId, p.startTime, p.endTime, p.inheritSrtContent, onProgress);
+                        out = await trimVideo(videoId, p.startTime, p.endTime, p.inheritSrtContent, onProgress, registerProc);
                     } else if (action === "crop") {
-                        out = await cropVideo(videoId, p.w, p.h, p.x, p.y, p.inheritSrtContent, onProgress);
+                        out = await cropVideo(videoId, p.w, p.h, p.x, p.y, p.inheritSrtContent, onProgress, registerProc);
                     } else if (action === "trim-crop") {
-                        out = await trimAndCrop(videoId, p.startTime, p.endTime, p.w, p.h, p.x, p.y, p.inheritSrtContent, onProgress);
+                        out = await trimAndCrop(videoId, p.startTime, p.endTime, p.w, p.h, p.x, p.y, p.inheritSrtContent, onProgress, registerProc);
                     } else if (action === "burn-subtitles") {
-                        out = await burnSubtitles(videoId, p.assContent, p.inheritSrtContent, onProgress);
+                        out = await burnSubtitles(videoId, p.assContent, p.inheritSrtContent, onProgress, registerProc);
                     } else if (action === "trim-burn") {
-                        out = await trimBurnSubtitles(videoId, p.startTime, p.endTime, p.assContent, p.inheritSrtContent, onProgress);
+                        out = await trimBurnSubtitles(videoId, p.startTime, p.endTime, p.assContent, p.inheritSrtContent, onProgress, registerProc);
                     } else if (action === "crop-burn") {
-                        out = await cropBurnSubtitles(videoId, p.w, p.h, p.x, p.y, p.assContent, p.inheritSrtContent, onProgress);
+                        out = await cropBurnSubtitles(videoId, p.w, p.h, p.x, p.y, p.assContent, p.inheritSrtContent, onProgress, registerProc);
                     } else { // trim-crop-burn
-                        out = await trimCropBurnSubtitles(videoId, p.startTime, p.endTime, p.w, p.h, p.x, p.y, p.assContent, p.inheritSrtContent, onProgress);
+                        out = await trimCropBurnSubtitles(videoId, p.startTime, p.endTime, p.w, p.h, p.x, p.y, p.assContent, p.inheritSrtContent, onProgress, registerProc);
                     }
                     await finishExportJob(jobId, { downloadPath: out?.localPath });
                 } catch (err: unknown) {
