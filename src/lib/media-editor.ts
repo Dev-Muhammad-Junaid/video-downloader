@@ -51,15 +51,36 @@ function buildSubtitlesFilter(assPath: string): string {
     return `subtitles=filename='${escapeForFfFilter(assPath)}':fontsdir='${escapeForFfFilter(SUBTITLE_FONTS_DIR)}'`;
 }
 
+/** The spawned ffmpeg child process (for pause/resume/cancel registration). */
+type FfmpegProc = ReturnType<typeof spawn>;
+
 // Helper to spawn ffmpeg and return a promise
 /**
- * Spawn ffmpeg. If `onProgress` is given, parse the `time=HH:MM:SS.ss` ffmpeg
- * prints to stderr and report the elapsed output seconds — callers divide by
- * the known output duration to drive a 0–100 progress bar.
+ * Spawn ffmpeg.
+ * - `onProgress`: parse the `time=HH:MM:SS.ss` ffmpeg prints and report elapsed
+ *   output seconds, so callers can drive a 0–100 progress bar.
+ * - `onSpawn`: hand the live ChildProcess to the caller so it can be registered
+ *   for pause (SIGSTOP) / resume (SIGCONT) / cancel (SIGTERM).
+ *
+ * On any non-zero exit (including a SIGTERM cancel) the partial output file —
+ * always the last arg — is deleted so cancelled/failed exports don't leave a
+ * broken file behind.
  */
-function runFfmpeg(args: string[], onProgress?: (outSeconds: number) => void): Promise<void> {
+function runFfmpeg(
+    args: string[],
+    onProgress?: (outSeconds: number) => void,
+    onSpawn?: (proc: ReturnType<typeof spawn>) => void,
+): Promise<void> {
     return new Promise((resolve, reject) => {
         const ffmpeg = spawn(getFfmpegPath(), args);
+        onSpawn?.(ffmpeg);
+
+        const cleanupPartialOutput = () => {
+            const outPath = args[args.length - 1];
+            if (outPath && !outPath.startsWith("-")) {
+                try { if (fs.existsSync(outPath)) fs.unlinkSync(outPath); } catch { /* ignore */ }
+            }
+        };
 
         let errorOutput = "";
         ffmpeg.stderr.on("data", (data) => {
@@ -81,14 +102,18 @@ function runFfmpeg(args: string[], onProgress?: (outSeconds: number) => void): P
         });
 
         ffmpeg.on("error", (err) => {
+            cleanupPartialOutput();
             reject(new Error(`Failed to start FFmpeg: ${err.message}`));
         });
 
-        ffmpeg.on("close", (code) => {
+        ffmpeg.on("close", (code, signal) => {
             if (code === 0) {
                 resolve();
             } else {
-                reject(new Error(`FFmpeg exited with code ${code}: ${errorOutput}`));
+                cleanupPartialOutput();
+                reject(new Error(
+                    signal ? `FFmpeg terminated (${signal})` : `FFmpeg exited with code ${code}: ${errorOutput}`,
+                ));
             }
         });
     });
@@ -107,6 +132,7 @@ export async function trimVideo(
     endTime: string,
     inheritSrtContent?: string,
     onProgress?: (outSeconds: number) => void,
+    registerProc?: (proc: FfmpegProc) => void,
 ) {
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
@@ -130,7 +156,7 @@ export async function trimVideo(
     ];
 
     console.log(`[FFmpeg Trim] Running: ffmpeg ${args.join(" ")}`);
-    await runFfmpeg(args, onProgress);
+    await runFfmpeg(args, onProgress, registerProc);
 
     let fileSize = 0;
     try {
@@ -172,6 +198,7 @@ export async function cropVideo(
     y: number,
     inheritSrtContent?: string,
     onProgress?: (outSeconds: number) => void,
+    registerProc?: (proc: FfmpegProc) => void,
 ) {
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
@@ -197,7 +224,7 @@ export async function cropVideo(
     ];
 
     console.log(`[FFmpeg Crop] Running: ffmpeg ${args.join(" ")}`);
-    await runFfmpeg(args, onProgress);
+    await runFfmpeg(args, onProgress, registerProc);
 
     let fileSize = 0;
     try {
@@ -245,6 +272,7 @@ export async function trimAndCrop(
     y: number,
     inheritSrtContent?: string,
     onProgress?: (outSeconds: number) => void,
+    registerProc?: (proc: FfmpegProc) => void,
 ) {
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
@@ -268,7 +296,7 @@ export async function trimAndCrop(
     ];
 
     console.log(`[FFmpeg TrimCrop] Running: ffmpeg ${args.join(" ")}`);
-    await runFfmpeg(args, onProgress);
+    await runFfmpeg(args, onProgress, registerProc);
 
     let fileSize = 0;
     try {
@@ -557,6 +585,7 @@ export async function trimBurnSubtitles(
     assContent: string,
     inheritSrtContent?: string,
     onProgress?: (outSeconds: number) => void,
+    registerProc?: (proc: FfmpegProc) => void,
 ) {
     ensureSubtitleFilterSupport();
     const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
@@ -576,7 +605,7 @@ export async function trimBurnSubtitles(
         const filterArg = buildSubtitlesFilter(tmpAssPath);
         const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime), "-vf", filterArg, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p", "-x264-params", "aq-mode=3", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg TrimBurn] Running: ffmpeg ${args.join(" ")}`);
-        await runFfmpeg(args, onProgress);
+        await runFfmpeg(args, onProgress, registerProc);
     } finally {
         try { fs.unlinkSync(tmpAssPath); } catch { }
     }
@@ -606,6 +635,7 @@ export async function cropBurnSubtitles(
     assContent: string,
     inheritSrtContent?: string,
     onProgress?: (outSeconds: number) => void,
+    registerProc?: (proc: FfmpegProc) => void,
 ) {
     ensureSubtitleFilterSupport();
     const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
@@ -624,7 +654,7 @@ export async function cropBurnSubtitles(
         const filterArg = `crop=${w}:${h}:${x}:${y},${buildSubtitlesFilter(tmpAssPath)}`;
         const args = ["-y", "-i", originalVideo.localPath, "-vf", filterArg, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p", "-x264-params", "aq-mode=3", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg CropBurn] Running: ffmpeg ${args.join(" ")}`);
-        await runFfmpeg(args, onProgress);
+        await runFfmpeg(args, onProgress, registerProc);
     } finally {
         try { fs.unlinkSync(tmpAssPath); } catch { }
     }
@@ -655,6 +685,7 @@ export async function trimCropBurnSubtitles(
     assContent: string,
     inheritSrtContent?: string,
     onProgress?: (outSeconds: number) => void,
+    registerProc?: (proc: FfmpegProc) => void,
 ) {
     ensureSubtitleFilterSupport();
     const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
@@ -673,7 +704,7 @@ export async function trimCropBurnSubtitles(
         const filterArg = `crop=${w}:${h}:${x}:${y},${buildSubtitlesFilter(tmpAssPath)}`;
         const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime), "-vf", filterArg, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p", "-x264-params", "aq-mode=3", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg TrimCropBurn] Running: ffmpeg ${args.join(" ")}`);
-        await runFfmpeg(args, onProgress);
+        await runFfmpeg(args, onProgress, registerProc);
     } finally {
         try { fs.unlinkSync(tmpAssPath); } catch { }
     }
@@ -702,6 +733,7 @@ export async function burnSubtitles(
     assContent: string,
     inheritSrtContent?: string,
     onProgress?: (outSeconds: number) => void,
+    registerProc?: (proc: FfmpegProc) => void,
 ) {
     ensureSubtitleFilterSupport();
 
@@ -723,7 +755,7 @@ export async function burnSubtitles(
         const filterArg = buildSubtitlesFilter(tmpAssPath);
         const args = ["-y", "-i", originalVideo.localPath, "-vf", filterArg, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p", "-x264-params", "aq-mode=3", "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg BurnSubs] Running: ffmpeg ${args.join(" ")}`);
-        await runFfmpeg(args, onProgress);
+        await runFfmpeg(args, onProgress, registerProc);
     } finally {
         try { fs.unlinkSync(tmpAssPath); } catch { }
     }
