@@ -3,28 +3,37 @@ import { prisma } from "./prisma";
 export type PresetProfile = {
     name: string;
     sitePattern: string;
+    // Video
     maxResolution: string;
-    preferredFormat: string;
-    preferredImageFormat: string;
-    resolutionMode: string; // "flexible" | "strict" | "minimum"
+    preferredFormat: string;        // video container: mp4 | mkv | webm | best
+    resolutionMode: string;         // flexible | strict | minimum
+    // Image
+    preferredImageFormat: string;   // original | jpg | png | webp | avif
+    // Audio
+    audioFormat: string;            // mp3 | m4a | wav
+    audioBitrate: string;           // 128k | 192k | 256k | 320k
+    extractAudio: boolean;          // force audio extraction even from video sources
     priority: number;
     requireManualFormat: boolean;
     autoCloudSync: boolean;
     isActive: boolean;
 };
 
-// 6 curated presets. `priority: -1` marks the built-in default (fallback).
-// These are seeded once on first run and whenever the user chooses "Reset to defaults".
-// Users can freely edit or delete any of them after seeding.
+// Curated presets, each covering video + image + audio in one profile. The app applies
+// the section that matches whatever is being downloaded. `priority: -1` marks the default.
+// Seeded once on first run and re-addable via "Reset to defaults"; freely editable after.
 export const PRESET_PROFILES: PresetProfile[] = [
     {
-        name: "Best Quality",
+        name: "Best Available",
         sitePattern: "*",
         maxResolution: "best",
         preferredFormat: "mp4",
-        priority: -1,
-        preferredImageFormat: "original",
         resolutionMode: "flexible",
+        preferredImageFormat: "original",
+        audioFormat: "mp3",
+        audioBitrate: "320k",
+        extractAudio: false,
+        priority: -1,
         requireManualFormat: false,
         autoCloudSync: false,
         isActive: true,
@@ -34,57 +43,42 @@ export const PRESET_PROFILES: PresetProfile[] = [
         sitePattern: "*",
         maxResolution: "1080",
         preferredFormat: "mp4",
-        priority: 0,
-        preferredImageFormat: "original",
         resolutionMode: "flexible",
+        preferredImageFormat: "original",
+        audioFormat: "mp3",
+        audioBitrate: "192k",
+        extractAudio: false,
+        priority: 0,
         requireManualFormat: false,
         autoCloudSync: false,
         isActive: true,
     },
     {
-        name: "Data Saver 720p",
-        sitePattern: "*",
-        maxResolution: "720",
-        preferredFormat: "mp4",
-        priority: 0,
-        preferredImageFormat: "original",
-        resolutionMode: "flexible",
-        requireManualFormat: false,
-        autoCloudSync: false,
-        isActive: true,
-    },
-    {
-        name: "Lowest Quality 480p",
+        name: "Data Saver",
         sitePattern: "*",
         maxResolution: "480",
         preferredFormat: "mp4",
-        priority: 0,
-        preferredImageFormat: "original",
         resolutionMode: "flexible",
-        requireManualFormat: false,
-        autoCloudSync: false,
-        isActive: true,
-    },
-    {
-        name: "HD Minimum 1080p",
-        sitePattern: "*",
-        maxResolution: "1080",
-        preferredFormat: "mp4",
+        preferredImageFormat: "jpg",
+        audioFormat: "mp3",
+        audioBitrate: "128k",
+        extractAudio: false,
         priority: 0,
-        preferredImageFormat: "original",
-        resolutionMode: "minimum",
         requireManualFormat: false,
         autoCloudSync: false,
         isActive: true,
     },
     {
-        name: "Audio Only (MP3)",
+        name: "Audio Only",
         sitePattern: "*",
         maxResolution: "best",
-        preferredFormat: "mp3",
-        priority: 0,
-        preferredImageFormat: "original",
+        preferredFormat: "mp4",
         resolutionMode: "flexible",
+        preferredImageFormat: "original",
+        audioFormat: "mp3",
+        audioBitrate: "320k",
+        extractAudio: true,
+        priority: 0,
         requireManualFormat: false,
         autoCloudSync: false,
         isActive: true,
@@ -94,9 +88,12 @@ export const PRESET_PROFILES: PresetProfile[] = [
         sitePattern: "*",
         maxResolution: "best",
         preferredFormat: "mp4",
-        priority: 0,
-        preferredImageFormat: "original",
         resolutionMode: "flexible",
+        preferredImageFormat: "original",
+        audioFormat: "mp3",
+        audioBitrate: "192k",
+        extractAudio: false,
+        priority: 0,
         requireManualFormat: true,
         autoCloudSync: false,
         isActive: true,
@@ -163,25 +160,30 @@ export function getYtDlpFormat(
         preferredFormat: string | null;
         strictResolution?: boolean | null;
         resolutionMode?: string | null;
+        audioFormat?: string | null;
         audioBitrate?: string | null;
+        extractAudio?: boolean | null;
     },
-    formatId?: string
+    formatId?: string,
+    mediaType?: string,
 ) {
     // yt-dlp's --audio-quality takes a target bitrate like "192K" (or 0 for best).
     const audioQuality = profile.audioBitrate
         ? profile.audioBitrate.toUpperCase().replace(/K$/i, "K")
         : "0";
+    const audioFmt = (profile.audioFormat || "mp3").toLowerCase();
 
-    // Explicit audio-only requests
-    if (formatId === "audio" || profile.preferredFormat === "mp3") {
-        return { args: ["-x", "--audio-format", "mp3", "--audio-quality", audioQuality], isAudio: true };
-    }
-    if (profile.preferredFormat === "m4a") {
-        return { args: ["-x", "--audio-format", "m4a", "--audio-quality", audioQuality], isAudio: true };
-    }
-    if (profile.preferredFormat === "wav") {
-        // WAV is lossless; audio-quality is irrelevant.
-        return { args: ["-x", "--audio-format", "wav"], isAudio: true };
+    // Audio output happens for: an explicit per-item "audio" override, an audio-only
+    // profile (extractAudio), or an audio source (e.g. SoundCloud). A legacy profile whose
+    // video format is still an audio codec is also treated as audio-only.
+    const legacyAudioFormat = ["mp3", "m4a", "wav"].includes((profile.preferredFormat || "").toLowerCase());
+    if (formatId === "audio" || profile.extractAudio || mediaType === "audio" || legacyAudioFormat) {
+        const fmt = legacyAudioFormat ? (profile.preferredFormat as string).toLowerCase() : audioFmt;
+        if (fmt === "wav") {
+            // WAV is lossless; audio-quality is irrelevant.
+            return { args: ["-x", "--audio-format", "wav"], isAudio: true };
+        }
+        return { args: ["-x", "--audio-format", fmt === "m4a" ? "m4a" : "mp3", "--audio-quality", audioQuality], isAudio: true };
     }
 
     // Specific platform-provided format ID — use it directly with audio fallback
