@@ -139,8 +139,12 @@ export async function PATCH(req: Request) {
         if (body.action !== "retryFailed") {
             return NextResponse.json({ error: "Unsupported queue action" }, { status: 400 });
         }
+        // Only downloads can be re-run from the queue. Export jobs (subtitle
+        // burn / trim / crop) have no URL and their parameters live in the
+        // editor, so they're excluded — including them would call startDownload
+        // with an empty URL and fail the whole batch.
         const failedJobs = await prisma.downloadQueueJob.findMany({
-            where: { status: { in: ["error", "cancelled"] } },
+            where: { status: { in: ["error", "cancelled"] }, kind: { not: "export" } },
             orderBy: { updatedAt: "desc" },
             take: 100,
         });
