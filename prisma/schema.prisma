@@ -58,15 +58,22 @@ model DownloadProfile {
   name            String   @unique
   sitePattern     String?  // e.g. "youtube.com", "twitter.com", "*"
   
-  maxResolution        String?  @default("best") // "720p", "1080p", "1440p", "2160p", "best"
-  preferredFormat      String?  @default("mp4")  // "mp4", "mkv", "webm", "mp3", "m4a", "wav"
-  preferredImageFormat String?  @default("original") // "original", "jpg", "png", "webp"
-  audioBitrate         String?  @default("192k") // "128k" | "192k" | "256k" | "320k" — for audio-format downloads
+  // A profile now covers all three media types independently; the app applies the
+  // matching section based on what's being downloaded.
+  // Video:
+  maxResolution        String?  @default("best") // "360".."2160" or "best"
+  preferredFormat      String?  @default("mp4")  // video container: "mp4" | "mkv" | "webm" | "best"
+  resolutionMode  String   @default("flexible") // "flexible" (≤ max), "strict" (= exact), "minimum" (≥ floor)
+  // Image:
+  preferredImageFormat String?  @default("original") // "original" | "jpg" | "png" | "webp" | "avif"
+  // Audio:
+  audioFormat          String?  @default("mp3") // "mp3" | "m4a" | "wav"
+  audioBitrate         String?  @default("192k") // "128k" | "192k" | "256k" | "320k"
+  extractAudio         Boolean  @default(false) // force audio extraction even from video sources
 
   autoCloudSync   Boolean  @default(false)
   requireManualFormat Boolean @default(false)
   strictResolution Boolean @default(false) // deprecated: use resolutionMode instead
-  resolutionMode  String   @default("flexible") // "flexible" (≤ max), "strict" (= exact), "minimum" (≥ floor)
 
   isActive        Boolean  @default(true)
   priority        Int      @default(0)
