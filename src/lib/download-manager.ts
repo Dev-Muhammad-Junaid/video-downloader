@@ -694,10 +694,11 @@ export async function startDownload(
             // Build yt-dlp args based on profile & format selection
             const selectedProfile = profileId ? await prisma.downloadProfile.findUnique({ where: { id: profileId } }) : null;
             const profile = selectedProfile || await getMatchingProfile(url);
-            const { args: formatArgs, isAudio } = getYtDlpFormat(profile || { maxResolution: "best", preferredFormat: "mp4" }, formatId);
-            const audioExt = profile?.preferredFormat === "m4a" ? "m4a"
-                : profile?.preferredFormat === "wav" ? "wav"
-                : "mp3";
+            const { args: formatArgs, isAudio } = getYtDlpFormat(profile || { maxResolution: "best", preferredFormat: "mp4" }, formatId, mediaType);
+            // When the output is audio, the extension follows the profile's audio format
+            // (falling back to a legacy audio value in preferredFormat for un-migrated rows).
+            const audioFmt = (profile?.audioFormat || (["mp3", "m4a", "wav"].includes((profile?.preferredFormat || "").toLowerCase()) ? profile?.preferredFormat : "mp3") || "mp3").toLowerCase();
+            const audioExt = ["m4a", "wav"].includes(audioFmt) ? audioFmt : "mp3";
             const fileName = isAudio ? `${safeTitle}_${id}.${audioExt}` : `${safeTitle}_${id}.mp4`;
             const outputPath = path.join(downloadsDir, fileName);
 
