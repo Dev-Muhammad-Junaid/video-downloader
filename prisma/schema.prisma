@@ -110,6 +110,9 @@ model DownloadLog {
 
 model DownloadQueueJob {
   id               String   @id
+  // "download" (default) or "export" — export jobs are local edit/burn tasks
+  // that surface their ffmpeg progress in the same queue as downloads.
+  kind             String   @default("download")
   url              String
   title            String
   sourcePlatform   String?
