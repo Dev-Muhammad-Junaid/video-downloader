@@ -82,13 +82,23 @@ export function AudioEditorModal({
     const [peaks, setPeaks] = useState<number[] | null>(null);
     const [isExporting, setIsExporting] = useState(false);
 
+    // Drive the Radix dialog's open state so closing runs its open→closed
+    // transition (which removes the body scroll-lock / pointer-events) BEFORE
+    // the parent unmounts us. Unmounting while still `open` can otherwise leave
+    // <body> with data-scroll-locked / pointer-events:none — i.e. the page
+    // stops scrolling after the editor closes.
+    const [open, setOpen] = useState(true);
+    const requestClose = () => {
+        setOpen(false);
+        setTimeout(onClose, 200);
+    };
+
     const mediaUrl = `/api/media?path=${encodeURIComponent(audio.localPath)}`;
 
-    // Lock background scroll while open.
-    useEffect(() => {
-        document.body.style.overflow = "hidden";
-        return () => { document.body.style.overflow = ""; };
-    }, []);
+    // NOTE: scroll locking is handled by the Radix <Dialog> (react-remove-scroll).
+    // A manual `document.body.style.overflow` lock here fought that mechanism and
+    // could leave the page unscrollable after close (Radix's data-scroll-locked
+    // CSS uses !important, which an inline overflow reset can't override).
 
     // Decode the audio into a peaks array for the waveform (best-effort).
     useEffect(() => {
@@ -332,7 +342,7 @@ export function AudioEditorModal({
             if (!res.ok) throw new Error(data.error || "Export failed");
             toast.success("Audio saved to your library", { id: toastId });
             onRefreshLibrary?.();
-            onClose();
+            requestClose();
         } catch (err: any) {
             toast.error(err.message || "Export failed", { id: toastId });
         } finally {
@@ -343,7 +353,7 @@ export function AudioEditorModal({
     const pct = (t: number) => (duration > 0 ? (t / duration) * 100 : 0);
 
     return (
-        <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+        <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
             <DialogContent className="w-[95vw] max-w-2xl sm:max-w-2xl max-h-[90vh] overflow-y-auto p-0 gap-0">
                 <DialogTitle className="sr-only">Edit audio: {audio.title}</DialogTitle>
                 <audio ref={audioRef} src={mediaUrl} preload="metadata" onLoadedMetadata={handleLoadedMetadata} className="hidden" />
