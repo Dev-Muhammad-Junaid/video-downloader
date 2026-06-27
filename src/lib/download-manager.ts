@@ -942,8 +942,9 @@ export async function startDownload(
 // in-memory activeDownloads entry, so the existing SSE stream and queue UI show
 // their ffmpeg progress exactly like a download. They never spawn yt-dlp.
 
-/** Create an export job (status "processing") and return its id. */
-export async function createExportJob(opts: { title: string; mediaType?: string }): Promise<string> {
+/** Create an export job (status "processing") and return its id. `exportSpec`
+ *  is the JSON request so the job can be replayed via Retry. */
+export async function createExportJob(opts: { title: string; mediaType?: string; exportSpec?: string }): Promise<string> {
     const id = `export_${Math.random().toString(36).substring(2, 15)}`;
     const job: DownloadJob = {
         id,
@@ -959,6 +960,7 @@ export async function createExportJob(opts: { title: string; mediaType?: string 
             data: {
                 id,
                 kind: "export",
+                exportSpec: opts.exportSpec,
                 url: "",
                 title: opts.title,
                 mediaType: opts.mediaType ?? "video",
@@ -971,6 +973,22 @@ export async function createExportJob(opts: { title: string; mediaType?: string 
         console.error("[Export] Failed to persist export job", err);
     }
     return id;
+}
+
+/** Reset an existing export job back to "processing" for an in-place retry,
+ *  re-seeding its live entry so progress/SSE work again. */
+export async function resetExportJob(id: string, title: string): Promise<void> {
+    activeDownloads.set(id, {
+        id, url: "", title, status: "processing", progress: 0, kind: "export",
+    });
+    try {
+        await prisma.downloadQueueJob.update({
+            where: { id },
+            data: { status: "processing", progress: 0, error: null, completedAt: null },
+        });
+    } catch (err) {
+        console.error("[Export] Failed to reset export job", err);
+    }
 }
 
 /** Update an export job's progress (0–100). Memory-only — the SSE reads this;

@@ -113,6 +113,9 @@ model DownloadQueueJob {
   // "download" (default) or "export" — export jobs are local edit/burn tasks
   // that surface their ffmpeg progress in the same queue as downloads.
   kind             String   @default("download")
+  // For export jobs: JSON of the original request ({ videoId, action, params })
+  // so a failed/cancelled export can be replayed via Retry.
+  exportSpec       String?
   url              String
   title            String
   sourcePlatform   String?
