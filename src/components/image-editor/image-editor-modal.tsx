@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
+import { useModalChrome } from "@/hooks/use-modal-chrome";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -77,28 +78,8 @@ export function ImageEditorModal({ image, onClose, onRefreshLibrary }: ImageEdit
 
     const modalRef = useRef<HTMLDivElement>(null);
 
-    React.useEffect(() => {
-        document.body.style.overflow = "hidden";
-
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === "Escape") { onClose(); return; }
-            if (e.key === "Tab" && modalRef.current) {
-                const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-                    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-                );
-                if (focusable.length === 0) return;
-                const first = focusable[0];
-                const last = focusable[focusable.length - 1];
-                if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-                else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-            }
-        };
-        document.addEventListener("keydown", handleKeyDown);
-        return () => {
-            document.body.style.overflow = "";
-            document.removeEventListener("keydown", handleKeyDown);
-        };
-    }, [onClose]);
+    // Background scroll lock + Esc-to-close + focus-trap (shared, leak-proof).
+    useModalChrome(modalRef, onClose);
 
     // ── Crop helpers ──────────────────────────────────────────────────────────
 

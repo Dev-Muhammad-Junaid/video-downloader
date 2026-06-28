@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { formatClock as formatTime } from "@/lib/time";
+import { useModalChrome } from "@/hooks/use-modal-chrome";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -144,29 +145,8 @@ export function VideoEditorModal({
 
     const modalRef = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
-        document.body.style.overflow = "hidden";
-
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === "Escape") { onClose(); return; }
-            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-            if (e.key === "Tab" && modalRef.current) {
-                const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-                    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-                );
-                if (focusable.length === 0) return;
-                const first = focusable[0];
-                const last = focusable[focusable.length - 1];
-                if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-                else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-            }
-        };
-        document.addEventListener("keydown", handleKeyDown);
-        return () => {
-            document.body.style.overflow = "";
-            document.removeEventListener("keydown", handleKeyDown);
-        };
-    }, [onClose]);
+    // Background scroll lock + Esc-to-close + focus-trap (shared, leak-proof).
+    useModalChrome(modalRef, onClose);
 
     // Clean up transcription polling interval on unmount
     useEffect(() => {
