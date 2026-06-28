@@ -31,9 +31,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { VideoEditorModal } from "./video-editor/video-editor-modal";
-import { ImageEditorModal } from "./image-editor/image-editor-modal";
-import { AudioEditorModal } from "./audio-editor/audio-editor-modal";
 import { WaveformPlayer } from "./audio-player";
 import type { Video } from "@/types/media";
 
@@ -48,6 +45,10 @@ interface MediaPlayerModalProps {
     onTitleUpdate?: (videoId: string, newTitle: string) => void;
     onTranscribe?: (video: Video) => void;
     onRefreshLibrary?: () => void;
+    /** Hand off to the page-level editor: the page closes the player and opens
+     *  the right editor, so only one full-screen overlay is mounted at a time
+     *  (avoids the nested scroll-lock that froze the page). */
+    onEdit?: (video: Video) => void;
 }
 
 export function MediaPlayerModal({
@@ -61,20 +62,17 @@ export function MediaPlayerModal({
     onTitleUpdate,
     onTranscribe,
     onRefreshLibrary,
+    onEdit,
 }: MediaPlayerModalProps) {
     // Track by ID so library refreshes (which shift array indices) don't swap the displayed item
     const [currentId, setCurrentId] = useState<string>(videos[initialIndex]?.id ?? "");
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [editTitle, setEditTitle] = useState("");
 
-    // Edit Media Mode State
-    const [isEditingMedia, setIsEditingMedia] = useState(false);
-
     const videoRef = useRef<HTMLVideoElement>(null);
 
     useEffect(() => {
         setCurrentId(videos[initialIndex]?.id ?? "");
-        setIsEditingMedia(false);
     }, [initialIndex, videos]);
 
     const currentIndex = videos.findIndex(v => v.id === currentId);
@@ -354,7 +352,7 @@ export function MediaPlayerModal({
                                 <Button
                                     variant="outline"
                                     className="w-full h-9 text-xs"
-                                    onClick={() => setIsEditingMedia(true)}
+                                    onClick={() => onEdit?.(video)}
                                 >
                                     <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Image
                                 </Button>
@@ -362,7 +360,7 @@ export function MediaPlayerModal({
                                 <Button
                                     variant="outline"
                                     className="w-full h-9 text-xs"
-                                    onClick={() => setIsEditingMedia(true)}
+                                    onClick={() => onEdit?.(video)}
                                 >
                                     <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Audio
                                 </Button>
@@ -371,7 +369,7 @@ export function MediaPlayerModal({
                                     <Button
                                         variant="outline"
                                         className="w-full h-9 text-xs"
-                                        onClick={() => setIsEditingMedia(true)}
+                                        onClick={() => onEdit?.(video)}
                                     >
                                         <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Video
                                     </Button>
@@ -450,27 +448,6 @@ export function MediaPlayerModal({
                 </div>
             </DialogContent>
 
-            {isEditingMedia && video.mediaType === "image" && (
-                <ImageEditorModal
-                    image={video}
-                    onClose={() => setIsEditingMedia(false)}
-                    onRefreshLibrary={onRefreshLibrary}
-                />
-            )}
-            {isEditingMedia && video.mediaType === "audio" && (
-                <AudioEditorModal
-                    audio={video}
-                    onClose={() => setIsEditingMedia(false)}
-                    onRefreshLibrary={onRefreshLibrary}
-                />
-            )}
-            {isEditingMedia && (!video.mediaType || video.mediaType === "video") && (
-                <VideoEditorModal
-                    video={video}
-                    onClose={() => setIsEditingMedia(false)}
-                    onRefreshLibrary={onRefreshLibrary}
-                />
-            )}
         </Dialog>
     );
 }

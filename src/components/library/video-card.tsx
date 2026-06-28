@@ -29,6 +29,7 @@ import {
     Trash2,
     Tags,
     PlusCircle,
+    MinusCircle,
     CheckSquare,
     Square,
     Music,
@@ -272,8 +273,24 @@ export function VideoCard({
                                                 const available = globalLabels.filter(gl => !(video.labels || []).find(vl => vl.id === gl.id));
                                                 const matches = q ? available.filter(gl => gl.name.toLowerCase().includes(q)) : available;
                                                 const exactExists = !!q && globalLabels.some(gl => gl.name.toLowerCase() === q);
+                                                const attached = (video.labels || []).filter(vl => !q || vl.name.toLowerCase().includes(q));
                                                 return (
                                                     <>
+                                                        {attached.length > 0 && (
+                                                            <CommandGroup heading="On this item — click to remove">
+                                                                {attached.map(label => (
+                                                                    <CommandItem
+                                                                        key={`rm-${label.id}`}
+                                                                        value={`rm-${label.id}`}
+                                                                        onSelect={() => detachLabel(video.id, label.id)}
+                                                                        className="text-xs py-1.5 text-destructive data-[selected=true]:text-destructive"
+                                                                    >
+                                                                        <MinusCircle className="mr-2 h-3 w-3" />
+                                                                        {label.name}
+                                                                    </CommandItem>
+                                                                ))}
+                                                            </CommandGroup>
+                                                        )}
                                                         {matches.length > 0 && (
                                                             <CommandGroup>
                                                                 {matches.map(label => (
