@@ -98,7 +98,7 @@ export default function LibraryPage() {
         fetchLibrary,
         handleTranscribe, handleOpenFolder, copyToClipboard,
         handleCloudUpload, handleCloudRemove,
-        attachLabel, detachLabel, createAndAttachLabel,
+        attachLabel, detachLabel, createAndAttachLabel, deleteLabel,
     } = useLibrary();
 
     // Download/export queue (state, profile matching, SSE + polling progress)
@@ -270,6 +270,7 @@ export default function LibraryPage() {
             attachLabel={attachLabel}
             detachLabel={detachLabel}
             createAndAttachLabel={createAndAttachLabel}
+            deleteLabel={deleteLabel}
             setNewLabelName={setNewLabelName}
             handleCloudUpload={handleCloudUpload}
             handleCloudRemove={handleCloudRemove}

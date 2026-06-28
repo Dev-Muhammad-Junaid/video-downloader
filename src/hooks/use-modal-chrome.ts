@@ -4,9 +4,12 @@ import { useEffect } from "react";
  * Shared chrome for the app's hand-rolled full-screen editor modals
  * (video + image editors). Centralizes what each used to copy-paste:
  *
- *  - background scroll lock — **leak-proof**: it restores whatever `overflow`
- *    was there before (not a hardcoded ""), so closing can never leave the
- *    page stuck (the class of bug that hit the audio editor),
+ *  - background scroll lock — **leak-proof**: these full-screen editors are
+ *    always the only overlay open (the media player hands editing off to the
+ *    page and closes itself first), so cleanup resets `overflow` to the default
+ *    rather than restoring a captured value. Restoring a captured value caused
+ *    the page to stay stuck when an editor mounted while another overlay's lock
+ *    ("hidden") was still on the body mid-close,
  *  - Escape to close,
  *  - Tab focus-trap within the modal container.
  *
@@ -19,7 +22,6 @@ export function useModalChrome(
     onClose: () => void,
 ): void {
     useEffect(() => {
-        const prevOverflow = document.body.style.overflow;
         document.body.style.overflow = "hidden";
 
         const onKeyDown = (e: KeyboardEvent) => {
@@ -46,7 +48,7 @@ export function useModalChrome(
         document.addEventListener("keydown", onKeyDown);
 
         return () => {
-            document.body.style.overflow = prevOverflow;
+            document.body.style.overflow = "";
             document.removeEventListener("keydown", onKeyDown);
         };
     }, [containerRef, onClose]);

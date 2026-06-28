@@ -283,6 +283,19 @@ export function useLibrary() {
         }
     };
 
+    // Delete a label from the database entirely (not just detach it from one
+    // item). Removes it from the global list and strips it off any loaded videos.
+    const deleteLabel = async (labelId: string) => {
+        try {
+            await api.del(`/api/labels/${labelId}`);
+            setGlobalLabels(prev => prev.filter(l => l.id !== labelId));
+            setVideos(prev => prev.map(v => v.labels ? { ...v, labels: v.labels.filter(l => l.id !== labelId) } : v));
+            toast.success("Label deleted");
+        } catch {
+            toast.error("Failed to delete label");
+        }
+    };
+
     const providerLabel = transcriptionProvider === "groq" ? "Groq" : "OpenAI";
 
     return {
@@ -293,6 +306,6 @@ export function useLibrary() {
         fetchLibrary, fetchLabels,
         handleTranscribe, handleOpenFolder, copyToClipboard,
         handleCloudUpload, handleCloudRemove,
-        attachLabel, detachLabel, createAndAttachLabel,
+        attachLabel, detachLabel, createAndAttachLabel, deleteLabel,
     };
 }

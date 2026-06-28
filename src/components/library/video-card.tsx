@@ -29,7 +29,6 @@ import {
     Trash2,
     Tags,
     PlusCircle,
-    MinusCircle,
     CheckSquare,
     Square,
     Music,
@@ -58,6 +57,7 @@ export interface VideoCardProps {
     attachLabel: (videoId: string, labelId: string) => void;
     detachLabel: (videoId: string, labelId: string) => void;
     createAndAttachLabel: (videoId: string, name: string) => void;
+    deleteLabel: (labelId: string) => void;
     setNewLabelName: (s: string) => void;
     handleCloudUpload: (video: Video) => void;
     handleCloudRemove: (video: Video) => void;
@@ -85,6 +85,7 @@ export function VideoCard({
     attachLabel,
     detachLabel,
     createAndAttachLabel,
+    deleteLabel,
     setNewLabelName,
     handleCloudUpload,
     handleCloudRemove,
@@ -273,24 +274,8 @@ export function VideoCard({
                                                 const available = globalLabels.filter(gl => !(video.labels || []).find(vl => vl.id === gl.id));
                                                 const matches = q ? available.filter(gl => gl.name.toLowerCase().includes(q)) : available;
                                                 const exactExists = !!q && globalLabels.some(gl => gl.name.toLowerCase() === q);
-                                                const attached = (video.labels || []).filter(vl => !q || vl.name.toLowerCase().includes(q));
                                                 return (
                                                     <>
-                                                        {attached.length > 0 && (
-                                                            <CommandGroup heading="On this item — click to remove">
-                                                                {attached.map(label => (
-                                                                    <CommandItem
-                                                                        key={`rm-${label.id}`}
-                                                                        value={`rm-${label.id}`}
-                                                                        onSelect={() => detachLabel(video.id, label.id)}
-                                                                        className="text-xs py-1.5 text-destructive data-[selected=true]:text-destructive"
-                                                                    >
-                                                                        <MinusCircle className="mr-2 h-3 w-3" />
-                                                                        {label.name}
-                                                                    </CommandItem>
-                                                                ))}
-                                                            </CommandGroup>
-                                                        )}
                                                         {matches.length > 0 && (
                                                             <CommandGroup>
                                                                 {matches.map(label => (
@@ -298,10 +283,19 @@ export function VideoCard({
                                                                         key={label.id}
                                                                         value={label.id}
                                                                         onSelect={() => { attachLabel(video.id, label.id); setNewLabelName(""); }}
-                                                                        className="text-xs py-1.5"
+                                                                        className="group/lbl text-xs py-1.5"
                                                                     >
                                                                         <Tags className="mr-2 h-3 w-3 opacity-50" />
-                                                                        {label.name}
+                                                                        <span className="flex-1 truncate">{label.name}</span>
+                                                                        {/* Delete the label from the library entirely (not just detach it here). */}
+                                                                        <button
+                                                                            type="button"
+                                                                            title="Delete label from library"
+                                                                            className="ml-2 opacity-0 group-hover/lbl:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+                                                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteLabel(label.id); }}
+                                                                        >
+                                                                            <Trash2 className="h-3 w-3" />
+                                                                        </button>
                                                                     </CommandItem>
                                                                 ))}
                                                             </CommandGroup>
