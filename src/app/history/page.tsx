@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { formatSize, formatDuration } from "@/lib/format";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 import { motion } from "framer-motion";
 import {
     Card,
@@ -139,15 +140,7 @@ export default function HistoryPage() {
         if (!log.videoId) { toast.error("No video ID on this log entry"); return; }
         toast.info(`Retrying transcription: ${log.title}`);
         try {
-            const res = await fetch(`/api/transcription/${log.videoId}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({}),
-            });
-            if (!res.ok) {
-                const d = await res.json();
-                throw new Error(d.error);
-            }
+            await api.post(`/api/transcription/${log.videoId}`, {});
             toast.success("Transcription re-queued. Refresh in a few moments to see the result.");
             setTimeout(() => fetchHistory(), 5000);
         } catch (err: any) {

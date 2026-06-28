@@ -1,6 +1,4 @@
 import {
-    trimAudio,
-    processAudio,
     convertToMp4,
     editImage,
 } from "@/lib/media-editor";
@@ -42,20 +40,10 @@ export async function POST(req: Request) {
         }
 
         // ── Synchronous actions (fast / non-video) ──────────────────────────
+        // (Audio edits are export actions now — handled above as background jobs.)
         let result;
 
-        if (action === "trim-audio") {
-            const { startTime, endTime } = params;
-            if (startTime === undefined || endTime === undefined) {
-                return NextResponse.json({ error: "trim-audio requires startTime and endTime" }, { status: 400 });
-            }
-            result = await trimAudio(videoId, startTime, endTime);
-
-        } else if (action === "process-audio") {
-            // Unified audio editor: trim + format/bitrate + gain + normalize + fades + voice enhance.
-            result = await processAudio(videoId, params || {});
-
-        } else if (action === "convert-mp4") {
+        if (action === "convert-mp4") {
             result = await convertToMp4(videoId);
 
         } else if (action === "image-edit") {

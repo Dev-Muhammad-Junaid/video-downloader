@@ -60,7 +60,7 @@ type FfmpegProc = ReturnType<typeof spawn>;
  */
 function runFfmpeg(
     args: string[],
-    onProgress?: (outSeconds: number) => void,
+    onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     onSpawn?: (proc: ReturnType<typeof spawn>) => void,
 ): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -75,11 +75,19 @@ function runFfmpeg(
         };
 
         let errorOutput = "";
+        // Total media duration, parsed once from ffmpeg's "Duration: HH:MM:SS.ss"
+        // line, so progress works even when the DB has no duration for the source
+        // (the denominator otherwise defaults to 0 and the bar stays at 0%).
+        let totalSeconds: number | undefined;
         ffmpeg.stderr.on("data", (data) => {
             const chunk = data.toString();
             errorOutput += chunk;
             // Keep only the tail so errorOutput can't grow unbounded on long jobs.
             if (errorOutput.length > 8192) errorOutput = errorOutput.slice(-8192);
+            if (totalSeconds === undefined) {
+                const d = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(chunk);
+                if (d) totalSeconds = (+d[1]) * 3600 + (+d[2]) * 60 + parseFloat(d[3]);
+            }
             if (onProgress) {
                 // ffmpeg emits e.g. "frame= 120 ... time=00:00:04.10 bitrate=..."
                 let m: RegExpExecArray | null;
@@ -88,7 +96,7 @@ function runFfmpeg(
                 while ((m = re.exec(chunk)) !== null) last = m;
                 if (last) {
                     const secs = (+last[1]) * 3600 + (+last[2]) * 60 + parseFloat(last[3]);
-                    onProgress(secs);
+                    onProgress(secs, totalSeconds);
                 }
             }
         });
@@ -123,7 +131,7 @@ export async function trimVideo(
     startTime: string,
     endTime: string,
     inheritSrtContent?: string,
-    onProgress?: (outSeconds: number) => void,
+    onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
 ) {
     const originalVideo = await prisma.video.findUnique({
@@ -189,7 +197,7 @@ export async function cropVideo(
     x: number,
     y: number,
     inheritSrtContent?: string,
-    onProgress?: (outSeconds: number) => void,
+    onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
 ) {
     const originalVideo = await prisma.video.findUnique({
@@ -263,7 +271,7 @@ export async function trimAndCrop(
     x: number,
     y: number,
     inheritSrtContent?: string,
-    onProgress?: (outSeconds: number) => void,
+    onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
 ) {
     const originalVideo = await prisma.video.findUnique({
@@ -404,7 +412,9 @@ export async function convertToMp4(videoId: string) {
 export async function trimAudio(
     videoId: string,
     startTime: string,
-    endTime: string
+    endTime: string,
+    onProgress?: (outSeconds: number, totalSeconds?: number) => void,
+    registerProc?: (proc: FfmpegProc) => void,
 ) {
     const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
     if (!originalVideo) throw new Error("Audio file not found");
@@ -417,7 +427,7 @@ export async function trimAudio(
 
     const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime), "-c", "copy", newFilePath];
     console.log(`[FFmpeg TrimAudio] Running: ffmpeg ${args.join(" ")}`);
-    await runFfmpeg(args);
+    await runFfmpeg(args, onProgress, registerProc);
 
     let fileSize = 0;
     try { fileSize = fs.statSync(newFilePath).size; } catch { }
@@ -499,7 +509,12 @@ function buildAudioFilterChain(opts: ProcessAudioOptions): string {
  * gain, loudness normalization, fades, and voice enhancement in a single ffmpeg pass,
  * then registers the result as a new library item.
  */
-export async function processAudio(videoId: string, opts: ProcessAudioOptions) {
+export async function processAudio(
+    videoId: string,
+    opts: ProcessAudioOptions,
+    onProgress?: (outSeconds: number, totalSeconds?: number) => void,
+    registerProc?: (proc: FfmpegProc) => void,
+) {
     const original = await prisma.video.findUnique({ where: { id: videoId } });
     if (!original) throw new Error("Audio file not found");
     if (!fs.existsSync(original.localPath)) throw new Error("Original file missing on disk");
@@ -544,7 +559,7 @@ export async function processAudio(videoId: string, opts: ProcessAudioOptions) {
     args.push(newFilePath);
 
     console.log(`[FFmpeg ProcessAudio] Running: ffmpeg ${args.join(" ")}`);
-    await runFfmpeg(args);
+    await runFfmpeg(args, onProgress, registerProc);
 
     let fileSize = 0;
     try { fileSize = fs.statSync(newFilePath).size; } catch { }
@@ -576,7 +591,7 @@ export async function trimBurnSubtitles(
     endTime: string,
     assContent: string,
     inheritSrtContent?: string,
-    onProgress?: (outSeconds: number) => void,
+    onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
 ) {
     ensureSubtitleFilterSupport();
@@ -626,7 +641,7 @@ export async function cropBurnSubtitles(
     w: number, h: number, x: number, y: number,
     assContent: string,
     inheritSrtContent?: string,
-    onProgress?: (outSeconds: number) => void,
+    onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
 ) {
     ensureSubtitleFilterSupport();
@@ -676,7 +691,7 @@ export async function trimCropBurnSubtitles(
     w: number, h: number, x: number, y: number,
     assContent: string,
     inheritSrtContent?: string,
-    onProgress?: (outSeconds: number) => void,
+    onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
 ) {
     ensureSubtitleFilterSupport();
@@ -724,7 +739,7 @@ export async function burnSubtitles(
     videoId: string,
     assContent: string,
     inheritSrtContent?: string,
-    onProgress?: (outSeconds: number) => void,
+    onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
 ) {
     ensureSubtitleFilterSupport();

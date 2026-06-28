@@ -18,6 +18,10 @@ interface ServerSettings {
     transcriptionProvider?: "openai" | "groq";
     whisperLanguage?: string;
     watchFolder?: string;
+    /** Browser to read cookies from for yt-dlp (--cookies-from-browser), e.g.
+     *  "chrome" | "safari" | "firefox" | "edge" | "brave". Empty = disabled.
+     *  Needed for sites like YouTube that now require an authenticated session. */
+    ytCookiesBrowser?: string;
 }
 
 export function getServerSettings(): ServerSettings {
@@ -29,6 +33,13 @@ export function getServerSettings(): ServerSettings {
         console.error("Failed to read server settings:", e);
     }
     return {};
+}
+
+/** yt-dlp args for reading cookies from the configured browser, or [] if off.
+ *  Prepend to every yt-dlp invocation (download + metadata/format probes). */
+export function getYtdlpCookieArgs(): string[] {
+    const browser = getServerSettings().ytCookiesBrowser?.trim();
+    return browser ? ["--cookies-from-browser", browser] : [];
 }
 
 export function updateServerSetting<K extends keyof ServerSettings>(key: K, value: ServerSettings[K]) {

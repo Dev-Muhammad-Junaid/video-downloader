@@ -334,8 +334,10 @@ export function AudioEditorModal({
             if (fadeIn > 0) params.fadeIn = fadeIn;
             if (fadeOut > 0) params.fadeOut = fadeOut;
 
+            // Audio edits now run as a background job (like video exports), so
+            // they show up in the queue with progress instead of blocking here.
             await api.post("/api/library/edit", { videoId: audio.id, action: "process-audio", params });
-            toast.success("Audio saved to your library", { id: toastId });
+            toast.success("Export started — track progress in the queue", { id: toastId });
             onRefreshLibrary?.();
             requestClose();
         } catch (err: any) {

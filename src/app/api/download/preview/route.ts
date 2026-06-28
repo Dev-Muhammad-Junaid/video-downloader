@@ -3,6 +3,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import path from "path";
 import os from "os";
+import { getYtdlpCookieArgs } from "@/lib/settings";
 
 const execFileAsync = promisify(execFile);
 
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
             
             let playlistOut = "";
             if (!playlistItemMatch) {
-                const { stdout } = await execFileAsync("yt-dlp", ["--flat-playlist", "-j", "--", url], { timeout: 15000 });
+                const { stdout } = await execFileAsync("yt-dlp", [...getYtdlpCookieArgs(), "--flat-playlist", "-j", "--", url], { timeout: 15000 });
                 playlistOut = stdout;
             }
 
@@ -95,7 +96,7 @@ export async function POST(req: Request) {
 
         // Try yt-dlp first (works for videos)
         try {
-            const ytdlpArgs: string[] = [];
+            const ytdlpArgs: string[] = [...getYtdlpCookieArgs()];
             if (targetItemIndex) {
                 ytdlpArgs.push("-I", targetItemIndex);
             }
