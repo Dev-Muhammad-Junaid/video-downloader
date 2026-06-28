@@ -11,5 +11,6 @@
   "openaiApiKey": "sk-...-åv3\"",
   "whisperLanguage": "",
   "groqApiKey": "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",
-  "transcriptionProvider": "groq"
+  "transcriptionProvider": "groq",
+  "ytCookiesBrowser": "chrome"
 }
