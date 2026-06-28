@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { TimelineScrubber } from "./timeline-scrubber";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 import { motion, AnimatePresence, useAnimationFrame } from "framer-motion";
 import { CropOverlay, CropState } from "./crop-overlay";
 import { SubtitleRenderer } from "./subtitle-renderer";
@@ -461,13 +462,7 @@ export function VideoEditorModal({
                 };
             }
 
-            const res = await fetch("/api/library/edit", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(bodyPayload),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.details || data.error || "Failed to edit media");
+            const data = await api.post<{ jobId?: string }>("/api/library/edit", bodyPayload);
 
             // Video exports now run as background jobs (response carries a jobId,
             // not the finished video). Hand off to the queue and close the editor;
