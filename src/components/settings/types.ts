@@ -15,6 +15,7 @@ export interface SettingsState {
     openaiApiKey: string;
     groqApiKey: string;
     whisperLanguage: string;
+    ytCookiesBrowser: string;
 }
 
 export type SetSettings = React.Dispatch<React.SetStateAction<SettingsState>>;

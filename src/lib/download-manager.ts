@@ -10,6 +10,7 @@ import { getMatchingProfile, getYtDlpFormat } from "./profiles";
 import { uploadToCloud } from "./cloud";
 import pLimit from "p-limit";
 import { getFfmpegPath } from "@/lib/ffmpeg";
+import { getYtdlpCookieArgs } from "@/lib/settings";
 
 export type DownloadStatus = "pending" | "queued" | "downloading" | "processing" | "paused" | "completed" | "error" | "cancelled";
 
@@ -712,7 +713,9 @@ export async function startDownload(
             logId = log.id;
 
         const ytdlpArgs: string[] = [];
-        
+        // Pass browser cookies (e.g. YouTube bot-check / >360p) when configured.
+        ytdlpArgs.push(...getYtdlpCookieArgs());
+
         // Check if we need to target a specific item index from our custom parameter
         try {
             const parsedUrl = new URL(url);

@@ -12,6 +12,7 @@ import { AiTranscriptionCard } from "@/components/settings/ai-transcription-card
 import { ProfilesCard } from "@/components/settings/profiles-card";
 import { LabelSyncCard } from "@/components/settings/label-sync-card";
 import { BrowserIntegrationsCard } from "@/components/settings/browser-integrations-card";
+import { DownloaderCard } from "@/components/settings/downloader-card";
 import type { SettingsState } from "@/components/settings/types";
 
 export default function SettingsPage() {
@@ -29,6 +30,7 @@ export default function SettingsPage() {
         openaiApiKey: "",
         groqApiKey: "",
         whisperLanguage: "",
+        ytCookiesBrowser: "",
     });
     const [pickingFolder, setPickingFolder] = useState<"watch" | "destination" | null>(null);
     const [profiles, setProfiles] = useState<any[]>([]);
@@ -52,7 +54,8 @@ export default function SettingsPage() {
             fetch("/api/settings/r2").then(res => res.json()),
             fetch("/api/settings/ai").then(res => res.json()),
             fetch("/api/settings/watch").then(res => res.json()),
-        ]).then(([destData, profilesData, labelsData, r2Data, aiData, watchData]) => {
+            fetch("/api/settings/ytdlp").then(res => res.json()),
+        ]).then(([destData, profilesData, labelsData, r2Data, aiData, watchData, ytdlpData]) => {
             setSettings(s => ({
                 ...s,
                 destinationFolder: destData.path || "",
@@ -62,6 +65,7 @@ export default function SettingsPage() {
                 groqApiKey: aiData.hasGroqKey ? aiData.groqApiKey : "",
                 whisperLanguage: aiData.whisperLanguage || "",
                 watchFolder: watchData.watchFolder || "",
+                ytCookiesBrowser: ytdlpData?.ytCookiesBrowser || "",
             }));
             if (Array.isArray(profilesData)) setProfiles(profilesData);
             if (Array.isArray(labelsData)) setLabels(labelsData);
@@ -187,6 +191,20 @@ export default function SettingsPage() {
             else toast.error("Failed to save AI settings");
         } catch {
             toast.error("Failed to save AI settings");
+        }
+    };
+
+    const handleSaveYtdlp = async () => {
+        try {
+            const res = await fetch("/api/settings/ytdlp", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ytCookiesBrowser: settings.ytCookiesBrowser }),
+            });
+            if (res.ok) toast.success("Downloader settings saved");
+            else toast.error("Failed to save downloader settings");
+        } catch {
+            toast.error("Failed to save downloader settings");
         }
     };
 
@@ -359,6 +377,15 @@ export default function SettingsPage() {
                 {/* AI Transcription Settings (WID-307) */}
                 <motion.div variants={fadeUp}>
                     <AiTranscriptionCard settings={settings} setSettings={setSettings} onSave={handleSaveAi} />
+                </motion.div>
+
+                {/* Downloader cookies (YouTube bot-check / quality) */}
+                <motion.div variants={fadeUp}>
+                    <DownloaderCard
+                        ytCookiesBrowser={settings.ytCookiesBrowser}
+                        setYtCookiesBrowser={(v) => setSettings(s => ({ ...s, ytCookiesBrowser: v }))}
+                        onSave={handleSaveYtdlp}
+                    />
                 </motion.div>
 
                 {/* Quality & Format Profiles (WID-306) */}
