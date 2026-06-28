@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { formatClock as formatTime } from "@/lib/time";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -39,16 +40,7 @@ import {
     SubtitleStyleConfig,
     createDefaultStyleConfig,
 } from "@/lib/ass-builder";
-
-interface Video {
-    id: string;
-    title: string;
-    localPath: string;
-    mediaType?: string | null;
-    transcriptStatus?: string | null;
-    transcriptText?: string | null;
-    transcriptPath?: string | null;
-}
+import type { Video } from "@/types/media";
 
 interface VideoEditorModalProps {
     video: Video;
@@ -1012,8 +1004,3 @@ export function VideoEditorModal({
     );
 }
 
-function formatTime(seconds: number): string {
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, "0")}`;
-}

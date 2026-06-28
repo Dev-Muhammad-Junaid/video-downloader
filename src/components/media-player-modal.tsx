@@ -34,27 +34,7 @@ import { VideoEditorModal } from "./video-editor/video-editor-modal";
 import { ImageEditorModal } from "./image-editor/image-editor-modal";
 import { AudioEditorModal } from "./audio-editor/audio-editor-modal";
 import { WaveformPlayer } from "./audio-player";
-
-type Video = {
-    id: string;
-    title: string;
-    duration: number | null;
-    sourcePlatform: string | null;
-    localPath: string;
-    fileSize: number | null;
-    mediaType?: string | null;
-    originalUrl?: string | null;
-    createdAt: string;
-    labels?: { id: string; name: string; color: string | null }[];
-    cloudKey?: string | null;
-    cloudUrl?: string | null;
-    cloudUploadedAt?: string | null;
-    thumbnailPath?: string | null;
-    // WID-307: Transcription fields
-    transcriptStatus?: string | null;
-    transcriptText?: string | null;
-    transcriptPath?: string | null;
-};
+import type { Video } from "@/types/media";
 
 interface MediaPlayerModalProps {
     open: boolean;
