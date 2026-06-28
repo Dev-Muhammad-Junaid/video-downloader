@@ -349,36 +349,21 @@ export default function LibraryPage() {
                                     <SelectTrigger size="sm" className="ml-1 max-w-[220px] text-xs">
                                         <SelectValue>
                                             {(value) => {
-                                                if (!value || value === "default-auto") return "Auto (match by URL)";
+                                                if (!value || value === "default-auto") return "Automatic";
                                                 const p = profiles.find((pr) => pr.id === value);
-                                                if (!p) return "Auto (match by URL)";
-                                                const tags: string[] = [];
-                                                if (p.priority === -1) tags.push("default");
-                                                if (p.requireManualFormat) tags.push("manual");
-                                                if (p.extractAudio) tags.push("audio");
-                                                const mode = p.resolutionMode || (p.strictResolution ? "strict" : "flexible");
-                                                if (mode === "strict") tags.push("strict");
-                                                if (mode === "minimum") tags.push("min");
-                                                return `${p.name}${tags.length ? ` · ${tags.join(", ")}` : ""}`;
+                                                return p ? p.name : "Automatic";
                                             }}
                                         </SelectValue>
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="default-auto" className="text-xs">Auto (match by URL)</SelectItem>
-                                        {profiles.map((profile) => {
-                                            const tags: string[] = [];
-                                            if (profile.priority === -1) tags.push("default");
-                                            if (profile.requireManualFormat) tags.push("manual");
-                                            if (profile.extractAudio) tags.push("audio");
-                                            const mode = profile.resolutionMode || (profile.strictResolution ? "strict" : "flexible");
-                                            if (mode === "strict") tags.push("strict");
-                                            if (mode === "minimum") tags.push("min");
-                                            return (
-                                                <SelectItem key={profile.id} value={profile.id} className="text-xs">
-                                                    {profile.name}{tags.length ? ` · ${tags.join(", ")}` : ""}
-                                                </SelectItem>
-                                            );
-                                        })}
+                                        {/* "Automatic" = pick the matching profile per link by its site
+                                            pattern; otherwise force every link to use one chosen profile. */}
+                                        <SelectItem value="default-auto" className="text-xs">Automatic (match each link)</SelectItem>
+                                        {profiles.map((profile) => (
+                                            <SelectItem key={profile.id} value={profile.id} className="text-xs">
+                                                {profile.name}
+                                            </SelectItem>
+                                        ))}
                                     </SelectContent>
                                 </Select>
                             )}
@@ -713,7 +698,7 @@ export default function LibraryPage() {
                                                         ))}
                                                     </CommandGroup>
                                                     <CommandGroup heading="Remove label">
-                                                        {globalLabels.map(label => (
+                                                        {globalLabels.filter(label => videos.some(v => selectedIds.has(v.id) && (v.labels || []).some(l => l.id === label.id))).map(label => (
                                                             <CommandItem
                                                                 key={`rm-${label.id}`}
                                                                 className="text-xs py-1.5 text-destructive"
@@ -1063,6 +1048,15 @@ export default function LibraryPage() {
                     }
                 }}
                 onTranscribe={(video) => handleTranscribe(video.id)}
+                onEdit={(video) => {
+                    // Close the player first so only one full-screen overlay is
+                    // mounted (no nested scroll-lock); closing the editor then
+                    // returns straight to the library.
+                    setPlayerOpen(false);
+                    if (video.mediaType === "image") setEditingImageId(video.id);
+                    else if (video.mediaType === "audio") setEditingAudioForEditor(video.id);
+                    else setEditingVideoForEditor(video.id);
+                }}
             />
         </div>
     );
