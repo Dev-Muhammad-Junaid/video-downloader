@@ -286,12 +286,12 @@ export function VideoCard({
                                                                         className="group/lbl text-xs py-1.5"
                                                                     >
                                                                         <Tags className="mr-2 h-3 w-3 opacity-50" />
-                                                                        <span className="flex-1 truncate">{label.name}</span>
+                                                                        <span className="truncate">{label.name}</span>
                                                                         {/* Delete the label from the library entirely (not just detach it here). */}
                                                                         <button
                                                                             type="button"
                                                                             title="Delete label from library"
-                                                                            className="ml-2 opacity-0 group-hover/lbl:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+                                                                            className="ml-auto opacity-0 group-hover/lbl:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
                                                                             onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteLabel(label.id); }}
                                                                         >
                                                                             <Trash2 className="h-3 w-3" />

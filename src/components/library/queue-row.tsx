@@ -9,7 +9,6 @@ import {
     RotateCcw,
     DownloadCloud,
     AlertCircle,
-    Sparkles,
     Scissors,
     Video as VideoIcon,
 } from "lucide-react";
@@ -123,15 +122,6 @@ export function QueueRow({
                             <Scissors className="w-2.5 h-2.5 flex-shrink-0" /> Export
                         </Badge>
                     )}
-                    {item.matchedProfileName && !item.needsReview && (
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-primary/40 text-primary/80 gap-1 max-w-full truncate">
-                            <Sparkles className="w-2.5 h-2.5 flex-shrink-0" />
-                            <span className="truncate">
-                                {item.matchedProfileName}
-                                {item.matchedFormatLabel && <span className="opacity-70"> · {item.matchedFormatLabel}</span>}
-                            </span>
-                        </Badge>
-                    )}
                     {item.errorText && (
                         <span className="text-[10px] text-muted-foreground truncate max-w-full" title={item.errorText}>
                             {item.errorText}
@@ -183,7 +173,7 @@ export function QueueRow({
                                 setQueue(prev => prev.map(q => q.id === item.id ? { ...q, selectedFormat: val, needsReview: false, reviewReason: undefined } : q));
                             }}
                         >
-                            <SelectTrigger size="sm" className="flex-1 min-w-0 text-[11px]">
+                            <SelectTrigger size="sm" className="flex-1 min-w-0 max-w-[200px] text-[11px]">
                                 <SelectValue>
                                     {(value) => {
                                         if (!value || value === "auto-best") return "Best available (auto)";
