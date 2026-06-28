@@ -50,10 +50,18 @@ export function QueueRow({
     startDownloadJob,
     retryExportJob,
 }: QueueRowProps) {
+    // Link a finished row back to its library item: exports match by output path
+    // (they have no originalUrl); downloads match by source URL.
     const matchedVideo = item.status === 'completed'
-        ? videos.find(v => (v.originalUrl && v.originalUrl === item.originalUrl))
+        ? videos.find(v =>
+            (item.kind === 'export' && !!item.downloadPath && v.localPath === item.downloadPath) ||
+            (!!v.originalUrl && v.originalUrl === item.originalUrl))
         : null;
     const isClickable = !!matchedVideo;
+    // Fall back to the matched item's thumbnail when the job carries none (exports).
+    const thumbSrc = item.thumbnail
+        || (matchedVideo?.thumbnailPath ? `/api/thumbnail/${matchedVideo.id}` : undefined)
+        || (matchedVideo?.mediaType === "image" ? `/api/media?path=${encodeURIComponent(matchedVideo.localPath)}` : undefined);
     const openInPlayer = () => {
         if (!matchedVideo) return;
         const idx = displayedVideos.findIndex(v => v.id === matchedVideo.id);
@@ -80,9 +88,9 @@ export function QueueRow({
                 isClickable && "cursor-pointer hover:border-primary/40 hover:shadow-md"
             )}
         >
-            {item.thumbnail ? (
+            {thumbSrc ? (
                 <div className="w-16 h-12 sm:w-20 sm:h-14 rounded-md overflow-hidden flex-shrink-0 relative bg-muted shadow-inner group">
-                    <img src={item.thumbnail} className="object-cover w-full h-full" alt="thumb" />
+                    <img src={thumbSrc} className="object-cover w-full h-full" alt="thumb" />
                     {isClickable && (
                         <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
                             <Play className="w-5 h-5 text-white fill-white" />
