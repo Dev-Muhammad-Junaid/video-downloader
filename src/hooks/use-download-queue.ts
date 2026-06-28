@@ -109,6 +109,15 @@ export function useDownloadQueue({ refreshLibrary }: { refreshLibrary: () => voi
 
         // Nothing matches — user must pick manually.
         const videoFormats = formats.filter(f => f.resolution && parseInt(f.resolution.replace(/[^0-9]/g, ""), 10) > 0);
+        // None of the formats carried a usable resolution (e.g. yt-dlp returned
+        // only audio/storyboard streams). Don't print the 0p–9999p sentinels.
+        if (videoFormats.length === 0) {
+            return {
+                formatId: undefined,
+                needsReview: true,
+                reviewReason: `Couldn't read available resolutions for "${profile.name}" — pick a format manually`,
+            };
+        }
         const maxAvailable = videoFormats.reduce((max, f) => Math.max(max, parseInt(f.resolution?.replace(/[^0-9]/g, "") || "0", 10)), 0);
         const minAvailable = videoFormats.reduce((min, f) => Math.min(min, parseInt(f.resolution?.replace(/[^0-9]/g, "") || "9999", 10)), 9999);
         return {
@@ -300,33 +309,31 @@ export function useDownloadQueue({ refreshLibrary }: { refreshLibrary: () => voi
                 return;
             }
 
-            let autoItem: QueueItem | null = null;
-            setQueue(prev => prev.map(q => {
-                if (q.id !== id) return q;
-                const updated = applyQueueProfileToItem({
-                    ...q,
-                    title: metadata.title,
-                    thumbnail: metadata.thumbnail,
-                    sourcePlatform: metadata.sourcePlatform,
-                    duration: metadata.duration ?? null,
-                    mediaType: metadata.mediaType || "video",
-                    imageUrl: metadata.imageUrl,
-                    formats: metadata.formats || [],
-                    selectedFormat: "",
-                    status: 'pending',
-                });
-                if (!updated.needsReview) {
-                    autoItem = updated;
-                }
-                return updated;
-            }));
+            // Compute the matched item synchronously (applyQueueProfileToItem is
+            // pure), so the auto-start decision never depends on the setQueue
+            // updater having run yet. The old code read a variable set *inside*
+            // the updater, which runs asynchronously — so for playlists some
+            // cleanly-matched items silently stayed "pending" (the 2-of-3 bug).
+            const updated = applyQueueProfileToItem({
+                id,
+                originalUrl: url,
+                title: metadata.title,
+                thumbnail: metadata.thumbnail,
+                sourcePlatform: metadata.sourcePlatform,
+                duration: metadata.duration ?? undefined,
+                mediaType: metadata.mediaType || "video",
+                imageUrl: metadata.imageUrl,
+                formats: metadata.formats || [],
+                selectedFormat: "",
+                status: 'pending',
+            });
+            setQueue(prev => prev.map(q => q.id === id ? { ...q, ...updated } : q));
 
             // Auto-start download when profile matches cleanly — no manual click required.
-            if (autoItem) {
-                const ai = autoItem as QueueItem;
-                const label = ai.matchedFormatLabel ? ` · ${ai.matchedFormatLabel}` : "";
-                toast.success(`Auto-downloading "${ai.title?.slice(0, 40)}${(ai.title?.length || 0) > 40 ? "…" : ""}" with ${ai.matchedProfileName || "default"}${label}`);
-                setTimeout(() => startDownloadJobForItem(ai), 0);
+            if (!updated.needsReview) {
+                const label = updated.matchedFormatLabel ? ` · ${updated.matchedFormatLabel}` : "";
+                toast.success(`Auto-downloading "${updated.title?.slice(0, 40)}${(updated.title?.length || 0) > 40 ? "…" : ""}" with ${updated.matchedProfileName || "default"}${label}`);
+                setTimeout(() => startDownloadJobForItem(updated), 0);
             }
 
         } catch (error: any) {
