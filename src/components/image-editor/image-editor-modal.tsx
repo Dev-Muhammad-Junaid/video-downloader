@@ -20,6 +20,7 @@ import {
     RectangleHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 import { motion, AnimatePresence } from "framer-motion";
 import { CropOverlay, CropState } from "@/components/video-editor/crop-overlay";
 
@@ -155,26 +156,17 @@ export function ImageEditorModal({ image, onClose, onRefreshLibrary }: ImageEdit
 
             const hasAdjust = brightness !== 0 || contrast !== 1 || saturation !== 1;
 
-            const res = await fetch("/api/library/edit", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    videoId: image.id,
-                    action: "image-edit",
-                    params: {
-                        ...(pixelCrop             ? { crop: pixelCrop }                                          : {}),
-                        ...(rotationParam         ? { rotation: rotationParam }                                  : {}),
-                        ...(hasAdjust             ? { brightness, contrast, saturation }                         : {}),
-                        format: outputFormat,
-                        quality,
-                    },
-                }),
+            await api.post("/api/library/edit", {
+                videoId: image.id,
+                action: "image-edit",
+                params: {
+                    ...(pixelCrop     ? { crop: pixelCrop }                  : {}),
+                    ...(rotationParam ? { rotation: rotationParam }         : {}),
+                    ...(hasAdjust     ? { brightness, contrast, saturation } : {}),
+                    format: outputFormat,
+                    quality,
+                },
             });
-
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.error || "Export failed");
-            }
 
             toast.success("Image saved to library!", { id: toastId });
             onRefreshLibrary?.();
