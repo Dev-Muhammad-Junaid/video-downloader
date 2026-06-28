@@ -61,6 +61,9 @@ export type QueueItem = {
     reviewReason?: string;
     matchedProfileName?: string;
     matchedFormatLabel?: string;
+    /** Output file path for a finished export — used to link the queue row back
+     *  to its resulting library item (exports have no originalUrl). */
+    downloadPath?: string;
 };
 
 /** A download profile (format/resolution rules matched against URLs). */

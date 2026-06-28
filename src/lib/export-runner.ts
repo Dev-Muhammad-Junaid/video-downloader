@@ -6,6 +6,8 @@ import {
     trimBurnSubtitles,
     cropBurnSubtitles,
     trimCropBurnSubtitles,
+    processAudio,
+    trimAudio,
 } from "@/lib/media-editor";
 import {
     createExportJob,
@@ -41,6 +43,10 @@ export const EXPORT_LABELS: Record<string, string> = {
     "trim-burn": "Trimmed & Captioned",
     "crop-burn": "Cropped & Captioned",
     "trim-crop-burn": "Trimmed, Cropped & Captioned",
+    // Audio edits also run as background jobs so they appear in the queue with
+    // progress, just like video exports.
+    "process-audio": "Edited Audio",
+    "trim-audio": "Trimmed Audio",
 };
 
 export function isExportAction(action: string): boolean {
@@ -67,15 +73,23 @@ export function validateExportParams(action: string, p: ExportParams): string | 
 /** Run the chosen export action in the background against an existing job id. */
 function launchExport(jobId: string, spec: ExportSpec, total: number): void {
     const { videoId, action, params: p } = spec;
-    const onProgress = (secs: number) =>
-        updateExportProgress(jobId, total > 0 ? (secs / total) * 100 : 0);
+    // Prefer the duration we computed up front; if it's unknown (0), fall back to
+    // the total ffmpeg reports from the source file so the bar still advances.
+    const onProgress = (secs: number, totalSecs?: number) => {
+        const denom = total > 0 ? total : (totalSecs || 0);
+        updateExportProgress(jobId, denom > 0 ? (secs / denom) * 100 : 0);
+    };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const registerProc = (proc: any) => registerExportProcess(jobId, proc);
 
     (async () => {
         try {
             let out;
-            if (action === "trim") {
+            if (action === "process-audio") {
+                out = await processAudio(videoId, p, onProgress, registerProc);
+            } else if (action === "trim-audio") {
+                out = await trimAudio(videoId, p.startTime, p.endTime, onProgress, registerProc);
+            } else if (action === "trim") {
                 out = await trimVideo(videoId, p.startTime, p.endTime, p.inheritSrtContent, onProgress, registerProc);
             } else if (action === "crop") {
                 out = await cropVideo(videoId, p.w, p.h, p.x, p.y, p.inheritSrtContent, onProgress, registerProc);

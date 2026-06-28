@@ -181,6 +181,7 @@ export function useDownloadQueue({ refreshLibrary }: { refreshLibrary: () => voi
                     imageUrl: j.imageUrl,
                     matchedProfileName: j.profileName,
                     matchedFormatLabel: j.formatLabel,
+                    downloadPath: j.downloadPath,
                 }));
 
                 setQueue(prev => {
@@ -204,6 +205,7 @@ export function useDownloadQueue({ refreshLibrary }: { refreshLibrary: () => voi
                             imageUrl: existing.imageUrl || job.imageUrl,
                             matchedProfileName: existing.matchedProfileName || job.matchedProfileName,
                             matchedFormatLabel: existing.matchedFormatLabel || job.matchedFormatLabel,
+                            downloadPath: job.downloadPath || existing.downloadPath,
                             progress: (job.status === "downloading" || job.status === "processing" || job.status === "paused")
                                 ? Math.max(existing.progress || 0, job.progress || 0)
                                 : (job.progress ?? existing.progress),
