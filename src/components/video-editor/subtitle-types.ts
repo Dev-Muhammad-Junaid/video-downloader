@@ -2,6 +2,12 @@
 // Shared types, parsing, and style definitions for the subtitle editor
 
 import { buildAssFile, type SubtitleStyleConfig } from "@/lib/ass-builder";
+import { rgbToAssBgr } from "@/lib/ass-color";
+import { parseSrtTime, formatSrtTime, displayTime, shiftTime } from "@/lib/time";
+
+// Time helpers now live in @/lib/time; re-export so existing
+// `./subtitle-types` imports (subtitle-editor, etc.) keep working.
+export { parseSrtTime, formatSrtTime, displayTime, shiftTime };
 
 export interface Subtitle {
     id: number;
@@ -38,49 +44,6 @@ export const STYLE_PRESETS: StylePreset[] = [
      */
     { id: "reveal",      name: "Reveal",    desc: "Word-by-word highlight",           icon: "💡" },
 ];
-
-// ── SRT Time Parsing ──
-
-/** Parse SRT time string "HH:MM:SS,mmm" to seconds */
-export function parseSrtTime(timeStr: string): number {
-    if (!timeStr) return 0;
-    const [h, m, s_ms] = timeStr.split(":");
-    if (!s_ms) return 0;
-    const [s, ms] = s_ms.split(",");
-    return (
-        parseInt(h) * 3600 +
-        parseInt(m) * 60 +
-        parseInt(s) +
-        parseInt(ms || "0") / 1000
-    );
-}
-
-/** Format seconds to SRT time string "HH:MM:SS,mmm" */
-export function formatSrtTime(seconds: number): string {
-    const totalMs = Math.round(Math.max(0, seconds) * 1000);
-    const ms = totalMs % 1000;
-    const totalSecs = Math.floor(totalMs / 1000);
-    const secs = totalSecs % 60;
-    const totalMins = Math.floor(totalSecs / 60);
-    const mins = totalMins % 60;
-    const hours = Math.floor(totalMins / 60);
-
-    return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
-}
-
-/** Display-friendly time "MM:SS" from SRT time string */
-export function displayTime(srtTime: string): string {
-    const secs = parseSrtTime(srtTime);
-    const m = Math.floor(secs / 60);
-    const s = Math.floor(secs % 60);
-    return `${m}:${String(s).padStart(2, "0")}`;
-}
-
-/** Shift an SRT time string by deltaMs milliseconds */
-export function shiftTime(timeStr: string, deltaMs: number): string {
-    const seconds = parseSrtTime(timeStr) + deltaMs / 1000;
-    return formatSrtTime(Math.max(0, seconds));
-}
 
 // ── SRT / VTT Content Parsing ──
 
@@ -283,16 +246,6 @@ export function expandTikTokSubtitles(subtitles: Subtitle[]): Subtitle[] {
 // round-tripping and `buildAssFile` injects them straight into the Dialogue
 // text — so the same expanded form drives both the JASSUB preview and the
 // FFmpeg burn pipeline.
-
-/** Internal: "#RRGGBB" → ASS "&H00BBGGRR" (opaque). Kept local to avoid
- *  a hard import dependency from subtitle-types.ts onto ass-builder.ts. */
-function rgbToAssBgr(hex: string): string {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    const h = (n: number) => n.toString(16).padStart(2, "0").toUpperCase();
-    return `&H00${h(b)}${h(g)}${h(r)}&`;
-}
 
 /** Per-word scale variance for cascade entrance — deterministic so a given
  *  word always lays out the same way (95 / 100 / 105 / 110 %). */

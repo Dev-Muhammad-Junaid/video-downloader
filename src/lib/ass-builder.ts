@@ -6,6 +6,12 @@
  * Any change here affects both simultaneously.
  */
 
+import { hexToAss, assToHex } from "./ass-color";
+import { srtTimeToAss } from "./time";
+
+// Re-export so existing `@/lib/ass-builder` import paths keep working.
+export { hexToAss, assToHex, srtTimeToAss };
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface SubtitleStyleConfig {
@@ -205,36 +211,7 @@ export const PRESET_BASE_ANIMATION: Record<string, SubtitleStyleConfig["animatio
     reveal:        "reveal",
 };
 
-// ── Color utilities ──────────────────────────────────────────────────────────
-
-/** "#RRGGBB" + opacity 0–100 → ASS "&HAABBGGRR" */
-export function hexToAss(hex: string, opacity = 100): string {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    const alpha = Math.round((1 - Math.max(0, Math.min(100, opacity)) / 100) * 255);
-    const h = (n: number) => n.toString(16).padStart(2, "0").toUpperCase();
-    return `&H${h(alpha)}${h(b)}${h(g)}${h(r)}`;
-}
-
-/** ASS "&HAABBGGRR" → hex "#RRGGBB" (discards alpha) */
-export function assToHex(assColor: string): string {
-    const m = assColor.match(/&H[0-9A-Fa-f]{2}([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})/i);
-    if (!m) return "#FFFFFF";
-    const [, bb, gg, rr] = m;
-    return `#${rr}${gg}${bb}`.toUpperCase();
-}
-
-// ── Time ─────────────────────────────────────────────────────────────────────
-
-/** "HH:MM:SS,mmm" → "H:MM:SS.cc" (centiseconds) */
-export function srtTimeToAss(srtTime: string): string {
-    const [hms = "", msStr = "0"] = srtTime.trim().split(",");
-    const [hh = "0", mm = "00", ss = "00"] = hms.split(":");
-    // Use Math.floor (not Math.round) so 999ms → 99cs, not 100cs (overflow)
-    const cs = Math.min(99, Math.floor(parseInt(msStr) / 10));
-    return `${parseInt(hh)}:${mm}:${ss}.${String(cs).padStart(2, "0")}`;
-}
+// Colour + SRT→ASS time helpers live in ./ass-color and ./time (imported above).
 
 // ── Alignment ────────────────────────────────────────────────────────────────
 
