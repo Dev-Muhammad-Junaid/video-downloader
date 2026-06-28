@@ -14,6 +14,7 @@ import {
     finishExportJob,
     registerExportProcess,
 } from "@/lib/download-manager";
+import { parseTimeToSeconds } from "@/lib/time";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -44,18 +45,6 @@ export const EXPORT_LABELS: Record<string, string> = {
 
 export function isExportAction(action: string): boolean {
     return action in EXPORT_LABELS;
-}
-
-/** Best-effort seconds parser for trim values ("12.5" or "00:01:05"). */
-function toSeconds(v: unknown): number {
-    if (typeof v === "number") return v;
-    const s = String(v ?? "");
-    if (s.includes(":")) {
-        const p = s.split(":").map(Number);
-        if (p.length === 3) return p[0] * 3600 + p[1] * 60 + p[2];
-        if (p.length === 2) return p[0] * 60 + p[1];
-    }
-    return parseFloat(s) || 0;
 }
 
 /** Validate an export request's params. Returns an error string, or null. */
@@ -113,7 +102,7 @@ function launchExport(jobId: string, spec: ExportSpec, total: number): void {
 /** Compute the output duration for the % bar (trim length, or source length). */
 async function exportTotalSeconds(spec: ExportSpec, videoDuration: number | null): Promise<number> {
     if (spec.action.startsWith("trim")) {
-        return Math.max(0, toSeconds(spec.params.endTime) - toSeconds(spec.params.startTime));
+        return Math.max(0, parseTimeToSeconds(spec.params.endTime) - parseTimeToSeconds(spec.params.startTime));
     }
     return videoDuration || 0;
 }

@@ -6,15 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { generateThumbnail } from "@/lib/thumbnail";
 import { ensureFfmpegFilterSupported, getFfmpegPath } from "@/lib/ffmpeg";
 
-function parseTimeToSeconds(time: string | number): number {
-    if (typeof time === "number") return time;
-    if (time.includes(":")) {
-        const parts = time.split(":").map(Number);
-        if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-        if (parts.length === 2) return parts[0] * 60 + parts[1];
-    }
-    return parseFloat(time) || 0;
-}
+import { parseTimeToSeconds } from "@/lib/time";
 
 /**
  * FFmpeg trim args for a [start, end] window. We seek the input with `-ss`

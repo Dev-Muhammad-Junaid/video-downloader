@@ -55,29 +55,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 
-type Video = {
-    id: string;
-    title: string;
-    duration: number | null;
-    sourcePlatform: string | null;
-    localPath: string;
-    fileSize: number | null;
-    mediaType?: string | null;
-    originalUrl?: string | null;
-    createdAt: string;
-    labels?: { id: string; name: string; color: string | null }[];
-    cloudKey?: string | null;
-    cloudUrl?: string | null;
-    cloudUploadedAt?: string | null;
-    thumbnailPath?: string | null;
-    // WID-307: Transcription fields
-    transcriptStatus?: string | null;
-    transcriptText?: string | null;
-    transcriptPath?: string | null;
-    // WID-308: Search snippet (populated when in deep search mode)
-    transcriptSnippet?: string | null;
-    matchedIn?: string[];
-};
+import type { Video } from "@/types/media";
 
 type QueueItem = {
     id: string; // temp id
