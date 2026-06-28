@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 import type { Video } from "@/types/media";
 
 /**
@@ -101,15 +102,7 @@ export function useLibrary() {
     const handleTranscribe = async (videoId: string) => {
         setTranscribingIds(prev => new Set(prev).add(videoId));
         try {
-            const res = await fetch(`/api/transcription/${videoId}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({}),
-            });
-            if (!res.ok) {
-                const d = await res.json();
-                throw new Error(d.error || "Transcription request failed");
-            }
+            await api.post(`/api/transcription/${videoId}`, {});
             toast.info("Transcription started — this may take a moment...");
             // Poll until done — tracked in pollingRefs for cleanup
             let pollCount = 0;
@@ -280,13 +273,7 @@ export function useLibrary() {
         const trimmed = name.trim();
         if (!trimmed) return;
         try {
-            const res = await fetch("/api/labels", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: trimmed, color: "#3b82f6" }),
-            });
-            if (!res.ok) throw new Error("create failed");
-            const newLabel = await res.json();
+            const newLabel = await api.post<{ id: string; name: string; color: string | null }>("/api/labels", { name: trimmed, color: "#3b82f6" });
             setGlobalLabels(prev => prev.some(l => l.id === newLabel.id) ? prev : [...prev, newLabel]);
             setNewLabelName("");
             await attachLabel(videoId, newLabel.id);

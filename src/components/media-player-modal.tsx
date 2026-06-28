@@ -30,6 +30,7 @@ import {
     FileText,
 } from "lucide-react";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 import { VideoEditorModal } from "./video-editor/video-editor-modal";
 import { ImageEditorModal } from "./image-editor/image-editor-modal";
 import { AudioEditorModal } from "./audio-editor/audio-editor-modal";
@@ -381,12 +382,7 @@ export function MediaPlayerModal({
                                             onClick={async () => {
                                                 const toastId = toast.loading("Converting to MP4...");
                                                 try {
-                                                    const res = await fetch("/api/library/edit", {
-                                                        method: "POST",
-                                                        headers: { "Content-Type": "application/json" },
-                                                        body: JSON.stringify({ videoId: video.id, action: "convert-mp4", params: {} }),
-                                                    });
-                                                    if (!res.ok) throw new Error((await res.json()).error || "Conversion failed");
+                                                    await api.post("/api/library/edit", { videoId: video.id, action: "convert-mp4", params: {} });
                                                     toast.success("Converted to MP4!", { id: toastId });
                                                     onRefreshLibrary?.();
                                                 } catch (err: any) {

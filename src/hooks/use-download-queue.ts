@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 import type { QueueItem, DownloadProfile } from "@/types/media";
 
 /**
@@ -269,13 +270,7 @@ export function useDownloadQueue({ refreshLibrary }: { refreshLibrary: () => voi
     const parseLink = async (id: string, url: string) => {
         try {
             // 1. Parse Metadata
-            const res = await fetch("/api/download/preview", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ url }),
-            });
-            const metadata = await res.json();
-            if (!res.ok) throw new Error(metadata.error || "Metadata failed");
+            const metadata = await api.post<any>("/api/download/preview", { url });
 
             // Check if this is a playlist
             if (metadata.isPlaylist && metadata.items?.length > 1) {
@@ -355,27 +350,20 @@ export function useDownloadQueue({ refreshLibrary }: { refreshLibrary: () => voi
             setRetryingQueueIds((prev) => new Set(prev).add(id));
             setQueue(prev => prev.map(q => q.id === id ? { ...q, status: 'pending' as const, errorText: undefined } : q));
 
-            const dlRes = await fetch("/api/download", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    url: item.originalUrl,
-                    title: item.title,
-                    sourcePlatform: item.sourcePlatform,
-                    mediaType: item.mediaType || "video",
-                    imageUrl: item.imageUrl,
-                    thumbnail: item.thumbnail,
-                    formatId: item.selectedFormat || undefined,
-                    profileId: selectedProfile,
-                    retryJobId: item.jobId || undefined,
-                    duration: item.duration,
-                    profileName: item.matchedProfileName,
-                    formatLabel: item.matchedFormatLabel,
-                }),
+            const dlData = await api.post<{ jobId: string }>("/api/download", {
+                url: item.originalUrl,
+                title: item.title,
+                sourcePlatform: item.sourcePlatform,
+                mediaType: item.mediaType || "video",
+                imageUrl: item.imageUrl,
+                thumbnail: item.thumbnail,
+                formatId: item.selectedFormat || undefined,
+                profileId: selectedProfile,
+                retryJobId: item.jobId || undefined,
+                duration: item.duration,
+                profileName: item.matchedProfileName,
+                formatLabel: item.matchedFormatLabel,
             });
-
-            const dlData = await dlRes.json();
-            if (!dlRes.ok) throw new Error(dlData.error || "Download failed");
 
             setQueue(prev => prev.map(q => q.id === id ? {
                 ...q,
@@ -412,13 +400,7 @@ export function useDownloadQueue({ refreshLibrary }: { refreshLibrary: () => voi
         try {
             setRetryingQueueIds((prev) => new Set(prev).add(item.id));
             setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "processing", progress: 0, errorText: undefined } : q));
-            const res = await fetch("/api/library/edit", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ action: "retry-export", jobId: item.jobId }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || "Retry failed");
+            await api.post("/api/library/edit", { action: "retry-export", jobId: item.jobId });
         } catch (error: any) {
             setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: "error", errorText: error.message } : q));
             toast.error(error.message || "Failed to retry export");
