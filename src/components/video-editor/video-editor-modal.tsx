@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { TimelineScrubber } from "./timeline-scrubber";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { useVideoExport } from "@/hooks/use-video-export";
 import { motion, AnimatePresence, useAnimationFrame } from "framer-motion";
 import { CropOverlay, CropState } from "./crop-overlay";
 import { SubtitleRenderer } from "./subtitle-renderer";
@@ -34,9 +34,6 @@ import {
     TRANSCRIPTION_LANGUAGES,
     parseSrt,
     parseVtt,
-    subtitlesToSrt,
-    clipAndShiftSubtitles,
-    composeSubtitleAss,
 } from "./subtitle-types";
 import {
     SubtitleStyleConfig,
@@ -99,9 +96,6 @@ export function VideoEditorModal({
     // Undo/Redo history — max 50 states
     const [subtitleHistory, setSubtitleHistory] = useState<Subtitle[][]>([[]]);
     const [historyIdx, setHistoryIdx] = useState(0);
-
-    const [isExporting, setIsExporting] = useState(false);
-    const [includeSubtitles, setIncludeSubtitles] = useState(false);
 
     // Aspect ratio presets — shown in all modes; in trim, applies crop+trim in one pass
     type AspectRatio = "original" | "16:9" | "9:16" | "1:1" | "4:5";
@@ -375,111 +369,21 @@ export function VideoEditorModal({
         }
     };
 
-    // Compute pixel-level crop from the percentage state + actual video dimensions
-    const getCropPixels = () => {
-        if (!videoRef.current) return null;
-        const nw = videoRef.current.videoWidth;
-        const nh = videoRef.current.videoHeight;
-        if (!nw || !nh) return null;
-        return {
-            x: Math.round((crop.x / 100) * nw),
-            y: Math.round((crop.y / 100) * nh),
-            w: Math.round((crop.w / 100) * nw),
-            h: Math.round((crop.h / 100) * nh),
-        };
-    };
-
-    const handleApplyExport = async () => {
-        setIsExporting(true);
-        let actionLabel = "trimmed";
-        if (mode === "crop") actionLabel = "cropped";
-        if (mode === "subtitles") actionLabel = "captioned";
-
-        const toastId = toast.loading(`Exporting your ${actionLabel} media...`);
-        try {
-            const bodyPayload: Record<string, unknown> = { videoId: video.id };
-
-            const wantSubs = includeSubtitles && hasSubtitles && mode !== "subtitles";
-
-            // The video's display size — exactly the frame the burn renders onto
-            // (FFmpeg auto-rotates to display orientation). Used as the ASS
-            // PlayRes so preview and burn share identical geometry.
-            const vWidth  = videoRef.current?.videoWidth  ?? 1280;
-            const vHeight = videoRef.current?.videoHeight ?? 720;
-            const displayDims = { width: vWidth, height: vHeight };
-
-            const clippedSubtitles = mode === "trim"
-                ? clipAndShiftSubtitles(subtitles, trimStart, trimEnd)
-                : subtitles;
-
-            // SRT for inheritance (always original timing — user can edit later)
-            const inheritSrtContent = hasSubtitles ? subtitlesToSrt(clippedSubtitles) : undefined;
-
-            // Build the FINAL ASS here, the same way the preview does, and send
-            // it for the server to burn verbatim. One source of truth → the
-            // export is byte-identical to what JASSUB showed. `vDim` is the
-            // frame the subtitles land on: crop output for crop, else display.
-            const composeBurnAss = (subs: Subtitle[], vDim: { width: number; height: number }) =>
-                composeSubtitleAss(subs, styleConfig, vDim);
-
-            if (mode === "trim") {
-                if (trimEnd - trimStart <= 0.1) throw new Error("Trim duration is too short.");
-                const hasCrop = aspectRatio !== "original";
-                const cropPx = hasCrop ? getCropPixels() : null;
-                if (hasCrop && !cropPx) throw new Error("Could not detect video resolution.");
-
-                if (hasCrop && wantSubs) {
-                    bodyPayload.action = "trim-crop-burn";
-                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, ...cropPx, assContent: composeBurnAss(clippedSubtitles, { width: cropPx!.w, height: cropPx!.h }), inheritSrtContent };
-                } else if (hasCrop) {
-                    bodyPayload.action = "trim-crop";
-                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, ...cropPx, inheritSrtContent };
-                } else if (wantSubs) {
-                    bodyPayload.action = "trim-burn";
-                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, assContent: composeBurnAss(clippedSubtitles, displayDims), inheritSrtContent };
-                } else {
-                    bodyPayload.action = "trim";
-                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, inheritSrtContent };
-                }
-            } else if (mode === "crop") {
-                const cropPx = getCropPixels();
-                if (!cropPx) throw new Error("Could not detect video resolution.");
-                if (wantSubs) {
-                    bodyPayload.action = "crop-burn";
-                    bodyPayload.params = { ...cropPx, assContent: composeBurnAss(subtitles, { width: cropPx.w, height: cropPx.h }), inheritSrtContent };
-                } else {
-                    bodyPayload.action = "crop";
-                    bodyPayload.params = { ...cropPx, inheritSrtContent };
-                }
-            } else if (mode === "subtitles") {
-                if (subtitles.length === 0) throw new Error("No subtitles to burn. Transcribe the video first.");
-                bodyPayload.action = "burn-subtitles";
-                bodyPayload.params = {
-                    // Identical to the preview ASS (same subs, config, dims).
-                    assContent: composeBurnAss(subtitles, displayDims),
-                    // Always inherit original subtitles so the captioned video stays editable
-                    inheritSrtContent: subtitlesToSrt(subtitles),
-                };
-            }
-
-            const data = await api.post<{ jobId?: string }>("/api/library/edit", bodyPayload);
-
-            // Video exports now run as background jobs (response carries a jobId,
-            // not the finished video). Hand off to the queue and close the editor;
-            // synchronous actions (audio/image) still return the video directly.
-            if (data.jobId) {
-                toast.success(`Export started — track progress in the queue`, { id: toastId });
-            } else {
-                toast.success(`Media successfully ${actionLabel}!`, { id: toastId });
-            }
-            onRefreshLibrary?.();
-            onClose();
-        } catch (error: any) {
-            toast.error(error.message, { id: toastId });
-        } finally {
-            setIsExporting(false);
-        }
-    };
+    // Export submit (trim / crop / burn-subtitles + combinations) lives in a hook;
+    // it composes the burn ASS exactly like the preview so they stay 1:1.
+    const { isExporting, includeSubtitles, setIncludeSubtitles, handleApplyExport } = useVideoExport({
+        video,
+        mode,
+        trimStart,
+        trimEnd,
+        aspectRatio,
+        crop,
+        subtitles,
+        styleConfig,
+        videoRef,
+        onRefreshLibrary,
+        onClose,
+    });
 
     const hasSubtitles = subtitles.length > 0;
 
