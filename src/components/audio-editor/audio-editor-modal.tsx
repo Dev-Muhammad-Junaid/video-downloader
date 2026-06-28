@@ -25,6 +25,7 @@ import {
     AudioWaveform,
 } from "lucide-react";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type AudioItem = {
@@ -333,13 +334,7 @@ export function AudioEditorModal({
             if (fadeIn > 0) params.fadeIn = fadeIn;
             if (fadeOut > 0) params.fadeOut = fadeOut;
 
-            const res = await fetch("/api/library/edit", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ videoId: audio.id, action: "process-audio", params }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || "Export failed");
+            await api.post("/api/library/edit", { videoId: audio.id, action: "process-audio", params });
             toast.success("Audio saved to your library", { id: toastId });
             onRefreshLibrary?.();
             requestClose();
