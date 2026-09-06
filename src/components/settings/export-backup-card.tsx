@@ -1,9 +1,10 @@
 "use client";
 
 import { toast } from "sonner";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileDown, Database } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { FileDown, Database, Info } from "lucide-react";
 
 export function ExportBackupCard() {
     return (
@@ -12,10 +13,17 @@ export function ExportBackupCard() {
                 <CardTitle className="text-xl flex items-center gap-2">
                     <FileDown className="w-5 h-5 text-primary" />
                     Export & Backup
+                    <Tooltip>
+                        <TooltipTrigger className="text-muted-foreground hover:text-foreground cursor-help">
+                            <Info className="w-4 h-4" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-[240px]">
+                            JSON/CSV export structured metadata for your library; Backup DB downloads the raw SQLite file.
+                        </TooltipContent>
+                    </Tooltip>
                 </CardTitle>
-                <CardDescription>Export metadata or back up the database.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <Button
                         variant="outline"
@@ -27,7 +35,6 @@ export function ExportBackupCard() {
                     >
                         <FileDown className="w-6 h-6 text-blue-500" />
                         <span className="font-medium">Export JSON</span>
-                        <span className="text-[10px] text-muted-foreground">Structured metadata</span>
                     </Button>
                     <Button
                         variant="outline"
@@ -39,7 +46,6 @@ export function ExportBackupCard() {
                     >
                         <FileDown className="w-6 h-6 text-emerald-500" />
                         <span className="font-medium">Export CSV</span>
-                        <span className="text-[10px] text-muted-foreground">Spreadsheet format</span>
                     </Button>
                     <Button
                         variant="outline"
@@ -51,7 +57,6 @@ export function ExportBackupCard() {
                     >
                         <Database className="w-6 h-6 text-amber-500" />
                         <span className="font-medium">Backup DB</span>
-                        <span className="text-[10px] text-muted-foreground">Raw SQLite file</span>
                     </Button>
                 </div>
             </CardContent>

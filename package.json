@@ -1,6 +1,14 @@
 {
   "name": "snapdown",
   "version": "0.1.0",
+  "description": "A local-first media studio: download, organize, edit, transcribe, and cloud-back-up video/image/audio from social platforms.",
+  "author": "Muhammad Junaid <https://github.com/Dev-Muhammad-Junaid>",
+  "license": "MIT",
+  "homepage": "https://github.com/Dev-Muhammad-Junaid/video-downloader",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Dev-Muhammad-Junaid/video-downloader.git"
+  },
   "private": true,
   "main": "electron/main.cjs",
   "engines": {
@@ -43,8 +51,12 @@
       "category": "public.app-category.utilities",
       "identity": null,
       "target": [
+        "dmg",
         "dir"
       ]
+    },
+    "dmg": {
+      "title": "SnapDown ${version}"
     }
   },
   "dependencies": {

@@ -117,6 +117,18 @@ export default function LibraryPage() {
     } = useDownloadQueue({ refreshLibrary: fetchLibrary });
 
     useEffect(() => {
+        // Bookmarklet / browser-extension handoff: opens "/?url=<link>". Queue
+        // it once on mount, then strip the param so a refresh doesn't re-add it.
+        /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
+        const incomingUrl = new URLSearchParams(window.location.search).get("url");
+        if (incomingUrl) {
+            handleAddLinks(incomingUrl);
+            window.history.replaceState({}, "", window.location.pathname);
+        }
+        /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
+    }, []);
+
+    useEffect(() => {
         // Hydrate persisted UI prefs once after mount (kept out of SSR to avoid
         // hydration mismatch). Intentional post-mount setState.
         /* eslint-disable react-hooks/set-state-in-effect */
@@ -330,7 +342,7 @@ export default function LibraryPage() {
                             value={urlText}
                             onChange={e => setUrlText(e.target.value)}
                         />
-                        <Button className="w-full rounded-xl h-12 shadow-md hover:shadow-lg transition-all" onClick={handleAddLinks} disabled={!urlText.trim()}>
+                        <Button className="w-full rounded-xl h-12 shadow-md hover:shadow-lg transition-all" onClick={() => handleAddLinks()} disabled={!urlText.trim()}>
                             Add to Queue
                         </Button>
                     </CardContent>

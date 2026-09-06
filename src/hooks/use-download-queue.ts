@@ -237,8 +237,11 @@ export function useDownloadQueue({ refreshLibrary }: { refreshLibrary: () => voi
         }
     };
 
-    const handleAddLinks = () => {
-        const links = [...new Set(urlText.split('\n').map(l => l.trim()).filter(l => l.length > 0))];
+    // `overrideText` lets a caller (e.g. the ?url= bookmarklet handoff) add a
+    // link without going through the textarea's state first — setUrlText()
+    // wouldn't be visible to this function until the next render.
+    const handleAddLinks = (overrideText?: string) => {
+        const links = [...new Set((overrideText ?? urlText).split('\n').map(l => l.trim()).filter(l => l.length > 0))];
         if (links.length === 0) return;
 
         // Only block links that are CURRENTLY active in the queue (parsing/pending/downloading/etc).

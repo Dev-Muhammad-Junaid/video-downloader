@@ -13,6 +13,7 @@ import { ProfilesCard } from "@/components/settings/profiles-card";
 import { LabelSyncCard } from "@/components/settings/label-sync-card";
 import { BrowserIntegrationsCard } from "@/components/settings/browser-integrations-card";
 import { DownloaderCard } from "@/components/settings/downloader-card";
+import { DeveloperCreditCard } from "@/components/settings/developer-credit-card";
 import type { SettingsState } from "@/components/settings/types";
 
 export default function SettingsPage() {
@@ -410,6 +411,11 @@ export default function SettingsPage() {
                 {/* Browser Integration (WID-300) */}
                 <motion.div variants={fadeUp} className="lg:col-span-2">
                     <BrowserIntegrationsCard baseUrl={baseUrl} />
+                </motion.div>
+
+                {/* Developer credit / contribute links */}
+                <motion.div variants={fadeUp} className="lg:col-span-2">
+                    <DeveloperCreditCard />
                 </motion.div>
             </motion.div>
         </div>

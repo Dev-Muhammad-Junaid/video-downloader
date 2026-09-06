@@ -24,6 +24,7 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
     SidebarFooter,
+    useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 
@@ -50,18 +51,34 @@ const items = [
     },
 ];
 
+// Below this window width the sidebar auto-collapses to an icon-only rail so
+// the main content (queue + library grid) keeps enough room on a narrowed
+// desktop window; above it, it auto-expands back. Purely reactive to window
+// size — doesn't fight a manual toggle since there's nothing to remember
+// across a resize.
+const AUTO_COLLAPSE_WIDTH = 1100;
+
 export function AppSidebar() {
     const { theme, setTheme } = useTheme();
     const [mounted, setMounted] = React.useState(false);
     const pathname = usePathname();
+    const { setOpen, isMobile } = useSidebar();
 
     React.useEffect(() => setMounted(true), []);
 
+    React.useEffect(() => {
+        if (isMobile) return;
+        const handleResize = () => setOpen(window.innerWidth >= AUTO_COLLAPSE_WIDTH);
+        handleResize();
+        window.addEventListener("resize", handleResize);
+        return () => window.removeEventListener("resize", handleResize);
+    }, [isMobile, setOpen]);
+
     return (
-        <Sidebar>
-            <SidebarHeader className="px-3 py-2.5 flex items-center gap-2 flex-row border-b">
-                <Image src="/logo.png" alt="SnapDown Logo" width={26} height={26} className="rounded-sm" />
-                <span className="font-bold text-base leading-none">SnapDown</span>
+        <Sidebar collapsible="icon">
+            <SidebarHeader className="px-3 py-2.5 flex items-center gap-2 flex-row border-b overflow-hidden">
+                <Image src="/icon.png" alt="SnapDown" width={26} height={26} className="rounded-md shrink-0" />
+                <span className="font-bold text-base leading-none group-data-[collapsible=icon]:hidden">SnapDown</span>
             </SidebarHeader>
             <SidebarContent>
                 <SidebarGroup>
@@ -87,18 +104,19 @@ export function AppSidebar() {
                 {mounted && (
                     <Button
                         variant="ghost"
-                        className="w-full justify-start gap-2 h-8 text-sm text-muted-foreground hover:text-foreground"
+                        title={theme === "dark" ? "Light Mode" : "Dark Mode"}
+                        className="w-full justify-start gap-2 h-8 text-sm text-muted-foreground hover:text-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:justify-center"
                         onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
                     >
                         {theme === "dark" ? (
                             <>
-                                <Sun className="w-4 h-4" />
-                                Light Mode
+                                <Sun className="w-4 h-4 shrink-0" />
+                                <span className="group-data-[collapsible=icon]:hidden">Light Mode</span>
                             </>
                         ) : (
                             <>
-                                <Moon className="w-4 h-4" />
-                                Dark Mode
+                                <Moon className="w-4 h-4 shrink-0" />
+                                <span className="group-data-[collapsible=icon]:hidden">Dark Mode</span>
                             </>
                         )}
                     </Button>
