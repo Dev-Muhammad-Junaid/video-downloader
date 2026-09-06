@@ -42,9 +42,11 @@ function waitForServer(url, { timeoutMs = 30000, intervalMs = 300 } = {}) {
 
 /** In production, spawn the Next.js standalone server as a child process. */
 function startProductionServer() {
-    // next.config.ts has output:"standalone" — `npm run build:electron`
-    // produces this bundled server.js alongside the packaged app's resources.
-    const serverPath = path.join(process.resourcesPath, "app", "server.js");
+    // next.config.ts has output:"standalone" — the standalone bundle is copied
+    // in via extraResources as "standalone" (deliberately NOT "app", which is
+    // electron-builder's own reserved destination name for its `files`-selected
+    // content — reusing it caused the two copies to collide/clobber).
+    const serverPath = path.join(process.resourcesPath, "standalone", "server.js");
 
     serverProcess = spawn(process.execPath, [serverPath], {
         env: {

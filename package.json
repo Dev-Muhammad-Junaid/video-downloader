@@ -14,9 +14,9 @@
     "start": "next start",
     "lint": "eslint",
     "electron:dev": "concurrently -k -n NEXT,ELECTRON -c blue,magenta \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
-    "electron:build": "npm run build && npm run rebuild:electron && electron-builder --mac",
+    "electron:build": "npm run build && npm run rebuild:electron && node scripts/sync-electron-sqlite-binary.cjs && node scripts/finalize-standalone.cjs && electron-builder --mac",
     "postelectron:build": "npm run rebuild:node",
-    "rebuild:electron": "electron-rebuild -f -w better-sqlite3 -m .next/standalone",
+    "rebuild:electron": "electron-rebuild -f -w better-sqlite3",
     "rebuild:node": "npm rebuild better-sqlite3",
     "build:icon": "node scripts/build-icon.cjs"
   },
@@ -25,12 +25,14 @@
     "productName": "SnapDown",
     "npmRebuild": false,
     "files": [
-      "electron/**/*"
+      "!**/*",
+      "electron/**/*",
+      "package.json"
     ],
     "extraResources": [
       {
-        "from": ".next/standalone",
-        "to": "app",
+        "from": ".next/standalone-wrapped",
+        "to": ".",
         "filter": [
           "**/*"
         ]
@@ -39,6 +41,7 @@
     "mac": {
       "icon": "build/icon.icns",
       "category": "public.app-category.utilities",
+      "identity": null,
       "target": [
         "dir"
       ]
@@ -55,7 +58,7 @@
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@prisma/adapter-better-sqlite3": "^7.4.2",
     "@prisma/client": "^7.4.2",
-    "better-sqlite3": "^12.6.2",
+    "better-sqlite3": "12.11.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
