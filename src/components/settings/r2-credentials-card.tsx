@@ -118,7 +118,7 @@ export function R2CredentialsCard({ settings, setSettings, onSave }: R2Credentia
                     />
                     <p className="text-xs text-muted-foreground">Used for usage warnings. R2 free tier is 10 GB.</p>
                 </div>
-                <Button onClick={onSave} className="w-full sm:col-span-2">Save Credentials</Button>
+                <Button onClick={onSave} className="w-full sm:col-span-2">Save</Button>
             </CardContent>
         </Card>
     );

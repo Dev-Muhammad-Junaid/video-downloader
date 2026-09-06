@@ -62,7 +62,7 @@ export function DownloaderCard({ ytCookiesBrowser, setYtCookiesBrowser, onSave }
                         </SelectContent>
                     </Select>
                 </div>
-                <Button onClick={onSave} className="w-full">Save Downloader Settings</Button>
+                <Button onClick={onSave} className="w-full">Save</Button>
             </CardContent>
         </Card>
     );

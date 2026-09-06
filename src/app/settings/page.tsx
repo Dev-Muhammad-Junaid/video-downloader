@@ -344,7 +344,7 @@ export default function SettingsPage() {
                         onPick={() => handlePickFolder("destination")}
                         picking={pickingFolder === "destination"}
                         onSave={handleSaveDestination}
-                        saveLabel="Save Destination"
+                        saveLabel="Save"
                     />
                 </motion.div>
 
@@ -361,7 +361,7 @@ export default function SettingsPage() {
                         onPick={() => handlePickFolder("watch")}
                         picking={pickingFolder === "watch"}
                         onSave={handleSaveWatchFolder}
-                        saveLabel="Save Watch Folder"
+                        saveLabel="Save"
                     />
                 </motion.div>
 

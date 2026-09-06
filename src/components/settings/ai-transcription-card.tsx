@@ -87,7 +87,7 @@ export function AiTranscriptionCard({ settings, setSettings, onSave }: AiTranscr
                     />
                 </div>
                 <Button onClick={onSave} className="w-full">
-                    Save AI Settings
+                    Save
                 </Button>
             </CardContent>
         </Card>

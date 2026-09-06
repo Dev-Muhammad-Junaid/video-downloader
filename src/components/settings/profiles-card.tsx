@@ -334,7 +334,7 @@ export function ProfilesCard({
                             </button>
                             {/* Native submit button — base-ui Button primitive ignores type="submit"; `form` ties it to the form it now lives outside of. */}
                             <button type="submit" form="profile-form" className={cn(buttonVariants({ variant: "default" }))}>
-                                Save Profile
+                                Save
                             </button>
                         </DialogFooter>
                     </DialogContent>
