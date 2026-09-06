@@ -1,0 +1,39 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7C3AED"/>
+      <stop offset="52%" stop-color="#C026D3"/>
+      <stop offset="100%" stop-color="#F43F5E"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="45%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="corner-shade" cx="80%" cy="88%" r="60%">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glyph-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#3B0764" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- macOS-style squircle canvas -->
+  <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228" fill="url(#corner-shade)"/>
+  <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228" fill="url(#sheen)"/>
+
+  <!-- Glyph: a rounded downward triangle — reads as both "play" (media) and
+       "download" (direction) in one shape, legible at 16px. -->
+  <polygon
+    points="349,336 675,336 512,652"
+    fill="#FFFFFF"
+    stroke="#FFFFFF"
+    stroke-width="58"
+    stroke-linejoin="round"
+    filter="url(#glyph-shadow)"
+  />
+
+  <!-- Underline "tray" bar, completes the download-icon reading -->
+  <rect x="368" y="716" width="288" height="54" rx="27" fill="#FFFFFF"/>
+</svg>

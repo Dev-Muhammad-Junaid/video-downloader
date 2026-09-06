@@ -1,7 +1,7 @@
 import fs from "fs";
-import path from "path";
+import { appDataPath } from "@/lib/app-paths";
 
-const SETTINGS_FILE = path.join(process.cwd(), ".server_settings.json");
+const SETTINGS_FILE = appDataPath(".server_settings.json");
 
 interface ServerSettings {
     download_destination?: string;

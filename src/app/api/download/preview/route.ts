@@ -4,6 +4,7 @@ import { promisify } from "util";
 import path from "path";
 import os from "os";
 import { getYtdlpCookieArgs } from "@/lib/settings";
+import { getYtdlpPath } from "@/lib/ytdlp";
 
 const execFileAsync = promisify(execFile);
 
@@ -25,7 +26,7 @@ export async function POST(req: Request) {
             
             let playlistOut = "";
             if (!playlistItemMatch) {
-                const { stdout } = await execFileAsync("yt-dlp", [...getYtdlpCookieArgs(), "--flat-playlist", "-j", "--", url], { timeout: 15000 });
+                const { stdout } = await execFileAsync(getYtdlpPath(), [...getYtdlpCookieArgs(), "--flat-playlist", "-j", "--", url], { timeout: 15000 });
                 playlistOut = stdout;
             }
 
@@ -101,7 +102,7 @@ export async function POST(req: Request) {
                 ytdlpArgs.push("-I", targetItemIndex);
             }
             ytdlpArgs.push("-j", "--", url);
-            const { stdout } = await execFileAsync("yt-dlp", ytdlpArgs);
+            const { stdout } = await execFileAsync(getYtdlpPath(), ytdlpArgs);
             const lines = stdout.trim().split("\n");
             // If we extracted multiple lines (e.g. still an array), take the first one since we used -I
             const metadata = JSON.parse(lines[0]);

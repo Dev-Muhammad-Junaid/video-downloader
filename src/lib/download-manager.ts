@@ -11,6 +11,7 @@ import { uploadToCloud } from "./cloud";
 import pLimit from "p-limit";
 import { getFfmpegPath } from "@/lib/ffmpeg";
 import { getYtdlpCookieArgs } from "@/lib/settings";
+import { getYtdlpPath } from "@/lib/ytdlp";
 
 export type DownloadStatus = "pending" | "queued" | "downloading" | "processing" | "paused" | "completed" | "error" | "cancelled";
 
@@ -732,7 +733,7 @@ export async function startDownload(
         ytdlpArgs.push("-o", outputPath, "--write-info-json", "--newline", "--", url);
 
         console.log(`[Download] Starting yt-dlp with args:`, ytdlpArgs.join(" "));
-        const ytdlp = spawn("yt-dlp", ytdlpArgs);
+        const ytdlp = spawn(getYtdlpPath(), ytdlpArgs);
         jobProcesses.set(id, ytdlp);
 
     ytdlp.on("error", async (err) => {
