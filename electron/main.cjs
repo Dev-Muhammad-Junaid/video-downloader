@@ -78,8 +78,12 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1440,
         height: 900,
-        minWidth: 1024,
-        minHeight: 700,
+        // Low enough to reach true mobile widths — the app's own responsive
+        // breakpoints (sidebar icon-collapse, mobile drawer) handle anything
+        // smaller than a "desktop" width, so the window itself shouldn't be
+        // the thing stopping that from being testable.
+        minWidth: 360,
+        minHeight: 500,
         title: "SnapDown",
         webPreferences: {
             contextIsolation: true,

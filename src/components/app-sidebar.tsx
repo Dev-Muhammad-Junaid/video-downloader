@@ -66,13 +66,28 @@ export function AppSidebar() {
 
     React.useEffect(() => setMounted(true), []);
 
+    // setOpen's identity changes every time `open` does (it closes over `open`
+    // in its own useCallback deps) — depending on it directly here made this
+    // effect re-run, and therefore synchronously re-evaluate and override the
+    // sidebar state, on every single open/close, including a manual toggle
+    // click. That's what made the toggle button appear to do nothing at a
+    // narrow width: it flipped open, which changed setOpen's identity, which
+    // re-ran this effect, which immediately saw the (unchanged) narrow width
+    // and flipped it straight back. A ref sidesteps that: the effect only
+    // re-subscribes when isMobile changes (entering/leaving mobile mode), but
+    // still always calls the latest setOpen.
+    const setOpenRef = React.useRef(setOpen);
+    React.useEffect(() => {
+        setOpenRef.current = setOpen;
+    });
+
     React.useEffect(() => {
         if (isMobile) return;
-        const handleResize = () => setOpen(window.innerWidth >= AUTO_COLLAPSE_WIDTH);
+        const handleResize = () => setOpenRef.current(window.innerWidth >= AUTO_COLLAPSE_WIDTH);
         handleResize();
         window.addEventListener("resize", handleResize);
         return () => window.removeEventListener("resize", handleResize);
-    }, [isMobile, setOpen]);
+    }, [isMobile]);
 
     return (
         <Sidebar collapsible="icon">
