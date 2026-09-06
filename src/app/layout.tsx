@@ -18,6 +18,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { OnboardingModal } from "@/components/onboarding-modal";
 
 export default function RootLayout({
   children,
@@ -58,6 +59,7 @@ export default function RootLayout({
               </main>
             </SidebarProvider>
             <Toaster />
+            <OnboardingModal />
           </TooltipProvider>
         </ThemeProvider>
       </body>

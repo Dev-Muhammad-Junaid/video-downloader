@@ -1,9 +1,10 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Github, Heart } from "lucide-react";
+import { Github, Heart, Sparkles } from "lucide-react";
+import { restartOnboarding } from "@/components/onboarding-modal";
 
 const GITHUB_USERNAME = "Dev-Muhammad-Junaid";
 const REPO_URL = "https://github.com/Dev-Muhammad-Junaid/video-downloader";
@@ -32,6 +33,10 @@ export function DeveloperCreditCard() {
                     </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                    <Button variant="ghost" size="sm" className="gap-1.5" onClick={restartOnboarding}>
+                        <Sparkles className="w-3.5 h-3.5" />
+                        Replay Tour
+                    </Button>
                     <a
                         href={`https://github.com/${GITHUB_USERNAME}`}
                         target="_blank"
