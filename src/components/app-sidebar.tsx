@@ -27,6 +27,7 @@ import {
     useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import { UpdateNotifier } from "@/components/update-notifier";
 
 const items = [
     {
@@ -116,6 +117,7 @@ export function AppSidebar() {
                 </SidebarGroup>
             </SidebarContent>
             <SidebarFooter className="p-2 border-t">
+                <UpdateNotifier />
                 {mounted && (
                     <Button
                         variant="ghost"
