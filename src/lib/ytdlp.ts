@@ -39,3 +39,41 @@ export function getYtdlpPath(): string {
     cachedYtdlpPath = "yt-dlp";
     return cachedYtdlpPath;
 }
+
+/**
+ * Turn yt-dlp's raw stderr into a message a user can actually act on, instead
+ * of a bare "Process exited with code 1". The single most common cause by far
+ * is YouTube's bot-check, which is fixed by turning on cookies in Settings —
+ * detect it specifically so we can point directly at that fix rather than
+ * making the user guess (and hunt through Settings themselves, as happened
+ * before this existed).
+ */
+export function describeYtdlpError(stderr: string): string {
+    const text = stderr || "";
+
+    if (/sign in to confirm you.?re not a bot/i.test(text) || /cookies/i.test(text) && /sign in/i.test(text)) {
+        return "This site is asking for a signed-in session (YouTube's bot-check). Go to Settings → Downloader Cookies and pick a browser you're logged into, then retry.";
+    }
+    if (/video unavailable/i.test(text)) {
+        return "This video is unavailable — it may be private, deleted, or region-restricted.";
+    }
+    if (/private video/i.test(text)) {
+        return "This is a private video and can't be downloaded.";
+    }
+    if (/(members-only|join this channel)/i.test(text)) {
+        return "This video is members-only content and can't be downloaded without an authenticated, subscribed session.";
+    }
+    if (/unsupported url/i.test(text)) {
+        return "This URL isn't from a supported site.";
+    }
+
+    // Fall back to yt-dlp's own last "ERROR: ..." line — still far more useful
+    // than a bare exit code, even when it's not one of the cases above.
+    const lines = text.trim().split(/\r?\n/).filter(Boolean);
+    const lastError = [...lines].reverse().find((l) => /^ERROR:/i.test(l.trim()));
+    if (lastError) {
+        return lastError.trim().replace(/^ERROR:\s*/i, "");
+    }
+
+    return "";
+}

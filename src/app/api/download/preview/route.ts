@@ -4,7 +4,7 @@ import { promisify } from "util";
 import path from "path";
 import os from "os";
 import { getYtdlpCookieArgs } from "@/lib/settings";
-import { getYtdlpPath } from "@/lib/ytdlp";
+import { getYtdlpPath, describeYtdlpError } from "@/lib/ytdlp";
 
 const execFileAsync = promisify(execFile);
 
@@ -173,7 +173,15 @@ export async function POST(req: Request) {
                 mediaType: "video",
                 formats,
             });
-        } catch (ytdlpError) {
+        } catch (ytdlpError: any) {
+            // A recognizable failure (bot-check, private/unavailable video, etc.)
+            // is a real, terminal answer from yt-dlp — surface it directly
+            // instead of silently falling through to gallery-dl (which doesn't
+            // support YouTube anyway) and showing an unrelated, confusing error.
+            const knownReason = describeYtdlpError(ytdlpError?.stderr || "");
+            if (knownReason) {
+                return NextResponse.json({ error: knownReason }, { status: 422 });
+            }
             console.log("yt-dlp failed, trying gallery-dl for image extraction...");
         }
 

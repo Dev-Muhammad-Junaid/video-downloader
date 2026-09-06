@@ -11,7 +11,7 @@ import { uploadToCloud } from "./cloud";
 import pLimit from "p-limit";
 import { getFfmpegPath } from "@/lib/ffmpeg";
 import { getYtdlpCookieArgs } from "@/lib/settings";
-import { getYtdlpPath } from "@/lib/ytdlp";
+import { getYtdlpPath, describeYtdlpError } from "@/lib/ytdlp";
 
 export type DownloadStatus = "pending" | "queued" | "downloading" | "processing" | "paused" | "completed" | "error" | "cancelled";
 
@@ -771,8 +771,14 @@ export async function startDownload(
         activeDownloads.set(id, job);
     });
 
+    // Kept (bounded) so a failure can report *why*, not just an exit code —
+    // this is where "Sign in to confirm you're not a bot" etc. actually shows
+    // up; it was previously read only for progress % and then thrown away.
+    let stderrOutput = "";
     ytdlp.stderr.on("data", (data) => {
         const output = data.toString();
+        stderrOutput += output;
+        if (stderrOutput.length > 8192) stderrOutput = stderrOutput.slice(-8192);
         const parts = output.split(/[\r\n]+/);
 
         for (const part of parts) {
@@ -892,7 +898,7 @@ export async function startDownload(
                 job.status = "cancelled";
                 job.error = "Cancelled by user";
             } else {
-                job.error = `Process exited with code ${code}`;
+                job.error = describeYtdlpError(stderrOutput) || `yt-dlp exited with code ${code}`;
             }
             activeDownloads.set(id, job);
             await persistJob(job);
