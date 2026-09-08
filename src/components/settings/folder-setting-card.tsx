@@ -64,7 +64,9 @@ export function FolderSettingCard({
                         </Button>
                     </div>
                 </div>
-                <Button onClick={onSave} className="w-full">{saveLabel}</Button>
+                <div className="flex justify-end">
+                    <Button onClick={onSave}>{saveLabel}</Button>
+                </div>
             </CardContent>
         </Card>
     );

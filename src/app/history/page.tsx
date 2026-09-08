@@ -176,19 +176,13 @@ export default function HistoryPage() {
             variants={stagger}
             initial="hidden"
             animate="show"
-            className="flex-1 w-full p-8 space-y-6 max-w-[1600px] mx-auto overflow-x-hidden"
+            className="mx-auto w-full max-w-[1400px] space-y-5 overflow-x-hidden px-6 py-5"
         >
             {/* Header */}
             <motion.div variants={fadeUp} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-                        <History className="w-7 h-7 text-primary" />
-                        Activity History
-                    </h1>
-                    <p className="text-muted-foreground text-sm mt-1">
-                        Downloads and AI transcriptions.
-                    </p>
-                </div>
+                <p className="text-[13px] text-muted-foreground">
+                    Downloads and AI transcriptions.
+                </p>
                 <div className="flex gap-2">
                     <Button variant="outline" size="sm" onClick={() => fetchHistory()}>
                         <RefreshCw className="w-4 h-4 mr-1" /> Refresh
@@ -225,49 +219,45 @@ export default function HistoryPage() {
             ) : stats && stats.totalDownloads > 0 ? (
                 <motion.div variants={fadeUp} className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <Card className="overflow-hidden relative group hover:border-primary/30 transition-all">
-                        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                         <CardContent className="p-4 flex items-center gap-3 relative">
                             <div className="p-2 rounded-lg bg-primary/10">
                                 <Download className="w-5 h-5 text-primary" />
                             </div>
                             <div>
-                                <p className="text-2xl font-bold">{stats.totalDownloads}</p>
+                                <p className="tabular text-[22px] font-semibold">{stats.totalDownloads}</p>
                                 <p className="text-xs text-muted-foreground">Total Events</p>
                             </div>
                         </CardContent>
                     </Card>
                     <Card className="overflow-hidden relative group hover:border-emerald-500/30 transition-all">
-                        <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                         <CardContent className="p-4 flex items-center gap-3 relative">
                             <div className="p-2 rounded-lg bg-emerald-500/10">
                                 <TrendingUp className="w-5 h-5 text-emerald-500" />
                             </div>
                             <div>
-                                <p className="text-2xl font-bold">{stats.successRate}%</p>
+                                <p className="tabular text-[22px] font-semibold">{stats.successRate}%</p>
                                 <p className="text-xs text-muted-foreground">Success Rate</p>
                             </div>
                         </CardContent>
                     </Card>
                     <Card className="overflow-hidden relative group hover:border-violet-500/30 transition-all">
-                        <div className="absolute inset-0 bg-gradient-to-br from-violet-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                         <CardContent className="p-4 flex items-center gap-3 relative">
                             <div className="p-2 rounded-lg bg-violet-500/10">
                                 <BrainCircuit className="w-5 h-5 text-violet-500" />
                             </div>
                             <div>
-                                <p className="text-2xl font-bold">{stats.transcriptions}</p>
+                                <p className="tabular text-[22px] font-semibold">{stats.transcriptions}</p>
                                 <p className="text-xs text-muted-foreground">Transcribed</p>
                             </div>
                         </CardContent>
                     </Card>
                     <Card className="overflow-hidden relative group hover:border-destructive/30 transition-all">
-                        <div className="absolute inset-0 bg-gradient-to-br from-destructive/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                         <CardContent className="p-4 flex items-center gap-3 relative">
                             <div className="p-2 rounded-lg bg-destructive/10">
                                 <XCircle className="w-5 h-5 text-destructive" />
                             </div>
                             <div>
-                                <p className="text-2xl font-bold">{stats.failed}</p>
+                                <p className="tabular text-[22px] font-semibold">{stats.failed}</p>
                                 <p className="text-xs text-muted-foreground">Failed</p>
                             </div>
                         </CardContent>
@@ -276,13 +266,13 @@ export default function HistoryPage() {
             ) : null}
 
             {/* Tab Switcher */}
-            <motion.div variants={fadeUp} className="flex items-center gap-1 bg-muted/40 rounded-xl p-1 w-full sm:w-fit border border-border/40">
+            <motion.div variants={fadeUp} className="flex w-full items-center gap-0.5 rounded-[7px] bg-muted p-0.5 shadow-[inset_0_0_0_0.5px_var(--hairline)] sm:w-fit">
                 {TAB_CONFIG.map((tab) => (
                     <button
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
-                        className={`flex flex-1 sm:flex-none items-center justify-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${activeTab === tab.id
-                                ? "bg-foreground text-background shadow-sm"
+                        className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-[5px] px-3 py-1 text-[12px] font-medium transition-[background-color,box-shadow,color] duration-100 sm:flex-none ${activeTab === tab.id
+                                ? "bg-elevated text-foreground shadow-[0_1px_2px_rgb(0_0_0/0.12),0_0_0_0.5px_rgb(0_0_0/0.06)] dark:bg-white/16 dark:shadow-[0_1px_2px_rgb(0_0_0/0.3)]"
                                 : "text-muted-foreground hover:text-foreground"
                             }`}
                     >
@@ -296,7 +286,7 @@ export default function HistoryPage() {
             <motion.div variants={fadeUp}>
             <Card>
                 <CardHeader className="pb-3">
-                    <CardTitle className="text-lg flex items-center gap-2">
+                    <CardTitle className="flex items-center gap-2">
                         {activeTab === "transcription" ? <Mic className="w-4 h-4 text-violet-500" /> : <History className="w-4 h-4" />}
                         {activeTab === "all" ? "All Activity" : activeTab === "download" ? "Download Logs" : "Transcription Logs"}
                     </CardTitle>

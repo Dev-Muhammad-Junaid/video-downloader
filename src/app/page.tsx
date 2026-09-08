@@ -55,6 +55,7 @@ import {
 import type { Video } from "@/types/media";
 import { VideoCard } from "@/components/library/video-card";
 import { QueueRow } from "@/components/library/queue-row";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useLibrary } from "@/hooks/use-library";
 import { useDownloadQueue } from "@/hooks/use-download-queue";
 
@@ -297,10 +298,10 @@ export default function LibraryPage() {
     );
 
     return (
-        <div className="p-8 w-full space-y-10 max-w-[1600px] mx-auto min-h-full">
+        <div className="mx-auto w-full max-w-[1600px] space-y-7 px-6 py-5">
 
             {/* Top Section: Dashboard Split View */}
-            <div className="flex flex-col xl:flex-row gap-8 items-stretch pt-2">
+            <div className="flex flex-col items-start gap-5 xl:flex-row">
 
                 {/* Left Panel: Bulk Input */}
                 <motion.div
@@ -309,15 +310,15 @@ export default function LibraryPage() {
                     transition={{ type: "spring" as const, damping: 22, stiffness: 180, delay: 0.05 }}
                     className="w-full xl:w-1/3"
                 >
-                <Card className="overflow-hidden relative h-full">
+                <Card className="relative overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent opacity-50 pointer-events-none" />
                     <CardHeader className="relative">
-                        <CardTitle className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-                            <DownloadCloud className="w-6 h-6 text-primary" />
+                        <CardTitle className="flex items-center gap-2 text-[15px] font-semibold">
+                            <DownloadCloud className="size-[17px] text-primary" />
                             Studio Downloader
                             <Tooltip>
                                 <TooltipTrigger className="ml-1 cursor-help">
-                                    <HelpCircle className="w-4 h-4 text-muted-foreground/60 hover:text-muted-foreground transition-colors" />
+                                    <HelpCircle className="size-[13px] text-muted-foreground/60 transition-colors hover:text-muted-foreground" />
                                 </TooltipTrigger>
                                 <TooltipContent side="right" className="max-w-[280px] p-3 text-left leading-relaxed">
                                     <p className="font-semibold mb-1">Supported Features</p>
@@ -331,18 +332,18 @@ export default function LibraryPage() {
                                 </TooltipContent>
                             </Tooltip>
                         </CardTitle>
-                        <CardDescription className="text-sm">
+                        <CardDescription>
                             Paste links, one per line.
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4 relative">
                         <Textarea
-                            className="min-h-[160px] resize-none font-mono text-xs bg-background/50 border-primary/20 focus-visible:ring-primary/50 transition-all rounded-xl shadow-inner"
+                            className="min-h-[150px] resize-none rounded-md font-mono text-[12px] leading-relaxed"
                             placeholder="https://x.com/user/status/123...&#10;https://youtube.com/watch?v=..."
                             value={urlText}
                             onChange={e => setUrlText(e.target.value)}
                         />
-                        <Button className="w-full rounded-xl h-12 shadow-md hover:shadow-lg transition-all" onClick={() => handleAddLinks()} disabled={!urlText.trim()}>
+                        <Button size="lg" className="w-full" onClick={() => handleAddLinks()} disabled={!urlText.trim()}>
                             Add to Queue
                         </Button>
                     </CardContent>
@@ -353,13 +354,11 @@ export default function LibraryPage() {
                 <div className="w-full xl:w-2/3 flex flex-col gap-3">
                     <div className="flex flex-wrap items-center justify-between gap-y-2 gap-x-3">
                         <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                            <h2 className="text-xl font-bold tracking-tight text-foreground/90">
-                                Active Queue
-                            </h2>
-                            {queue.length > 0 && <span className="text-xs font-normal text-muted-foreground px-2 py-0.5 bg-muted rounded-full">{queue.length}</span>}
+                            <h2 className="text-[15px] font-semibold">Active Queue</h2>
+                            {queue.length > 0 && <span className="tabular rounded-full bg-muted px-1.5 py-px text-[11px] font-medium text-muted-foreground">{queue.length}</span>}
                             {profiles.length > 0 && (
                                 <Select value={selectedQueueProfile} onValueChange={(v) => setSelectedQueueProfile(v || "default-auto")}>
-                                    <SelectTrigger size="sm" className="ml-1 max-w-[220px] text-xs">
+                                    <SelectTrigger size="sm" className="ml-1 w-auto min-w-[150px] max-w-[220px]">
                                         <SelectValue>
                                             {(value) => {
                                                 if (!value || value === "default-auto") return "Automatic";
@@ -510,38 +509,21 @@ export default function LibraryPage() {
                             </div>
                         )}
                     </div>
-                    <div className="flex items-center border border-border/50 rounded-lg overflow-hidden w-fit">
-                        <Button
-                            variant={queueFilter === "all" ? "secondary" : "ghost"}
-                            size="sm"
-                            className="h-8 rounded-none text-xs px-3"
-                            onClick={() => setQueueFilter("all")}
-                        >
-                            All
-                        </Button>
-                        <Button
-                            variant={queueFilter === "active" ? "secondary" : "ghost"}
-                            size="sm"
-                            className="h-8 rounded-none text-xs px-3"
-                            onClick={() => setQueueFilter("active")}
-                        >
-                            Active
-                        </Button>
-                        <Button
-                            variant={queueFilter === "failed" ? "secondary" : "ghost"}
-                            size="sm"
-                            className="h-8 rounded-none text-xs px-3"
-                            onClick={() => setQueueFilter("failed")}
-                        >
-                            Failed
-                        </Button>
-                    </div>
+                    <SegmentedControl
+                        value={queueFilter}
+                        onValueChange={(v) => setQueueFilter(v as typeof queueFilter)}
+                        options={[
+                            { value: "all", label: "All" },
+                            { value: "active", label: "Active" },
+                            { value: "failed", label: "Failed" },
+                        ]}
+                    />
 
                     <div className="flex-1 min-h-[220px] max-h-[300px] overflow-y-auto space-y-3 pr-2 scrollbar-thin">
                         {filteredQueue.length === 0 ? (
-                            <div className="h-full min-h-[220px] flex flex-col gap-3 items-center justify-center text-muted-foreground border-2 border-dashed border-muted rounded-2xl bg-muted/10">
-                                <DownloadCloud className="w-10 h-10 opacity-20" />
-                                <span className="text-sm opacity-60">No queue items for this filter</span>
+                            <div className="flex h-full min-h-[220px] flex-col items-center justify-center gap-2.5 rounded-[10px] border border-border bg-card/60 text-muted-foreground">
+                                <DownloadCloud className="size-7 opacity-25" strokeWidth={1.5} />
+                                <span className="text-[12px]">No queue items for this filter</span>
                             </div>
                         ) : (
                             filteredQueue.map(item => (
@@ -575,22 +557,22 @@ export default function LibraryPage() {
                 <div className="flex flex-col gap-3 px-1">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
-                            <h2 className="text-2xl font-bold tracking-tight">Saved Media</h2>
-                            <div className="text-sm text-muted-foreground mt-0.5">
+                            <h2 className="text-[15px] font-semibold">Saved Media</h2>
+                            <div className="tabular mt-0.5 text-[12px] text-muted-foreground">
                                 {displayedVideos.length} {displayedVideos.length === 1 ? 'item' : 'items'}
                                 {selectedIds.size > 0 && ` · ${selectedIds.size} selected`}
                             </div>
                         </div>
                         {/* Dev-only seed controls */}
                         {process.env.NODE_ENV !== "production" && (
-                            <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-dashed border-amber-500/40 bg-amber-500/5">
-                                <Sparkles className="w-3 h-3 text-amber-500/70" />
-                                <span className="text-[10px] text-amber-600/70 font-medium">Dev</span>
+                            <div className="flex items-center gap-1 rounded-md border border-border bg-muted/60 px-1.5 py-1">
+                                <Sparkles className="size-3 text-muted-foreground/60" />
+                                <span className="text-[10px] font-semibold uppercase tracking-[0.05em] text-muted-foreground/70">Dev</span>
                                 <Button
                                     variant="ghost"
-                                    size="sm"
+                                    size="xs"
                                     disabled={seeding}
-                                    className="h-6 text-[11px] px-2 text-amber-700 hover:bg-amber-500/10"
+                                    className="text-muted-foreground hover:text-foreground"
                                     onClick={async () => {
                                         setSeeding(true);
                                         const toastId = toast.loading("Seeding test images…");
@@ -615,13 +597,13 @@ export default function LibraryPage() {
                                         }
                                     }}
                                 >
-                                    {seeding ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                                    {seeding ? <Loader2 className="mr-1 size-3 animate-spin" /> : null}
                                     Seed Test Data
                                 </Button>
                                 <Button
                                     variant="ghost"
-                                    size="sm"
-                                    className="h-6 text-[11px] px-2 text-red-500/70 hover:bg-red-500/10"
+                                    size="xs"
+                                    className="text-muted-foreground hover:text-destructive"
                                     onClick={async () => {
                                         const res = await fetch("/api/dev/seed", { method: "DELETE" });
                                         const data = await res.json();
@@ -780,42 +762,43 @@ export default function LibraryPage() {
                         </div>
                     )}
 
-                    <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full md:w-auto">
-                            {/* Deep Search Toggle (WID-308) */}
-                            <div className="relative flex-1 md:w-64">
-                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                                <Input
-                                    placeholder={deepSearchMode ? "Deep search — titles, transcripts, labels..." : "Search videos..."}
-                                    className={`pl-9 pr-24 bg-background/50 h-9 rounded-lg transition-all ${deepSearchMode ? "border-primary/40 ring-1 ring-primary/20" : ""}`}
-                                    value={searchQuery}
-                                    onChange={e => setSearchQuery(e.target.value)}
-                                />
-                                {deepSearchLoading && (
-                                    <Loader2 className="absolute right-[88px] top-2.5 h-4 w-4 text-primary animate-spin" />
+                    <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
+                        {/* Search field: AppKit's rounded search control, with the
+                            Deep Search toggle living inside it as a trailing accessory. */}
+                        <div className="relative w-full md:w-72">
+                            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-[13px] -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                                placeholder={deepSearchMode ? "Search titles, transcripts, labels…" : "Search"}
+                                className={cn(
+                                    "h-7 rounded-[13px] pl-[26px] pr-[52px]",
+                                    deepSearchMode && "border-primary/50 ring-[3px] ring-primary/15"
                                 )}
-                                <Button
-                                    variant={deepSearchMode ? "default" : "ghost"}
-                                    size="sm"
-                                    className={`absolute right-1 top-1 h-7 text-[11px] px-2 gap-1 rounded-md ${deepSearchMode
-                                            ? "bg-primary text-primary-foreground shadow-sm"
-                                            : "text-muted-foreground hover:text-primary"
-                                        }`}
-                                    onClick={() => {
-                                        setDeepSearchMode(m => !m);
-                                        if (searchQuery) handleDeepSearch(searchQuery);
-                                    }}
-                                    title={deepSearchMode ? "Deep Search is ON — searching transcripts too" : "Enable Deep Search to search inside video transcripts"}
-                                >
-                                    <BrainCircuit className="w-3 h-3" />
-                                    {deepSearchMode ? "AI" : "AI"}
-                                </Button>
-                            </div>
+                                value={searchQuery}
+                                onChange={e => setSearchQuery(e.target.value)}
+                            />
+                            {deepSearchLoading && (
+                                <Loader2 className="absolute right-[56px] top-1/2 size-3.5 -translate-y-1/2 animate-spin text-primary" />
+                            )}
+                            <Button
+                                variant={deepSearchMode ? "default" : "ghost"}
+                                size="xs"
+                                className="absolute right-[3px] top-1/2 -translate-y-1/2 gap-1 rounded-[11px] px-1.5"
+                                onClick={() => {
+                                    setDeepSearchMode(m => !m);
+                                    if (searchQuery) handleDeepSearch(searchQuery);
+                                }}
+                                title={deepSearchMode ? "Deep Search is on — transcripts are searched too" : "Enable Deep Search to search inside video transcripts"}
+                            >
+                                <BrainCircuit />
+                                AI
+                            </Button>
                         </div>
 
+                        {/* Widened from 130px: "All Platforms" and "Newest First"
+                            were both being truncated mid-word at that size. */}
                         <Select value={platformFilter} onValueChange={(val) => setPlatformFilter(val || "all")}>
-                            <SelectTrigger className="w-[130px] h-9 bg-background/50 rounded-lg">
-                                <Filter className="w-4 h-4 mr-2 text-muted-foreground" />
+                            <SelectTrigger className="w-[152px]">
+                                <Filter className="mr-1.5 size-[13px] shrink-0 text-muted-foreground" />
                                 <SelectValue placeholder="Platform">
                                     {(value) => (!value || value === "all" ? "All Platforms" : String(value))}
                                 </SelectValue>
@@ -829,7 +812,7 @@ export default function LibraryPage() {
                         </Select>
 
                         <Select value={sortBy} onValueChange={(val) => setSortBy(val as any || "newest")}>
-                            <SelectTrigger className="w-[130px] h-9 bg-background/50 rounded-lg">
+                            <SelectTrigger className="w-[142px]">
                                 <SelectValue placeholder="Sort By">
                                     {(value) => ({
                                         newest: "Newest First",
@@ -847,61 +830,33 @@ export default function LibraryPage() {
                             </SelectContent>
                         </Select>
 
-                        {/* Media Type Toggle */}
-                        <div className="flex items-center border border-border/50 rounded-lg overflow-hidden bg-background/50">
-                            <Button
-                                variant={mediaTypeFilter === "all" ? "secondary" : "ghost"}
-                                size="sm"
-                                className="h-9 rounded-none border-none text-xs px-3"
-                                onClick={() => { const next = "all"; setMediaTypeFilter(next); localStorage.setItem("ui_mediaTypeFilter", next); }}
-                            >
-                                All
-                            </Button>
-                            <Button
-                                variant={mediaTypeFilter === "video" ? "secondary" : "ghost"}
-                                size="sm"
-                                className="h-9 rounded-none border-none px-3"
-                                onClick={() => { const next = "video"; setMediaTypeFilter(next); localStorage.setItem("ui_mediaTypeFilter", next); }}
-                                title="Videos only"
-                            >
-                                <VideoIcon className="w-4 h-4" />
-                            </Button>
-                            <Button
-                                variant={mediaTypeFilter === "image" ? "secondary" : "ghost"}
-                                size="sm"
-                                className="h-9 rounded-none border-none px-3"
-                                onClick={() => { const next = "image"; setMediaTypeFilter(next); localStorage.setItem("ui_mediaTypeFilter", next); }}
-                                title="Images only"
-                            >
-                                <ImageIcon className="w-4 h-4" />
-                            </Button>
-                            <Button
-                                variant={mediaTypeFilter === "audio" ? "secondary" : "ghost"}
-                                size="sm"
-                                className="h-9 rounded-none border-none px-3"
-                                onClick={() => { const next = "audio"; setMediaTypeFilter(next); localStorage.setItem("ui_mediaTypeFilter", next); }}
-                                title="Audio only"
-                            >
-                                <Music className="w-4 h-4" />
-                            </Button>
-                        </div>
+                        <SegmentedControl
+                            value={mediaTypeFilter}
+                            onValueChange={(next) => {
+                                setMediaTypeFilter(next as typeof mediaTypeFilter);
+                                localStorage.setItem("ui_mediaTypeFilter", next);
+                            }}
+                            options={[
+                                { value: "all", label: "All" },
+                                { value: "video", label: <VideoIcon />, title: "Videos only" },
+                                { value: "image", label: <ImageIcon />, title: "Images only" },
+                                { value: "audio", label: <Music />, title: "Audio only" },
+                            ]}
+                        />
 
                         <Button
-                            variant={groupByDate ? "secondary" : "ghost"}
-                            className="h-9 bg-background/50 border border-border/50 rounded-lg text-foreground/80 hover:bg-background/80"
+                            variant={groupByDate ? "secondary" : "outline"}
                             onClick={() => { setGroupByDate(!groupByDate); localStorage.setItem("ui_groupByDate", String(!groupByDate)); }}
                         >
                             Group by Date
                         </Button>
 
-                        <div className="w-px h-5 bg-border/40 hidden md:block" />
                         <Button
-                            variant={selectionMode ? "secondary" : "outline"}
-                            size="sm"
-                            className="h-9 text-xs gap-1.5"
+                            variant={selectionMode ? "default" : "outline"}
+                            className="gap-1.5"
                             onClick={() => { setSelectionMode(!selectionMode); if (selectionMode) deselectAll(); }}
                         >
-                            <CheckSquare className="w-3.5 h-3.5" />
+                            <CheckSquare className="size-3.5" />
                             {selectionMode ? "Done" : "Select"}
                         </Button>
                     </div>
@@ -924,13 +879,14 @@ export default function LibraryPage() {
                         ))}
                     </div>
                 ) : videos.length === 0 ? (
-                    <div className="min-h-[400px] flex items-center justify-center text-muted-foreground border border-dashed rounded-2xl bg-muted/10">
-                        Library is empty — add some links above.
+                    <div className="flex min-h-[360px] flex-col items-center justify-center gap-2.5 rounded-[10px] border border-border bg-card/50 text-muted-foreground">
+                        <DownloadCloud className="size-8 opacity-20" strokeWidth={1.5} />
+                        <p className="text-[13px]">Library is empty — add some links above.</p>
                     </div>
                 ) : displayedVideos.length === 0 ? (
-                    <div className="min-h-[400px] flex flex-col items-center justify-center text-muted-foreground border border-dashed rounded-2xl bg-muted/10 gap-2">
-                        <Search className="w-8 h-8 opacity-20" />
-                        <div>No matching videos found</div>
+                    <div className="flex min-h-[360px] flex-col items-center justify-center gap-2.5 rounded-[10px] border border-border bg-card/50 text-muted-foreground">
+                        <Search className="size-8 opacity-20" strokeWidth={1.5} />
+                        <p className="text-[13px]">No matching videos found</p>
                     </div>
                 ) : (
                     <>

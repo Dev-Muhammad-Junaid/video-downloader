@@ -17,28 +17,28 @@ export function SystemHealthCard({ preflight, preflightLoading, runPreflight, he
     return (
         <Card>
             <div
-                className="flex items-center justify-between px-5 py-3 cursor-pointer select-none"
+                className="flex cursor-pointer select-none items-center justify-between px-3.5 py-2.5"
                 onClick={() => setHealthExpanded(!healthExpanded)}
             >
                 <div className="flex items-center gap-2.5">
                     <Terminal className="w-4 h-4 text-primary" />
-                    <span className="text-sm font-semibold">System Health</span>
+                    <span className="text-[13px] font-semibold tracking-[-0.01em]">System Health</span>
                     {preflight && !preflightLoading && (
                         <div className="flex items-center gap-1 ml-2">
                             {[...Object.values(preflight.binaries as Record<string, any>), ...Object.values(preflight.providers as Record<string, any>)].map((item: any, i) => {
                                 const ok = item.available ?? (item.configured && item.reachable);
                                 const skip = item.configured === false;
-                                return <span key={i} className={cn("w-2 h-2 rounded-full", ok ? "bg-emerald-500" : skip ? "bg-muted-foreground/30" : "bg-destructive")} title={item.name} />;
+                                return <span key={i} className={cn("size-2 rounded-full", ok ? "bg-chart-2" : skip ? "bg-muted-foreground/30" : "bg-destructive")} title={item.name} />;
                             })}
                         </div>
                     )}
                     {preflightLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground ml-2" />}
                 </div>
                 <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5 text-muted-foreground" onClick={(e) => { e.stopPropagation(); runPreflight(); }} disabled={preflightLoading}>
-                        <RefreshCw className="w-3 h-3" /> Re-check
+                    <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={(e) => { e.stopPropagation(); runPreflight(); }} disabled={preflightLoading}>
+                        <RefreshCw className="size-3" /> Re-check
                     </Button>
-                    <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform", healthExpanded && "rotate-180")} />
+                    <ChevronDown className={cn("size-3.5 text-muted-foreground transition-transform", healthExpanded && "rotate-180")} />
                 </div>
             </div>
             {healthExpanded && preflight && (

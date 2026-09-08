@@ -1,7 +1,7 @@
 // Electron main process. Plain CommonJS — Electron runs this directly with no
 // build/compile step, which keeps the "app shell" independent of the Next.js
 // build pipeline it wraps.
-const { app, BrowserWindow, shell } = require("electron");
+const { app, BrowserWindow, shell, nativeTheme } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
@@ -85,6 +85,15 @@ function createWindow() {
         minWidth: 360,
         minHeight: 500,
         title: "SnapDown",
+        // The defining chrome of a native Mac app: no separate OS title bar,
+        // with the traffic lights floating over the app's own toolbar. The
+        // renderer reserves space for them (see AppToolbar / AppSidebar), and
+        // the y offset centres them in that 52px toolbar.
+        titleBarStyle: "hiddenInset",
+        trafficLightPosition: { x: 19, y: 18 },
+        // Matches the light/dark window background so the first paint doesn't
+        // flash white before the renderer's theme applies.
+        backgroundColor: nativeTheme.shouldUseDarkColors ? "#1c1c1e" : "#ffffff",
         webPreferences: {
             contextIsolation: true,
             nodeIntegration: false,

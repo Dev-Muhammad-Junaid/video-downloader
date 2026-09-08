@@ -11,7 +11,7 @@ export function BrowserIntegrationsCard({ baseUrl }: BrowserIntegrationsCardProp
     return (
         <Card>
             <CardHeader>
-                <CardTitle className="text-xl flex items-center gap-2">
+                <CardTitle className="flex items-center gap-2">
                     <Plus className="w-5 h-5 text-primary" />
                     Browser Integrations
                 </CardTitle>
@@ -27,7 +27,7 @@ export function BrowserIntegrationsCard({ baseUrl }: BrowserIntegrationsCardProp
                         <div className="flex items-center justify-center p-6 border border-dashed border-border/50 rounded-lg bg-card/30">
                             <div
                                 dangerouslySetInnerHTML={{
-                                    __html: `<a href="javascript:(function(){window.open('${baseUrl}/?url='+encodeURIComponent(window.location.href),'_blank');})();" class="inline-flex shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground h-8 px-2.5 text-sm font-medium shadow-lg hover:scale-105 transition-transform cursor-move" onclick="event.preventDefault()">⬇️ Send to SnapDown</a>`
+                                    __html: `<a href="javascript:(function(){window.open('${baseUrl}/?url='+encodeURIComponent(window.location.href),'_blank');})();" class="inline-flex shrink-0 cursor-move items-center justify-center rounded-md bg-primary px-3 h-7 text-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgb(0_0_0/0.16),inset_0_1px_0_0_rgb(255_255_255/0.17)] transition-transform hover:scale-[1.03]" onclick="event.preventDefault()">⬇️ Send to SnapDown</a>`
                                 }}
                             />
                         </div>

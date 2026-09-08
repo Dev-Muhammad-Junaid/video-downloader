@@ -156,20 +156,12 @@ export default function CloudSyncPage() {
     const fadeUp = { hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, transition: { type: "spring" as const, damping: 22, stiffness: 180 } } };
 
     return (
-        <motion.div variants={stagger} initial="hidden" animate="show" className="p-8 w-full space-y-8 max-w-[1600px] mx-auto min-h-full overflow-x-hidden">
+        <motion.div variants={stagger} initial="hidden" animate="show" className="mx-auto w-full max-w-[1400px] space-y-5 overflow-x-hidden px-6 py-5">
             {/* Header */}
             <motion.div variants={fadeUp} className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
-                        <div className="p-2 rounded-xl bg-gradient-to-br from-sky-500/20 to-indigo-500/20 border border-sky-500/10">
-                            <Cloud className="w-6 h-6 text-sky-500" />
-                        </div>
-                        Cloud Storage
-                    </h1>
-                    <p className="text-sm text-muted-foreground mt-1">
-                        Your cloud storage and synced files.
-                    </p>
-                </div>
+                <p className="text-[13px] text-muted-foreground">
+                    Your cloud storage and synced files.
+                </p>
                 <Button
                     variant="outline"
                     size="sm"
@@ -201,7 +193,6 @@ export default function CloudSyncPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {/* Total Files */}
                 <Card className="overflow-hidden relative group hover:border-sky-500/30 transition-all">
-                    <div className="absolute inset-0 bg-gradient-to-br from-sky-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                     <CardHeader className="pb-2 relative">
                         <CardDescription className="flex items-center gap-2 text-xs font-medium">
                             <Upload className="w-3.5 h-3.5" />
@@ -209,7 +200,7 @@ export default function CloudSyncPage() {
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="relative">
-                        <div className="text-3xl font-bold tracking-tight">{stats?.totalFiles || 0}</div>
+                        <div className="tabular text-[22px] font-semibold">{stats?.totalFiles || 0}</div>
                         <p className="text-xs text-muted-foreground mt-1">
                             of {stats?.totalLibraryCount || 0} total in library
                         </p>
@@ -218,7 +209,6 @@ export default function CloudSyncPage() {
 
                 {/* Storage Used */}
                 <Card className="overflow-hidden relative group hover:border-emerald-500/30 transition-all">
-                    <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                     <CardHeader className="pb-2 relative">
                         <CardDescription className="flex items-center gap-2 text-xs font-medium">
                             <HardDrive className="w-3.5 h-3.5" />
@@ -226,7 +216,7 @@ export default function CloudSyncPage() {
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="relative">
-                        <div className="text-3xl font-bold tracking-tight">{formatBytes(stats?.totalBytes || 0)}</div>
+                        <div className="tabular text-[22px] font-semibold">{formatBytes(stats?.totalBytes || 0)}</div>
                         <p className="text-xs text-muted-foreground mt-1">
                             of {storageLimitGb} GB limit
                         </p>
@@ -235,7 +225,6 @@ export default function CloudSyncPage() {
 
                 {/* Videos / Images Breakdown */}
                 <Card className="overflow-hidden relative group hover:border-violet-500/30 transition-all">
-                    <div className="absolute inset-0 bg-gradient-to-br from-violet-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                     <CardHeader className="pb-2 relative">
                         <CardDescription className="flex items-center gap-2 text-xs font-medium">
                             <FileVideo className="w-3.5 h-3.5" />
@@ -244,9 +233,9 @@ export default function CloudSyncPage() {
                     </CardHeader>
                     <CardContent className="relative">
                         <div className="flex items-baseline gap-3">
-                            <div className="text-3xl font-bold tracking-tight">{stats?.typeBreakdown?.video || 0}</div>
+                            <div className="tabular text-[22px] font-semibold">{stats?.typeBreakdown?.video || 0}</div>
                             <span className="text-xs text-muted-foreground">videos</span>
-                            <div className="text-xl font-bold tracking-tight text-muted-foreground">{stats?.typeBreakdown?.image || 0}</div>
+                            <div className="tabular text-[17px] font-semibold text-muted-foreground">{stats?.typeBreakdown?.image || 0}</div>
                             <span className="text-xs text-muted-foreground">images</span>
                         </div>
                     </CardContent>
@@ -254,7 +243,6 @@ export default function CloudSyncPage() {
 
                 {/* Sync Ratio */}
                 <Card className="overflow-hidden relative group hover:border-amber-500/30 transition-all">
-                    <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                     <CardHeader className="pb-2 relative">
                         <CardDescription className="flex items-center gap-2 text-xs font-medium">
                             <TrendingUp className="w-3.5 h-3.5" />
@@ -262,7 +250,7 @@ export default function CloudSyncPage() {
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="relative">
-                        <div className="text-3xl font-bold tracking-tight">
+                        <div className="tabular text-[22px] font-semibold">
                             {stats && stats.totalLibraryCount > 0
                                 ? Math.round((stats.totalFiles / stats.totalLibraryCount) * 100)
                                 : 0}%
@@ -334,7 +322,7 @@ export default function CloudSyncPage() {
                     <h2 className="text-xl font-bold tracking-tight">
                         Cloud Files
                         {cloudVideos.length > 0 && (
-                            <span className="ml-2 text-sm font-normal text-muted-foreground px-2 py-0.5 bg-muted rounded-full">
+                            <span className="tabular ml-2 rounded-full bg-muted px-1.5 py-px text-[11px] font-medium text-muted-foreground">
                                 {cloudVideos.length}
                             </span>
                         )}
@@ -344,7 +332,7 @@ export default function CloudSyncPage() {
                 {loading ? (
                     <div className="space-y-2">
                         {Array.from({ length: 5 }).map((_, i) => (
-                            <div key={i} className="flex items-center gap-4 p-4 rounded-xl border border-border/50 bg-card/60 backdrop-blur-md shadow-sm">
+                            <div key={i} className="flex items-center gap-3.5 rounded-lg border border-border bg-card p-3.5">
                                 <Skeleton className="w-10 h-10 rounded-lg bg-muted/30" />
                                 <div className="flex-1 space-y-2">
                                     <Skeleton className="h-4 w-[60%] sm:w-[300px] bg-muted/30" />
@@ -358,7 +346,7 @@ export default function CloudSyncPage() {
                         ))}
                     </div>
                 ) : cloudVideos.length === 0 ? (
-                    <div className="h-48 flex flex-col gap-3 items-center justify-center text-muted-foreground border-2 border-dashed border-muted rounded-2xl bg-muted/10">
+                    <div className="flex h-48 flex-col items-center justify-center gap-2.5 rounded-[10px] border border-border bg-card/50 text-muted-foreground">
                         <Cloud className="w-10 h-10 opacity-20" />
                         <span className="text-sm opacity-60">No cloud files yet</span>
                     </div>
@@ -367,20 +355,20 @@ export default function CloudSyncPage() {
                         {cloudVideos.map(video => (
                             <div
                                 key={video.id}
-                                className="group flex items-center gap-4 p-4 rounded-xl border border-border/50 bg-card/60 backdrop-blur-md hover:bg-card/80 hover:border-primary/20 transition-all shadow-sm overflow-hidden"
+                                className="group flex items-center gap-3.5 overflow-hidden rounded-lg border border-border bg-card p-3.5 transition-colors hover:bg-muted/50"
                             >
                                 {/* Icon */}
-                                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sky-500/20 to-indigo-500/20 flex items-center justify-center flex-shrink-0 border border-sky-500/10">
+                                <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
                                     {video.mediaType === "image" ? (
-                                        <ImageIcon className="w-5 h-5 text-sky-500" />
+                                        <ImageIcon className="size-[17px]" />
                                     ) : (
-                                        <FileVideo className="w-5 h-5 text-sky-500" />
+                                        <FileVideo className="size-[17px]" />
                                     )}
                                 </div>
 
                                 {/* Info */}
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-semibold truncate">{video.title}</p>
+                                    <p className="truncate text-[13px] font-medium">{video.title}</p>
                                     <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
                                         <span>{video.sourcePlatform || "Unknown"}</span>
                                         <span className="w-1 h-1 rounded-full bg-muted-foreground/30"></span>

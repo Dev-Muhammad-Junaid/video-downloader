@@ -4,11 +4,20 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   SnapDown — native macOS design system
+
+   Colors are Apple's published AppKit system colors (HIG > Color > System
+   colors) rather than invented ones, so the app reads as part of the OS:
+   system blue for accent/selection, Apple's label greys for text, and the
+   layered window/sidebar/elevated greys macOS uses instead of pure black.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
-  --font-mono: var(--font-sans);
+  --font-mono: var(--font-mono);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -38,95 +47,235 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --color-elevated: var(--elevated);
+
+  /* AppKit control metrics: 6px for controls, 10px for cards, 12–14px for
+     sheets and popovers. Deliberately tighter than the old 0.5rem-scaled
+     ramp, which rounded small controls far more than macOS does. */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-2xl: 12px;
+  --radius-3xl: 16px;
+  --radius-4xl: 20px;
+
+  --shadow-window: 0 0 0 0.5px var(--hairline), 0 10px 40px -12px rgb(0 0 0 / 0.35);
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(0.97 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.935 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.935 0 0);
-  --muted-foreground: oklch(0.46 0 0);
-  --accent: oklch(0.935 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.58 0.22 27);
-  --border: oklch(0.885 0 0);
-  --input: oklch(0.885 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.809 0.105 251.813);
-  --chart-2: oklch(0.623 0.214 259.815);
-  --chart-3: oklch(0.546 0.245 262.881);
-  --chart-4: oklch(0.488 0.243 264.376);
-  --chart-5: oklch(0.424 0.199 265.638);
-  --radius: 0.5rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.935 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.885 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* SF Pro via -apple-system; Inter is the cross-platform stand-in so the
+     metrics stay close when this runs in a plain browser rather than Electron. */
+  /* The next/font variables are defined on <body>, not :root — so they must
+     carry a fallback here. Without one the var() is unresolvable at :root and
+     that invalidates the *whole* font-family declaration, dropping the app to
+     the browser's default serif. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    var(--font-inter, "Inter"), "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: var(--font-jetbrains-mono, "JetBrains Mono"), ui-monospace,
+    SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  /* ── Light (macOS Aqua) ──
+     Three planes, back to front: sidebar, window, card. A white-on-white
+     window would leave grouped boxes with nothing but a hairline to read
+     against, which is what made the old cards look flat. */
+  --background: #f6f6f8;
+  --foreground: #1d1d1f;          /* Apple label */
+  --elevated: #ffffff;
+  --card: #ffffff;
+  --card-foreground: #1d1d1f;
+  --popover: #ffffff;
+  --popover-foreground: #1d1d1f;
+
+  --primary: #007aff;             /* systemBlue */
+  --primary-foreground: #ffffff;
+
+  --secondary: #ececef;           /* systemGray6 */
+  --secondary-foreground: #1d1d1f;
+  --muted: #ececef;
+  --muted-foreground: #6e6e73;    /* Apple secondaryLabel */
+  --accent: #eceef2;
+  --accent-foreground: #1d1d1f;
+  --destructive: #ff3b30;         /* systemRed */
+
+  --border: #e0e0e4;
+  --hairline: rgb(0 0 0 / 0.12);
+  --input: #d8d8dd;
+  --ring: #007aff;
+
+  --chart-1: #007aff;
+  --chart-2: #34c759;
+  --chart-3: #ff9500;
+  --chart-4: #af52de;
+  --chart-5: #ff2d55;
+
+  --radius: 6px;
+
+  /* Sidebar is the macOS source list: a lighter, recessive plane behind the
+     content, translucent where the platform can back it with vibrancy. */
+  --sidebar: #ebebee;
+  --sidebar-foreground: #1d1d1f;
+  --sidebar-primary: #007aff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: rgb(0 0 0 / 0.055);
+  --sidebar-accent-foreground: #1d1d1f;
+  --sidebar-border: #e0e0e4;
+  --sidebar-ring: #007aff;
+
+  --toolbar: rgb(246 246 248 / 0.75);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.87 0.00 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.371 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.809 0.105 251.813);
-  --chart-2: oklch(0.623 0.214 259.815);
-  --chart-3: oklch(0.546 0.245 262.881);
-  --chart-4: oklch(0.488 0.243 264.376);
-  --chart-5: oklch(0.424 0.199 265.638);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* ── Dark (macOS) — layered greys, never pure black ── */
+  --background: #1c1c1e;
+  --foreground: #f5f5f7;
+  --elevated: #2c2c2e;
+  --card: #242426;
+  --card-foreground: #f5f5f7;
+  --popover: #2c2c2e;
+  --popover-foreground: #f5f5f7;
+
+  --primary: #0a84ff;             /* systemBlue (dark) */
+  --primary-foreground: #ffffff;
+
+  --secondary: #2c2c2e;
+  --secondary-foreground: #f5f5f7;
+  --muted: #2c2c2e;
+  --muted-foreground: #98989d;    /* Apple secondaryLabel (dark) */
+  --accent: #3a3a3c;
+  --accent-foreground: #f5f5f7;
+  --destructive: #ff453a;         /* systemRed (dark) */
+
+  --border: #38383a;
+  --hairline: rgb(255 255 255 / 0.14);
+  --input: #48484a;
+  --ring: #0a84ff;
+
+  --chart-1: #0a84ff;
+  --chart-2: #30d158;
+  --chart-3: #ff9f0a;
+  --chart-4: #bf5af2;
+  --chart-5: #ff375f;
+
+  --sidebar: #171719;
+  --sidebar-foreground: #f5f5f7;
+  --sidebar-primary: #0a84ff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: rgb(255 255 255 / 0.07);
+  --sidebar-accent-foreground: #f5f5f7;
+  --sidebar-border: #313133;
+  --sidebar-ring: #0a84ff;
+
+  --toolbar: rgb(30 30 32 / 0.72);
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
-  }
-
-  body {
-    @apply bg-background text-foreground;
+    @apply border-border;
+    outline-color: color-mix(in oklab, var(--ring) 50%, transparent);
   }
 
   html {
     @apply font-sans;
+    /* macOS renders UI text with subpixel-free smoothing; without this SF Pro
+       looks noticeably heavier in Chromium than it does in AppKit. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-size: 13px;              /* AppKit system font size */
+    line-height: 1.45;
+    letter-spacing: -0.003em;
+  }
+
+  /* Apple tightens tracking as size increases; mirroring that keeps large
+     headings from looking loose next to native windows. */
+  h1, h2, h3, h4 {
+    letter-spacing: -0.021em;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 26%, transparent);
+  }
+
+  /* Native controls and navigation aren't text-selectable; only real content is. */
+  button, [role="button"], [data-slot="button"], [data-slot="sidebar-menu-button"],
+  [data-slot="sidebar-group-label"], label {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+/* ── macOS overlay scrollbars ──
+   Thin, inset, no track, and only prominent on hover — matching the
+   "when scrolling" default in System Settings > Appearance. */
+@layer utilities {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--hairline) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 11px;
+    height: 11px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: rgb(0 0 0 / 0.22);
+    border-radius: 8px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    background-color: rgb(255 255 255 / 0.22);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(0 0 0 / 0.38);
+  }
+
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(255 255 255 / 0.38);
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* Hairline dividers: macOS separators are sub-pixel, so a 1px border at
+     full opacity reads too heavy. */
+  .hairline-b {
+    box-shadow: inset 0 -0.5px 0 0 var(--hairline);
+  }
+
+  .hairline-t {
+    box-shadow: inset 0 0.5px 0 0 var(--hairline);
+  }
+
+  .hairline-r {
+    box-shadow: inset -0.5px 0 0 0 var(--hairline);
+  }
+
+  /* Electron: make a region draggable as window chrome (and opt children
+     back out, or they stop receiving clicks). */
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
   }
 }
 
@@ -140,12 +289,13 @@
 }
 
 .subtitle-scroll::-webkit-scrollbar-thumb {
-  background: var(--color-border);
+  background: var(--border);
+  border: none;
   border-radius: 3px;
 }
 
 .subtitle-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--color-muted-foreground);
+  background: var(--muted-foreground);
 }
 
 /* ── Subtitle Fade Animation ── */

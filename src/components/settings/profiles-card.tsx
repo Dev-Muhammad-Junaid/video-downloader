@@ -60,7 +60,7 @@ export function ProfilesCard({
         <Card>
             <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <CardTitle className="text-xl flex items-center gap-2">
+                    <CardTitle className="flex items-center gap-2">
                         <Settings2 className="w-5 h-5 text-primary" />
                         Quality & Format Profiles
                     </CardTitle>

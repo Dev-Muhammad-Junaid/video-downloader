@@ -304,21 +304,12 @@ export default function SettingsPage() {
     void isLoading;
 
     return (
-        <div className="flex-1 p-8 space-y-6 max-w-[1600px] mx-auto w-full">
-            <motion.h1
-                initial={{ opacity: 0, x: -12 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ type: "spring", damping: 20, stiffness: 180 }}
-                className="text-3xl font-bold tracking-tight"
-            >
-                Settings
-            </motion.h1>
-
+        <div className="mx-auto w-full max-w-[1100px] px-6 py-5">
             <motion.div
                 variants={stagger}
                 initial="hidden"
                 animate="show"
-                className="grid grid-cols-1 lg:grid-cols-2 gap-6"
+                className="grid grid-cols-1 gap-4 lg:grid-cols-2"
             >
                 {/* System Health / Preflight — compact collapsible */}
                 <motion.div variants={fadeUp} className="lg:col-span-2">

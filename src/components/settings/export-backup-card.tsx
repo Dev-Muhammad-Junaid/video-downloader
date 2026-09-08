@@ -10,7 +10,7 @@ export function ExportBackupCard() {
     return (
         <Card>
             <CardHeader>
-                <CardTitle className="text-xl flex items-center gap-2">
+                <CardTitle className="flex items-center gap-2">
                     <FileDown className="w-5 h-5 text-primary" />
                     Export & Backup
                     <Tooltip>

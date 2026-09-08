@@ -107,10 +107,9 @@ export function VideoCard({
         <Card
             key={video.id}
             className={cn(
-                "flex flex-col group overflow-hidden transition-all duration-200 relative rounded-xl",
-                "border-border/40 bg-card/50 backdrop-blur-sm",
-                "hover:shadow-xl hover:shadow-primary/5 hover:border-primary/25",
-                isSelected && "ring-2 ring-primary border-primary/50 shadow-lg shadow-primary/10",
+                "group relative flex flex-col overflow-hidden rounded-[10px] transition-[box-shadow,border-color] duration-150",
+                "hover:border-border hover:shadow-[0_2px_8px_rgb(0_0_0/0.07)] dark:hover:shadow-[0_2px_8px_rgb(0_0_0/0.35)]",
+                isSelected && "border-primary ring-2 ring-primary/35",
                 selectionMode && "cursor-pointer"
             )}
             onClick={selectionMode ? (e) => toggleSelection(video.id, e) : undefined}
@@ -157,12 +156,12 @@ export function VideoCard({
                 {(video.duration || video.fileSize) && (
                     <div className="absolute bottom-2 right-2 z-10 flex gap-1.5">
                         {video.mediaType !== "audio" && video.duration && video.duration > 0 && (
-                            <span className="text-[10px] font-medium bg-black/70 text-white backdrop-blur-sm px-1.5 py-0.5 rounded-md">
+                            <span className="tabular rounded-[5px] bg-black/65 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
                                 {Math.floor(video.duration / 60)}:{String(Math.floor(video.duration % 60)).padStart(2, '0')}
                             </span>
                         )}
                         {video.fileSize && (
-                            <span className="text-[10px] font-medium bg-black/70 text-white backdrop-blur-sm px-1.5 py-0.5 rounded-md">
+                            <span className="tabular rounded-[5px] bg-black/65 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
                                 {(video.fileSize / (1024 * 1024)).toFixed(1)} MB
                             </span>
                         )}
@@ -222,10 +221,10 @@ export function VideoCard({
 
             {/* Card body */}
             <div className="p-3 flex flex-col gap-2 flex-1">
-                <h3 className="text-sm font-medium line-clamp-2 leading-snug" title={video.title}>{video.title}</h3>
+                <h3 className="line-clamp-2 text-[13px] font-medium leading-snug" title={video.title}>{video.title}</h3>
 
                 {/* Meta row */}
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                     <span>{new Date(video.createdAt).toLocaleDateString()}</span>
                     <span className="w-1 h-1 rounded-full bg-muted-foreground/30" />
                     <span className="truncate">{video.sourcePlatform || "Unknown"}</span>
@@ -328,7 +327,7 @@ export function VideoCard({
 
                 {/* Transcript snippet in deep search mode */}
                 {video.transcriptSnippet && (
-                    <div className="px-2 py-1.5 bg-primary/5 border border-primary/15 rounded-lg text-[10px] text-muted-foreground leading-relaxed">
+                    <div className="rounded-md border border-primary/20 bg-primary/6 px-2 py-1.5 text-[10px] leading-relaxed text-muted-foreground">
                         <span className="font-semibold text-primary text-[9px] uppercase tracking-wider mr-1">Transcript match:</span>
                         {video.transcriptSnippet}
                     </div>
@@ -340,11 +339,11 @@ export function VideoCard({
             <div className="px-3 pb-3 pt-0 flex items-center justify-between mt-auto">
                 <div className="flex items-center gap-1">
                     {video.cloudKey ? (
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md text-emerald-500 bg-emerald-500/10 hover:bg-destructive/10 hover:text-destructive" onClick={() => handleCloudRemove(video)} title="Synced · Click to remove from cloud">
+                        <Button variant="ghost" size="icon-sm" className="bg-chart-2/12 text-chart-2 hover:bg-destructive/12 hover:text-destructive" onClick={() => handleCloudRemove(video)} title="Synced · Click to remove from cloud">
                             <Cloud className="h-3.5 w-3.5" />
                         </Button>
                     ) : (
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background" onClick={() => handleCloudUpload(video)} title="Upload to Cloud">
+                        <Button variant="ghost" size="icon-sm" className="hover:bg-accent" onClick={() => handleCloudUpload(video)} title="Upload to Cloud">
                             <Cloud className="h-3.5 w-3.5" />
                         </Button>
                     )}
@@ -353,7 +352,7 @@ export function VideoCard({
                             {video.transcriptStatus === "completed" ? (
                                 <Tooltip>
                                     <TooltipTrigger>
-                                        <span className="inline-flex items-center justify-center text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 rounded-full w-5 h-5 cursor-default">
+                                        <span className="inline-flex items-center justify-center size-[18px] rounded-full bg-chart-2/12 text-chart-2 ring-1 ring-chart-2/25 cursor-default">
                                             <Mic className="w-2.5 h-2.5" />
                                         </span>
                                     </TooltipTrigger>
@@ -362,7 +361,7 @@ export function VideoCard({
                             ) : video.transcriptStatus === "processing" || transcribingIds.has(video.id) ? (
                                 <Tooltip>
                                     <TooltipTrigger>
-                                        <span className="inline-flex items-center justify-center text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-full w-5 h-5 cursor-default">
+                                        <span className="inline-flex items-center justify-center size-[18px] rounded-full bg-chart-3/12 text-chart-3 ring-1 ring-chart-3/25 cursor-default">
                                             <Loader2 className="w-2.5 h-2.5 animate-spin" />
                                         </span>
                                     </TooltipTrigger>
@@ -370,14 +369,14 @@ export function VideoCard({
                                 </Tooltip>
                             ) : video.transcriptStatus === "error" ? (
                                 <Tooltip>
-                                    <TooltipTrigger className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "h-7 w-7 rounded-md text-destructive hover:bg-destructive/10")} onClick={() => handleTranscribe(video.id)}>
+                                    <TooltipTrigger className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "text-destructive hover:bg-destructive/12")} onClick={() => handleTranscribe(video.id)}>
                                         <AlertCircle className="w-3.5 h-3.5" />
                                     </TooltipTrigger>
                                     <TooltipContent>Retry transcription</TooltipContent>
                                 </Tooltip>
                             ) : (
                                 <Tooltip>
-                                    <TooltipTrigger className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "h-7 w-7 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10")} onClick={() => handleTranscribe(video.id)}>
+                                    <TooltipTrigger className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "text-muted-foreground hover:text-primary")} onClick={() => handleTranscribe(video.id)}>
                                         <Mic className="w-3.5 h-3.5" />
                                     </TooltipTrigger>
                                     <TooltipContent>{`Generate AI transcript (${providerLabel})`}</TooltipContent>
@@ -387,27 +386,27 @@ export function VideoCard({
                     )}
                 </div>
 
-                <div className="flex gap-0.5 flex-shrink-0 bg-muted/40 rounded-lg p-0.5">
-                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background" onClick={() => copyToClipboard(video.localPath)} title="Copy Path">
+                <div className="flex shrink-0 gap-0.5">
+                    <Button variant="ghost" size="icon-sm" className="hover:bg-accent" onClick={() => copyToClipboard(video.localPath)} title="Copy Path">
                         <Copy className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-background" onClick={() => handleOpenFolder(video.localPath)} title="View in Explorer">
+                    <Button variant="ghost" size="icon-sm" className="hover:bg-accent" onClick={() => handleOpenFolder(video.localPath)} title="View in Explorer">
                         <FolderOpen className="h-3.5 w-3.5" />
                     </Button>
                     {video.mediaType === "image" ? (
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-primary/10 hover:text-primary" onClick={() => setEditingImageId(video.id)} title="Edit Image">
+                        <Button variant="ghost" size="icon-sm" className="hover:text-primary" onClick={() => setEditingImageId(video.id)} title="Edit Image">
                             <Pencil className="h-3.5 w-3.5" />
                         </Button>
                     ) : video.mediaType === "audio" ? (
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-primary/10 hover:text-primary" onClick={() => setEditingAudioForEditor(video.id)} title="Edit Audio">
+                        <Button variant="ghost" size="icon-sm" className="hover:text-primary" onClick={() => setEditingAudioForEditor(video.id)} title="Edit Audio">
                             <Pencil className="h-3.5 w-3.5" />
                         </Button>
                     ) : (
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-primary/10 hover:text-primary" onClick={() => setEditingVideoForEditor(video.id)} title="Edit Video">
+                        <Button variant="ghost" size="icon-sm" className="hover:text-primary" onClick={() => setEditingVideoForEditor(video.id)} title="Edit Video">
                             <Pencil className="h-3.5 w-3.5" />
                         </Button>
                     )}
-                    <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-destructive/20 hover:text-destructive" onClick={() => openDeleteDialog(video.id, video.title)} title="Delete Video">
+                    <Button variant="ghost" size="icon-sm" className="hover:bg-destructive/12 hover:text-destructive" onClick={() => openDeleteDialog(video.id, video.title)} title="Delete Video">
                         <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                 </div>
