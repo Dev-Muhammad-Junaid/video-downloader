@@ -99,11 +99,46 @@ electron/           Electron main process (desktop app shell)
 prisma/             Database schema + migrations
 ```
 
+## Testing
+
+Two suites, deliberately separate.
+
+**Unit tests** — pure logic, no network, no binaries. Fast enough to run on every change.
+
+```bash
+npm test
+```
+
+Covers the parts that fail silently rather than loudly: the yt-dlp format
+cascade, download-error classification, subtitle timing and ASS colour
+conversion, and the size/duration formatters.
+
+**Smoke suite** — the whole feature set against a running app, using real
+binaries and real files. Run this before a build that changes behaviour;
+it isn't needed for a copy tweak.
+
+```bash
+npm run dev            # in one terminal
+npm run test:smoke     # in another
+```
+
+It downloads a real clip, then walks the features end to end: single and
+concurrent downloads, library metadata and thumbnails, search, labels, image
+editing, video trim and trim+crop exports, audio export, transcription and
+burned-in subtitles, history, cloud sync, library export, and bulk actions.
+Everything it creates is removed afterwards (`SMOKE_KEEP=1` to keep it).
+
+Steps whose prerequisites are missing report SKIP rather than failing, so a
+machine without cloud credentials or an AI key still gets a useful result.
+Point it elsewhere with `BASE_URL`, and change the test clip with
+`SMOKE_VIDEO_URL` (it needs an audio track for the transcription step).
+
 ## Contributing
 
 Issues, ideas, and pull requests are welcome. A few things that help:
 
-- Run `npx tsc --noEmit` before opening a PR — the codebase is kept typecheck-clean.
+- Run `npx tsc --noEmit` and `npm test` before opening a PR — the codebase is kept typecheck-clean.
+- If your change touches downloads, editing or exports, run `npm run test:smoke` too.
 - Keep changes scoped; a bug fix doesn't need to also refactor its neighborhood.
 - If you're touching the video editor's subtitle system, note that the live preview and the ffmpeg export share one ASS source of truth (`src/lib/ass-builder.ts`) — they're meant to always match exactly.
 

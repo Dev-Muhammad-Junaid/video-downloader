@@ -16,8 +16,17 @@ export function formatSize(bytes: number | null): string {
 export function formatDuration(seconds: number | null): string {
     if (!seconds) return "-";
     if (seconds < 60) return `${seconds.toFixed(1)}s`;
-    const m = Math.floor(seconds / 60);
-    const s = Math.round(seconds % 60);
+
+    const total = Math.round(seconds);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+
+    // Roll over into hours past the hour mark. Without this a two-hour video
+    // rendered as "120:00" wherever a duration is shown.
+    if (h > 0) {
+        return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+    }
     return `${m}:${s.toString().padStart(2, "0")}`;
 }
 

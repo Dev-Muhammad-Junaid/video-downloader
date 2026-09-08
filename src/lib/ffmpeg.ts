@@ -51,6 +51,27 @@ export function getFfmpegPath(): string {
     return cachedFfmpegPath;
 }
 
+/**
+ * Reads a media file's duration in seconds, or null when it can't be
+ * determined. Shared so the download path and the watch-folder scan agree —
+ * they previously disagreed, and only the scan probed at all.
+ */
+export function probeDuration(filePath: string): number | null {
+    try {
+        const out = spawnSync(getFfprobePath(), [
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            filePath,
+        ], { encoding: "utf-8", timeout: 30_000 });
+
+        const seconds = parseFloat((out.stdout || "").trim());
+        return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+    } catch {
+        return null;
+    }
+}
+
 export function getFfmpegDir(): string {
     return path.dirname(getFfmpegPath());
 }

@@ -21,6 +21,9 @@
     "postbuild": "node scripts/copy-standalone-assets.cjs",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:smoke": "node tests/smoke.mjs",
     "electron:dev": "concurrently -k -n NEXT,ELECTRON -c blue,magenta \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
     "electron:build": "npm run build && npm run rebuild:electron && node scripts/sync-electron-sqlite-binary.cjs && node scripts/finalize-standalone.cjs && electron-builder --mac",
     "postelectron:build": "npm run rebuild:node",
@@ -106,6 +109,7 @@
     "shadcn": "^4.0.2",
     "tailwindcss": "^4",
     "typescript": "^5",
+    "vitest": "^3.2.7",
     "wait-on": "^9.1.0"
   }
 }

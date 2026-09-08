@@ -9,7 +9,7 @@ import { generateThumbnail } from "@/lib/thumbnail";
 import { getMatchingProfile, getYtDlpFormat } from "./profiles";
 import { uploadToCloud } from "./cloud";
 import pLimit from "p-limit";
-import { getFfmpegPath } from "@/lib/ffmpeg";
+import { getFfmpegPath, probeDuration } from "@/lib/ffmpeg";
 import { getYtdlpCookieArgs } from "@/lib/settings";
 import { getYtdlpPath, describeYtdlpError } from "@/lib/ytdlp";
 
@@ -822,6 +822,12 @@ export async function startDownload(
                     localPath: outputPath,
                     fileSize,
                     mediaType: isAudio ? "audio" : "video",
+                    // Probe the finished file rather than trusting the
+                    // extractor: a direct media URL reports no duration at all
+                    // through the generic extractor, which left every such
+                    // download showing "-" for length everywhere in the app.
+                    // Fall back to whatever metadata did supply.
+                    duration: probeDuration(outputPath) ?? duration ?? null,
                 };
 
                 const allTags = new Set<string>();
