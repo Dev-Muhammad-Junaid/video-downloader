@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import {
+    PanelLeftClose,
+    PanelLeftOpen,
     Library,
     Settings,
     Cloud,
@@ -63,7 +65,7 @@ export function AppSidebar() {
     const isDark = resolvedTheme === "dark";
     const [mounted, setMounted] = React.useState(false);
     const pathname = usePathname();
-    const { setOpen, isMobile } = useSidebar();
+    const { setOpen, isMobile, state, toggleSidebar } = useSidebar();
 
     React.useEffect(() => setMounted(true), []);
 
@@ -131,6 +133,24 @@ export function AppSidebar() {
 
             <SidebarFooter className="gap-0.5 p-2 hairline-t">
                 <UpdateNotifier />
+                {/* Collapse control sits with the other persistent sidebar
+                    controls rather than in the toolbar, where it read as
+                    pointing away from the thing it acts on. Hidden on mobile,
+                    where the sidebar is an overlay and the toolbar carries the
+                    trigger instead. */}
+                {!isMobile && (
+                    <Button
+                        variant="ghost"
+                        title={state === "collapsed" ? "Expand Sidebar" : "Collapse Sidebar"}
+                        className="h-[30px] w-full justify-start gap-2.5 px-2 text-[13px] font-medium text-muted-foreground hover:text-foreground group-data-[collapsible=icon]:size-[30px]! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0! [&>svg]:size-[15px]"
+                        onClick={toggleSidebar}
+                    >
+                        {state === "collapsed"
+                            ? <PanelLeftOpen className="shrink-0" />
+                            : <PanelLeftClose className="shrink-0" />}
+                        <span className="group-data-[collapsible=icon]:hidden">Collapse</span>
+                    </Button>
+                )}
                 {mounted && (
                     <Button
                         variant="ghost"

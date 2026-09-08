@@ -54,7 +54,7 @@ export function AppToolbar() {
                 trafficLightPad
             )}
         >
-            <SidebarTrigger className="no-drag" />
+            {isMobile && <SidebarTrigger className="no-drag" />}
             <h1 className="truncate text-[13px] font-medium tracking-[-0.01em] text-muted-foreground select-none">
                 {title}
             </h1>
@@ -89,11 +89,17 @@ export function AppToolbar() {
  * toolbar needing to know about any particular page.
  */
 export function ToolbarActions({ children }: { children: React.ReactNode }) {
-    const [slot, setSlot] = React.useState<HTMLElement | null>(null);
-
-    React.useEffect(() => {
-        setSlot(document.getElementById(TOOLBAR_SLOT_ID));
-    }, []);
+    const slot = React.useSyncExternalStore(
+        subscribeToSlot,
+        () => document.getElementById(TOOLBAR_SLOT_ID),
+        () => null, // no portal target during SSR
+    );
 
     return slot ? createPortal(children, slot) : null;
+}
+
+/** The slot is created once by AppToolbar and never swapped, so there is
+ *  nothing to subscribe to — but useSyncExternalStore still needs a callback. */
+function subscribeToSlot() {
+    return () => {};
 }
