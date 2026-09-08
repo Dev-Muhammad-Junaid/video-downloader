@@ -115,6 +115,20 @@ function createWindow() {
         return { action: "deny" };
     });
 
+    // Tell the renderer it's running in the desktop shell, so it can reserve
+    // room for the traffic lights. Set from here rather than by sniffing
+    // navigator.userAgent in the page: the UA string is not guaranteed to
+    // contain "Electron" (apps and Electron versions change it), and a silent
+    // false there just means the window controls quietly overlap the UI.
+    const markAsDesktop = () => {
+        mainWindow?.webContents
+            .executeJavaScript('document.documentElement.dataset.electron = "true";')
+            .catch(() => {});
+    };
+    mainWindow.webContents.on("did-finish-load", markAsDesktop);
+    // Client-side navigations keep the same document, but a reload doesn't.
+    mainWindow.webContents.on("did-navigate-in-page", markAsDesktop);
+
     mainWindow.loadURL(APP_URL);
 
     mainWindow.on("closed", () => {

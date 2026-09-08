@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { UpdateNotifier } from "@/components/update-notifier";
+import { useDragRegion } from "@/hooks/use-window-drag";
 
 const items = [
     {
@@ -66,6 +67,7 @@ export function AppSidebar() {
     const [mounted, setMounted] = React.useState(false);
     const pathname = usePathname();
     const { setOpen, isMobile, state, toggleSidebar } = useSidebar();
+    const dragRegion = useDragRegion();
 
     React.useEffect(() => setMounted(true), []);
 
@@ -99,7 +101,7 @@ export function AppSidebar() {
              * lights into, and it keeps the source list aligned with the top of
              * the content area. Its height matches AppToolbar's.
              */}
-            <SidebarHeader className="drag-region h-[52px] shrink-0" />
+            <SidebarHeader style={dragRegion} className="h-[52px] shrink-0" />
 
             <SidebarContent className="px-2">
                 <SidebarGroup className="p-0">

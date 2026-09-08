@@ -131,21 +131,26 @@ export function VideoCard({
                     video.mediaType === "image" ? "bg-muted/40" : video.mediaType === "audio" ? "" : "bg-muted/40"
                 )}
             >
-                {/* Selection affordance. Shortcuts alone would be invisible to
-                    anyone who doesn't already know them, so the checkbox appears
-                    on hover and stays put once a selection exists. */}
+                {/* Selection affordance. Deliberately absent until a selection
+                    actually exists — a checkbox on every hover implies a mode
+                    the app doesn't have, and Finder shows none at all. Once
+                    you've started selecting, every card gets one so you can
+                    carry on without holding a modifier. */}
                 <button
                     type="button"
                     aria-label={isSelected ? `Deselect ${video.title}` : `Select ${video.title}`}
                     aria-pressed={isSelected}
+                    aria-hidden={!anySelected}
+                    tabIndex={anySelected ? 0 : -1}
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleSelection(video.id, e); }}
                     className={cn(
                         "absolute left-2.5 top-2.5 z-20 flex size-[22px] items-center justify-center rounded-md transition-all duration-150",
+                        !anySelected && "pointer-events-none",
                         "focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/45 focus-visible:outline-none",
                         isSelected
                             ? "bg-primary text-primary-foreground opacity-100 shadow-[0_1px_3px_rgb(0_0_0/0.3)]"
-                            : "border border-white/25 bg-black/45 text-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 hover:bg-black/65",
-                        anySelected && !isSelected && "opacity-100"
+                            : "border border-white/25 bg-black/45 text-white/90 opacity-0 backdrop-blur-sm hover:bg-black/65",
+                        anySelected && "opacity-100"
                     )}
                 >
                     {isSelected ? <Check className="size-3.5" strokeWidth={3} /> : <Square className="size-3.5" />}

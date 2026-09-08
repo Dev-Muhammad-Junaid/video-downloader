@@ -7,6 +7,7 @@ import appIcon from "@/assets/app-icon.png";
 import { usePathname } from "next/navigation";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
+import { useDragRegion, NO_DRAG } from "@/hooks/use-window-drag";
 
 const TITLES: Record<string, string> = {
     "/": "Library",
@@ -33,6 +34,7 @@ const TOOLBAR_SLOT_ID = "toolbar-actions-slot";
 export function AppToolbar() {
     const pathname = usePathname();
     const { state, isMobile } = useSidebar();
+    const dragRegion = useDragRegion();
 
     const title =
         TITLES[pathname] ??
@@ -42,19 +44,20 @@ export function AppToolbar() {
     // Width the traffic lights need, minus whatever the collapsed rail already
     // covers. Only ever applied inside Electron (see PlatformClass).
     const trafficLightPad = isMobile
-        ? "in-data-[electron=true]:pl-[82px]"
+        ? "in-data-[electron=true]:pl-[82px]!"
         : state === "collapsed"
-            ? "in-data-[electron=true]:pl-[38px]"
+            ? "in-data-[electron=true]:pl-[38px]!"
             : "";
 
     return (
         <header
+            style={dragRegion}
             className={cn(
-                "drag-region hairline-b sticky top-0 z-30 flex h-[52px] shrink-0 items-center gap-2.5 bg-[var(--toolbar)] px-3 backdrop-blur-xl backdrop-saturate-150",
+                "hairline-b sticky top-0 z-30 flex h-[52px] shrink-0 items-center gap-2.5 bg-[var(--toolbar)] px-3 backdrop-blur-xl backdrop-saturate-150",
                 trafficLightPad
             )}
         >
-            {isMobile && <SidebarTrigger className="no-drag" />}
+            {isMobile && <SidebarTrigger style={NO_DRAG} />}
             <h1 className="truncate text-[13px] font-medium tracking-[-0.01em] text-muted-foreground select-none">
                 {title}
             </h1>
@@ -78,7 +81,7 @@ export function AppToolbar() {
                 <span className="text-[13px] font-semibold tracking-[-0.01em]">SnapDown</span>
             </div>
 
-            <div id={TOOLBAR_SLOT_ID} className="no-drag ml-auto flex items-center gap-1.5" />
+            <div id={TOOLBAR_SLOT_ID} style={NO_DRAG} className="ml-auto flex items-center gap-1.5" />
         </header>
     );
 }

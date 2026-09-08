@@ -199,7 +199,8 @@ export function ImageEditorModal({ image, onClose, onRefreshLibrary }: ImageEdit
             className="fixed inset-0 z-[60] bg-background text-foreground flex flex-col"
         >
             {/* ── Header ── */}
-            <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-5 py-2 sm:py-3 border-b border-border/60 bg-background/80 backdrop-blur-md shrink-0">
+            {/* Reserves the traffic-light strip, same as the video editor. */}
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border/60 bg-background/80 px-3 py-2 backdrop-blur-md sm:px-5 sm:py-3 in-data-[electron=true]:pl-[82px]! in-data-[electron=true]:pt-[38px]!">
                 <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                     <FileImage className="w-4 h-4 text-primary shrink-0" />
                     <h2 className="font-semibold text-sm truncate max-w-[140px] sm:max-w-[320px]" title={image.title}>{image.title}</h2>

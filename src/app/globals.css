@@ -264,15 +264,12 @@
     box-shadow: inset -0.5px 0 0 0 var(--hairline);
   }
 
-  /* Electron: make a region draggable as window chrome (and opt children
-     back out, or they stop receiving clicks). */
-  .drag-region {
-    -webkit-app-region: drag;
-  }
-
-  .no-drag {
-    -webkit-app-region: no-drag;
-  }
+  /*
+   * Window-drag regions are NOT declared here. Tailwind v4 runs this file
+   * through Lightning CSS, which drops `-webkit-app-region` as an unknown
+   * property — a rule for it silently never reaches the browser. They're
+   * applied as inline styles instead; see src/hooks/use-window-drag.ts.
+   */
 
   .tabular {
     font-variant-numeric: tabular-nums;

@@ -434,7 +434,13 @@ export function VideoEditorModal({
             className="fixed inset-0 z-[60] bg-background text-foreground flex flex-col"
         >
             {/* ── Header ── */}
-            <div className="relative flex flex-wrap items-center gap-2 px-3 sm:px-5 py-2 sm:py-3 border-b border-border/60 bg-background/80 backdrop-blur-md shrink-0">
+            {/*
+             * The editor covers the whole window, including the strip Electron
+             * draws the traffic lights into — so the header has to reserve room
+             * for them, exactly as the sidebar does. Without this the close
+             * button sits physically underneath the lights.
+             */}
+            <div className="relative flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 bg-background/80 px-3 py-2 backdrop-blur-md sm:px-5 sm:py-3 in-data-[electron=true]:pl-[82px]! in-data-[electron=true]:pt-[38px]!">
                 <div className="flex items-center gap-2 sm:gap-4 min-w-0 mr-auto">
                     <Button
                         variant="ghost"

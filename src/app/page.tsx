@@ -85,10 +85,17 @@ export default function LibraryPage() {
 
     // Bulk Selection State
     // Selection is no longer a mode you enter — it's just whether anything is
-    // selected. ⌘-click / shift-click / the card's hover checkbox start it,
-    // Escape ends it. Nothing to toggle, so there's no Select button.
-    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-    const lastSelectedIndex = React.useRef<number | null>(null);
+    // selected. ⌘-click / shift-click / the card's checkbox start it, Escape
+    // ends it. Nothing to toggle, so there's no Select button.
+    //
+    // It's split into "items picked individually" plus "the current shift
+    // sweep", and the visible selection is the union of the two. Storing one
+    // flat set instead meant a re-sweep had to retract exactly the ids the
+    // previous sweep added, and any drift in that bookkeeping showed up as a
+    // range that could grow but never shrink.
+    const [baseIds, setBaseIds] = useState<Set<string>>(new Set());
+    const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
+    const [shiftTargetIndex, setShiftTargetIndex] = useState<number | null>(null);
 
     // Dev seed state (only meaningful in development)
     const [seeding, setSeeding] = useState(false);
@@ -230,31 +237,72 @@ export default function LibraryPage() {
         return result;
     }, [videos, searchQuery, sortBy, platformFilter, mediaTypeFilter, deepSearchResults]);
 
-    const toggleSelection = useCallback((videoId: string, e?: React.MouseEvent) => {
-        const currentIndex = displayedVideos.findIndex(v => v.id === videoId);
+    // Date buckets, in render order. Extracted so range selection and the grid
+    // agree on what "the next item" means: with Group by Date on and a size
+    // sort active, same-day items aren't contiguous in displayedVideos, so a
+    // shift-sweep computed over that array selected items other than the ones
+    // between the two the user clicked.
+    const dateGroups = useMemo(() => {
+        const acc = new Map<string, Video[]>();
+        const today = new Date();
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
 
-        if (e?.shiftKey && lastSelectedIndex.current !== null && currentIndex !== -1) {
-            // Shift extends from the anchor. The anchor deliberately stays put,
-            // so shift-clicking around re-sweeps from the same origin the way a
-            // file manager does, rather than walking the anchor along with you.
-            const start = Math.min(lastSelectedIndex.current, currentIndex);
-            const end = Math.max(lastSelectedIndex.current, currentIndex);
-            setSelectedIds(() => {
-                const next = new Set<string>();
-                for (let i = start; i <= end; i++) next.add(displayedVideos[i].id);
-                return next;
-            });
+        for (const video of displayedVideos) {
+            const date = new Date(video.createdAt);
+            let bucket = date.toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+            if (date.toDateString() === today.toDateString()) bucket = "Today";
+            else if (date.toDateString() === yesterday.toDateString()) bucket = "Yesterday";
+
+            const existing = acc.get(bucket);
+            if (existing) existing.push(video);
+            else acc.set(bucket, [video]);
+        }
+        return Array.from(acc.entries());
+    }, [displayedVideos]);
+
+    /** The order items actually appear on screen — what a range should follow. */
+    const orderedVideos = useMemo(
+        () => (groupByDate ? dateGroups.flatMap(([, vids]) => vids) : displayedVideos),
+        [groupByDate, dateGroups, displayedVideos]
+    );
+
+    // Ids covered by the live shift sweep, recomputed from the anchor and the
+    // current target rather than remembered.
+    const shiftRangeIds = useMemo(() => {
+        if (anchorIndex === null || shiftTargetIndex === null) return [];
+        const start = Math.min(anchorIndex, shiftTargetIndex);
+        const end = Math.max(anchorIndex, shiftTargetIndex);
+        return orderedVideos.slice(start, end + 1).map(v => v.id);
+    }, [anchorIndex, shiftTargetIndex, orderedVideos]);
+
+    const selectedIds = useMemo(
+        () => new Set<string>([...baseIds, ...shiftRangeIds]),
+        [baseIds, shiftRangeIds]
+    );
+
+    const toggleSelection = useCallback((videoId: string, e?: React.MouseEvent) => {
+        const currentIndex = orderedVideos.findIndex(v => v.id === videoId);
+
+        // Shift sweeps from the anchor. Re-sweeping just moves the target, so
+        // the range contracts as readily as it grows, and anything picked out
+        // individually beforehand survives because it lives in baseIds.
+        if (e?.shiftKey && anchorIndex !== null && currentIndex !== -1) {
+            setShiftTargetIndex(currentIndex);
             return;
         }
 
-        setSelectedIds(prev => {
-            const next = new Set(prev);
+        // A discrete pick ends the sweep: fold whatever it covered into the
+        // base, then toggle this item and make it the new anchor.
+        setBaseIds(prev => {
+            const next = new Set([...prev, ...shiftRangeIds]);
             if (next.has(videoId)) next.delete(videoId);
             else next.add(videoId);
             return next;
         });
-        if (currentIndex !== -1) lastSelectedIndex.current = currentIndex;
-    }, [displayedVideos]);
+        setShiftTargetIndex(null);
+        if (currentIndex !== -1) setAnchorIndex(currentIndex);
+    }, [orderedVideos, anchorIndex, shiftRangeIds]);
 
     // ⌘A / Esc, the two shortcuts people already expect from Finder. Ignored
     // while typing so ⌘A still means "select this text" in the search box.
@@ -266,11 +314,15 @@ export default function LibraryPage() {
 
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a" && !typing) {
                 e.preventDefault();
-                setSelectedIds(new Set(displayedVideos.map(v => v.id)));
+                setBaseIds(new Set(displayedVideos.map(v => v.id)));
+                setAnchorIndex(null);
+                setShiftTargetIndex(null);
                 return;
             }
             if (e.key === "Escape" && !typing) {
-                setSelectedIds(new Set());
+                setBaseIds(new Set());
+                setAnchorIndex(null);
+                setShiftTargetIndex(null);
             }
         };
         window.addEventListener("keydown", onKeyDown);
@@ -280,11 +332,15 @@ export default function LibraryPage() {
     // Select All means what's actually on screen — selecting filtered-out items
     // you can't see would make the count lie.
     const selectAll = useCallback(() => {
-        setSelectedIds(new Set(displayedVideos.map(v => v.id)));
+        setBaseIds(new Set(displayedVideos.map(v => v.id)));
+        setAnchorIndex(null);
+        setShiftTargetIndex(null);
     }, [displayedVideos]);
 
     const deselectAll = useCallback(() => {
-        setSelectedIds(new Set());
+        setBaseIds(new Set());
+        setAnchorIndex(null);
+        setShiftTargetIndex(null);
     }, []);
 
     // Get unique platforms for filter
@@ -927,27 +983,12 @@ export default function LibraryPage() {
                             </div>
                         ) : (
                             <div className="space-y-10">
-                                {Object.entries(
-                                    displayedVideos.reduce((acc, video) => {
-                                        const date = new Date(video.createdAt);
-                                        const today = new Date();
-                                        const yesterday = new Date(today);
-                                        yesterday.setDate(yesterday.getDate() - 1);
-
-                                        let dateBucket = date.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-                                        if (date.toDateString() === today.toDateString()) dateBucket = "Today";
-                                        else if (date.toDateString() === yesterday.toDateString()) dateBucket = "Yesterday";
-
-                                        if (!acc[dateBucket]) acc[dateBucket] = [];
-                                        acc[dateBucket].push(video);
-                                        return acc;
-                                    }, {} as Record<string, Video[]>)
-                                ).map(([dateObj, groupVids]) => (
+                                {dateGroups.map(([dateObj, groupVids]) => (
                                     <div key={dateObj} className="space-y-4">
-                                        <h3 className="text-xl font-bold tracking-tight text-foreground/90 border-b border-border/40 pb-2 mb-4 sticky top-0 bg-background/80 backdrop-blur z-20 py-2">
+                                        <h3 className="sticky top-0 z-20 mb-4 border-b border-border/40 bg-background/80 py-2 pb-2 text-[15px] font-semibold backdrop-blur">
                                             {dateObj}
                                         </h3>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                                        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                                             {groupVids.map(renderVideoCard)}
                                         </div>
                                     </div>
