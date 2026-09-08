@@ -16,6 +16,16 @@ import { DownloaderCard } from "@/components/settings/downloader-card";
 import { DeveloperCreditCard } from "@/components/settings/developer-credit-card";
 import type { SettingsState } from "@/components/settings/types";
 
+/** Group heading between settings cards — the small, quiet, uppercase label
+ *  macOS uses to separate sections of a settings list. */
+function SettingsSection({ title }: { title: string }) {
+    return (
+        <h2 className="mt-3 px-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground select-none first:mt-0">
+            {title}
+        </h2>
+    );
+}
+
 export default function SettingsPage() {
     const [settings, setSettings] = useState<SettingsState>({
         s3Endpoint: "",
@@ -304,15 +314,15 @@ export default function SettingsPage() {
     void isLoading;
 
     return (
-        <div className="mx-auto w-full max-w-[1100px] px-6 py-5">
+        <div className="mx-auto w-full max-w-[860px] px-6 py-5">
             <motion.div
                 variants={stagger}
                 initial="hidden"
                 animate="show"
-                className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+                className="flex flex-col gap-4"
             >
                 {/* System Health / Preflight — compact collapsible */}
-                <motion.div variants={fadeUp} className="lg:col-span-2">
+                <motion.div variants={fadeUp}>
                     <SystemHealthCard
                         preflight={preflight}
                         preflightLoading={preflightLoading}
@@ -322,10 +332,12 @@ export default function SettingsPage() {
                     />
                 </motion.div>
 
+                <SettingsSection title="Folders" />
+
                 {/* Destination Folder */}
                 <motion.div variants={fadeUp}>
                     <FolderSettingCard
-                        icon={<Download className="w-5 h-5 text-primary" />}
+                        icon={<Download className="size-4 text-primary" />}
                         title="Download Destination"
                         description="Where downloaded files are saved."
                         inputId="destinationFolder"
@@ -342,7 +354,7 @@ export default function SettingsPage() {
                 {/* Watch Folder */}
                 <motion.div variants={fadeUp}>
                     <FolderSettingCard
-                        icon={<Eye className="w-5 h-5 text-primary" />}
+                        icon={<Eye className="size-4 text-primary" />}
                         title="Watch Folder"
                         description="Files dropped here are auto-imported. Keep it separate from your download folder."
                         inputId="watchFolder"
@@ -356,20 +368,7 @@ export default function SettingsPage() {
                     />
                 </motion.div>
 
-                {/* Cloudflare R2 Credentials */}
-                <motion.div variants={fadeUp} className="lg:col-span-2">
-                    <R2CredentialsCard settings={settings} setSettings={setSettings} onSave={handleSaveCredentials} />
-                </motion.div>
-
-                {/* Export & Backup */}
-                <motion.div variants={fadeUp}>
-                    <ExportBackupCard />
-                </motion.div>
-
-                {/* AI Transcription Settings (WID-307) */}
-                <motion.div variants={fadeUp}>
-                    <AiTranscriptionCard settings={settings} setSettings={setSettings} onSave={handleSaveAi} />
-                </motion.div>
+                <SettingsSection title="Downloading" />
 
                 {/* Downloader cookies (YouTube bot-check / quality) */}
                 <motion.div variants={fadeUp}>
@@ -381,7 +380,7 @@ export default function SettingsPage() {
                 </motion.div>
 
                 {/* Quality & Format Profiles (WID-306) */}
-                <motion.div variants={fadeUp} className="lg:col-span-2">
+                <motion.div variants={fadeUp}>
                     <ProfilesCard
                         profiles={profiles}
                         editingProfile={editingProfile}
@@ -394,18 +393,37 @@ export default function SettingsPage() {
                     />
                 </motion.div>
 
+                {/* AI Transcription Settings (WID-307) */}
+                <motion.div variants={fadeUp}>
+                    <AiTranscriptionCard settings={settings} setSettings={setSettings} onSave={handleSaveAi} />
+                </motion.div>
+
+                <SettingsSection title="Cloud" />
+
+                {/* Cloudflare R2 Credentials */}
+                <motion.div variants={fadeUp}>
+                    <R2CredentialsCard settings={settings} setSettings={setSettings} onSave={handleSaveCredentials} />
+                </motion.div>
+
                 {/* Auto Cloud-Sync by Label (WID-306) */}
-                <motion.div variants={fadeUp} className="lg:col-span-2">
+                <motion.div variants={fadeUp}>
                     <LabelSyncCard labels={labels} onToggle={handleToggleLabelSync} />
                 </motion.div>
 
+                <SettingsSection title="Data & Integrations" />
+
+                {/* Export & Backup */}
+                <motion.div variants={fadeUp}>
+                    <ExportBackupCard />
+                </motion.div>
+
                 {/* Browser Integration (WID-300) */}
-                <motion.div variants={fadeUp} className="lg:col-span-2">
+                <motion.div variants={fadeUp}>
                     <BrowserIntegrationsCard baseUrl={baseUrl} />
                 </motion.div>
 
                 {/* Developer credit / contribute links */}
-                <motion.div variants={fadeUp} className="lg:col-span-2">
+                <motion.div variants={fadeUp}>
                     <DeveloperCreditCard />
                 </motion.div>
             </motion.div>

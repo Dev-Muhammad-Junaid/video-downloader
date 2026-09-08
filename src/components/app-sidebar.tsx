@@ -99,11 +99,11 @@ export function AppSidebar() {
              */}
             <SidebarHeader className="drag-region h-[52px] shrink-0" />
 
-            <SidebarContent className="px-1.5">
+            <SidebarContent className="px-2">
                 <SidebarGroup className="p-0">
                     {/* Source-list section headers in macOS are small, uppercase and
                         low-contrast — a label for the group, not a heading. */}
-                    <SidebarGroupLabel className="h-7 px-2 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/70">
+                    <SidebarGroupLabel className="mb-0.5 h-6 px-2 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/70">
                         Application
                     </SidebarGroupLabel>
                     <SidebarGroupContent>
@@ -129,7 +129,7 @@ export function AppSidebar() {
                 </SidebarGroup>
             </SidebarContent>
 
-            <SidebarFooter className="gap-0.5 p-1.5 hairline-t">
+            <SidebarFooter className="gap-0.5 p-2 hairline-t">
                 <UpdateNotifier />
                 {mounted && (
                     <Button

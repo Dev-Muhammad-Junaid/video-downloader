@@ -423,7 +423,7 @@ export function AudioEditorModal({
                             <motion.button
                                 whileTap={{ scale: 0.9 }}
                                 onClick={togglePlay}
-                                className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center shrink-0"
+                                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
                             >
                                 {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
                             </motion.button>

@@ -76,8 +76,13 @@ function stopProductionServer() {
 
 function createWindow() {
     mainWindow = new BrowserWindow({
-        width: 1440,
-        height: 900,
+        // Opens at roughly tablet size rather than filling a desktop display.
+        // Deliberately kept above the sidebar's 1100px auto-collapse threshold
+        // (AUTO_COLLAPSE_WIDTH in app-sidebar.tsx) so the app doesn't launch
+        // with its own navigation already collapsed to an icon rail.
+        width: 1180,
+        height: 820,
+        center: true,
         // Low enough to reach true mobile widths — the app's own responsive
         // breakpoints (sidebar icon-collapse, mobile drawer) handle anything
         // smaller than a "desktop" width, so the window itself shouldn't be

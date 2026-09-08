@@ -151,7 +151,15 @@ export function getResolutionConstraint(res: string | null, mode: string = "flex
     if (!height) return "";
     if (mode === "strict") return `[height=${height}]`;
     if (mode === "minimum") return `[height>=${height}]`;
-    return `[height<=${height}]`; // flexible (default)
+    // "<=?" is yt-dlp's optional comparison: a format whose height is unknown
+    // still passes, instead of being discarded. Plain "<=" rejects unknown-height
+    // formats, and because a ceiling deliberately omits the unconditional /best
+    // fallback (see getYtDlpFormat), that made every such source fail outright
+    // with "Requested format is not available" — which is exactly what a direct
+    // media URL looks like to the generic extractor, and therefore what the
+    // browser extension sends when you "Send to SnapDown" a video or link.
+    // The ceiling is still enforced wherever the height IS known.
+    return `[height<=?${height}]`; // flexible (default)
 }
 
 export function getYtDlpFormat(

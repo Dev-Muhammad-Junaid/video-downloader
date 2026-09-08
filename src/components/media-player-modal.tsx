@@ -143,7 +143,7 @@ export function MediaPlayerModal({
                         {hasPrev && (
                             <button
                                 onClick={handlePrev}
-                                className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-black/50 hover:bg-black/80 flex items-center justify-center text-white transition-all"
+                                className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex size-8 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/70"
                             >
                                 <ChevronLeft className="w-6 h-6" />
                             </button>
@@ -151,7 +151,7 @@ export function MediaPlayerModal({
                         {hasNext && (
                             <button
                                 onClick={handleNext}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-black/50 hover:bg-black/80 flex items-center justify-center text-white transition-all"
+                                className="absolute right-3 top-1/2 -translate-y-1/2 z-10 flex size-8 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/70"
                             >
                                 <ChevronRight className="w-6 h-6" />
                             </button>
@@ -335,7 +335,7 @@ export function MediaPlayerModal({
                             {video.mediaType !== "image" && (!video.transcriptStatus || video.transcriptStatus === "error" || video.transcriptStatus === "processing") && (
                                 <Button
                                     variant="outline"
-                                    className="w-full h-9 text-xs border-violet-500/30 hover:bg-violet-500/5 text-violet-600 dark:text-violet-400"
+                                    className="w-full border-chart-4/40 text-chart-4 hover:bg-chart-4/10"
                                     onClick={() => onTranscribe?.(video)}
                                     disabled={video.transcriptStatus === "processing"}
                                 >
@@ -351,7 +351,7 @@ export function MediaPlayerModal({
                             {video.mediaType === "image" ? (
                                 <Button
                                     variant="outline"
-                                    className="w-full h-9 text-xs"
+                                    className="w-full"
                                     onClick={() => onEdit?.(video)}
                                 >
                                     <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Image
@@ -359,7 +359,7 @@ export function MediaPlayerModal({
                             ) : video.mediaType === "audio" ? (
                                 <Button
                                     variant="outline"
-                                    className="w-full h-9 text-xs"
+                                    className="w-full"
                                     onClick={() => onEdit?.(video)}
                                 >
                                     <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Audio
@@ -368,7 +368,7 @@ export function MediaPlayerModal({
                                 <>
                                     <Button
                                         variant="outline"
-                                        className="w-full h-9 text-xs"
+                                        className="w-full"
                                         onClick={() => onEdit?.(video)}
                                     >
                                         <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Video
@@ -376,7 +376,7 @@ export function MediaPlayerModal({
                                     {video.localPath && !video.localPath.toLowerCase().endsWith(".mp4") && (
                                         <Button
                                             variant="outline"
-                                            className="w-full h-9 text-xs"
+                                            className="w-full"
                                             onClick={async () => {
                                                 const toastId = toast.loading("Converting to MP4...");
                                                 try {
@@ -397,7 +397,7 @@ export function MediaPlayerModal({
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    className="h-9 text-xs"
+                                    
                                     onClick={() => copyToClipboard(video.localPath)}
                                 >
                                     <Copy className="w-3.5 h-3.5 mr-1.5" /> Copy Path
@@ -405,7 +405,7 @@ export function MediaPlayerModal({
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    className="h-9 text-xs"
+                                    
                                     onClick={() => handleOpenFolder(video.localPath)}
                                 >
                                     <FolderOpen className="w-3.5 h-3.5 mr-1.5" /> Open Folder
@@ -416,7 +416,7 @@ export function MediaPlayerModal({
                                     <Button
                                         variant="outline"
                                         size="sm"
-                                        className="h-9 text-xs text-destructive hover:text-destructive"
+                                        className="text-destructive hover:text-destructive"
                                         onClick={() => onCloudRemove?.(video)}
                                     >
                                         <CloudOff className="w-3.5 h-3.5 mr-1.5" /> Remove Cloud
@@ -425,7 +425,7 @@ export function MediaPlayerModal({
                                     <Button
                                         variant="outline"
                                         size="sm"
-                                        className="h-9 text-xs"
+                                        
                                         onClick={() => onCloudUpload?.(video)}
                                     >
                                         <Cloud className="w-3.5 h-3.5 mr-1.5" /> Upload Cloud
@@ -434,7 +434,7 @@ export function MediaPlayerModal({
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    className="h-9 text-xs text-destructive hover:text-destructive"
+                                    className="text-destructive hover:text-destructive"
                                     onClick={() => {
                                         onDelete?.(video.id, video.title);
                                         onOpenChange(false);

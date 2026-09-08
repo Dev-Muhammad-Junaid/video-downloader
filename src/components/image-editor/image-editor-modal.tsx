@@ -454,7 +454,7 @@ export function ImageEditorModal({ image, onClose, onRefreshLibrary }: ImageEdit
                                                         : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground"
                                                 )}
                                             >
-                                                <span className="font-bold text-sm">{f.label}</span>
+                                                <span className="text-[13px] font-semibold">{f.label}</span>
                                                 <span className="text-[10px] opacity-70">{f.desc}</span>
                                             </button>
                                         ))}

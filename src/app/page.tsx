@@ -56,6 +56,7 @@ import type { Video } from "@/types/media";
 import { VideoCard } from "@/components/library/video-card";
 import { QueueRow } from "@/components/library/queue-row";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import { ToolbarActions } from "@/components/app-toolbar";
 import { useLibrary } from "@/hooks/use-library";
 import { useDownloadQueue } from "@/hooks/use-download-queue";
 
@@ -299,16 +300,28 @@ export default function LibraryPage() {
 
     return (
         <div className="mx-auto w-full max-w-[1600px] space-y-7 px-6 py-5">
+            <ToolbarActions>
+                <Button
+                    variant={selectionMode ? "default" : "outline"}
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => { setSelectionMode(!selectionMode); if (selectionMode) deselectAll(); }}
+                >
+                    <CheckSquare />
+                    {selectionMode ? "Done" : "Select"}
+                </Button>
+            </ToolbarActions>
+
 
             {/* Top Section: Dashboard Split View */}
-            <div className="flex flex-col items-start gap-5 xl:flex-row">
+            <div className="flex flex-col items-start gap-5 lg:flex-row">
 
                 {/* Left Panel: Bulk Input */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ type: "spring" as const, damping: 22, stiffness: 180, delay: 0.05 }}
-                    className="w-full xl:w-1/3"
+                    className="w-full lg:w-[34%] lg:min-w-[300px]"
                 >
                 <Card className="relative overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent opacity-50 pointer-events-none" />
@@ -339,7 +352,7 @@ export default function LibraryPage() {
                     <CardContent className="space-y-4 relative">
                         <Textarea
                             className="min-h-[150px] resize-none rounded-md font-mono text-[12px] leading-relaxed"
-                            placeholder="https://x.com/user/status/123...&#10;https://youtube.com/watch?v=..."
+                            placeholder="https://x.com/…&#10;https://youtube.com/watch?v=…"
                             value={urlText}
                             onChange={e => setUrlText(e.target.value)}
                         />
@@ -351,7 +364,7 @@ export default function LibraryPage() {
                 </motion.div>
 
                 {/* Right Panel: Active Queue */}
-                <div className="w-full xl:w-2/3 flex flex-col gap-3">
+                <div className="flex w-full min-w-0 flex-1 flex-col gap-3">
                     <div className="flex flex-wrap items-center justify-between gap-y-2 gap-x-3">
                         <div className="flex items-center gap-2 min-w-0 flex-wrap">
                             <h2 className="text-[15px] font-semibold">Active Queue</h2>
@@ -851,14 +864,6 @@ export default function LibraryPage() {
                             Group by Date
                         </Button>
 
-                        <Button
-                            variant={selectionMode ? "default" : "outline"}
-                            className="gap-1.5"
-                            onClick={() => { setSelectionMode(!selectionMode); if (selectionMode) deselectAll(); }}
-                        >
-                            <CheckSquare className="size-3.5" />
-                            {selectionMode ? "Done" : "Select"}
-                        </Button>
                     </div>
                 </div>
 
