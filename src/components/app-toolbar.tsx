@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
@@ -53,7 +54,29 @@ export function AppToolbar() {
             )}
         >
             <SidebarTrigger className="no-drag" />
-            <h1 className="truncate text-[13px] font-semibold tracking-[-0.01em] select-none">{title}</h1>
+            <h1 className="truncate text-[13px] font-medium tracking-[-0.01em] text-muted-foreground select-none">
+                {title}
+            </h1>
+
+            {/*
+             * App identity, centred on the toolbar. Absolutely positioned so it
+             * stays centred no matter how wide the leading title or the trailing
+             * actions grow, and pointer-events-none so it never swallows a window
+             * drag. Hidden on narrow windows, where the leading and trailing
+             * content would otherwise run into it.
+             */}
+            <div className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 select-none items-center gap-1.5 md:flex">
+                <Image
+                    src="/icon.png"
+                    alt=""
+                    width={17}
+                    height={17}
+                    draggable={false}
+                    className="rounded-[4px]"
+                />
+                <span className="text-[13px] font-semibold tracking-[-0.01em]">SnapDown</span>
+            </div>
+
             <div id={TOOLBAR_SLOT_ID} className="no-drag ml-auto flex items-center gap-1.5" />
         </header>
     );

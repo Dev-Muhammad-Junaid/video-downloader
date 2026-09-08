@@ -9,7 +9,6 @@ import {
     Sun,
     History,
 } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -94,26 +93,11 @@ export function AppSidebar() {
     return (
         <Sidebar collapsible="icon" className="hairline-r border-r-0">
             {/*
-             * The whole header is a drag region and, under Electron's hiddenInset
-             * title bar, also the area the traffic lights are drawn into — hence
-             * the extra top padding, which is applied only when the Electron flag
-             * is present so the browser build doesn't get a dead gap.
+             * Empty by design: this is the strip Electron draws the traffic
+             * lights into, and it keeps the source list aligned with the top of
+             * the content area. Its height matches AppToolbar's.
              */}
-            <SidebarHeader className="drag-region h-[52px] shrink-0 flex-row items-center gap-2 overflow-hidden px-3 in-data-[electron=true]:pl-[82px] group-data-[collapsible=icon]:in-data-[electron=true]:pl-3">
-                {/* Hidden in the collapsed rail under Electron: the rail is
-                    narrower than the traffic lights, so anything drawn here
-                    would sit underneath them. */}
-                <Image
-                    src="/icon.png"
-                    alt=""
-                    width={20}
-                    height={20}
-                    className="shrink-0 rounded-[5px] group-data-[collapsible=icon]:in-data-[electron=true]:invisible"
-                />
-                <span className="truncate text-[13px] font-semibold tracking-[-0.01em] group-data-[collapsible=icon]:hidden">
-                    SnapDown
-                </span>
-            </SidebarHeader>
+            <SidebarHeader className="drag-region h-[52px] shrink-0" />
 
             <SidebarContent className="px-1.5">
                 <SidebarGroup className="p-0">
