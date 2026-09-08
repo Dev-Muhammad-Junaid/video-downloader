@@ -444,7 +444,7 @@ export function VideoEditorModal({
                     >
                         <X className="w-5 h-5" />
                     </Button>
-                    <h2 className="hidden xl:block text-lg font-medium tracking-tight text-foreground truncate max-w-xs 2xl:max-w-sm">
+                    <h2 className="hidden max-w-xs truncate text-[13px] font-semibold tracking-[-0.01em] text-foreground xl:block 2xl:max-w-sm">
                         Editing {video.title}
                     </h2>
                 </div>
@@ -505,7 +505,7 @@ export function VideoEditorModal({
                     </Button>
                     <Button
                         size="sm"
-                        className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-primary/20 shadow-lg"
+                        
                         onClick={handleApplyExport}
                         disabled={isExporting || (mode === "subtitles" && !hasSubtitles)}
                     >
@@ -579,7 +579,7 @@ export function VideoEditorModal({
                                             animate={{ opacity: 1, scale: 1, y: 0 }}
                                             exit={{ opacity: 0, scale: 0.8, y: -8 }}
                                             transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                                            className="absolute top-3 left-3 bg-background/85 backdrop-blur-sm border border-border rounded-full px-2.5 py-1 text-xs font-bold text-foreground flex items-center gap-1.5 pointer-events-none z-20 shadow-sm"
+                                            className="absolute top-3 left-3 bg-background/85 backdrop-blur-sm border border-border rounded-full px-2 py-0.5 text-[11px] font-semibold text-foreground flex items-center gap-1.5 pointer-events-none z-20 shadow-sm"
                                         >
                                             <RectangleHorizontal className="w-3 h-3 text-primary" />
                                             {aspectRatio}
@@ -669,7 +669,7 @@ export function VideoEditorModal({
                                     />
                                 ) : (
                                     <div className="flex flex-col items-center justify-center flex-1 px-6 text-center">
-                                        <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+                                        <div className="mb-3 flex size-11 items-center justify-center rounded-full bg-muted">
                                             <Captions className="w-6 h-6 text-muted-foreground/50" />
                                         </div>
                                         <h3 className="text-sm font-medium text-foreground mb-1.5">No Subtitles Yet</h3>
@@ -705,7 +705,7 @@ export function VideoEditorModal({
                                             size="sm"
                                             onClick={handleTranscribe}
                                             disabled={isTranscribing}
-                                            className="w-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20"
+                                            className="w-full"
                                             title={`Transcribe using ${transcriptionProvider === "groq" ? "Groq" : "OpenAI"}`}
                                         >
                                             {isTranscribing ? (
@@ -774,7 +774,7 @@ export function VideoEditorModal({
                         <motion.button
                             whileTap={{ scale: 0.88 }}
                             transition={{ type: "spring", stiffness: 500, damping: 20 }}
-                            className="w-9 h-9 flex items-center justify-center rounded-full bg-muted hover:bg-muted/80 text-foreground transition-all mx-0.5 ring-1 ring-border/60"
+                            className="mx-0.5 flex size-8 items-center justify-center rounded-full bg-muted text-foreground ring-1 ring-border transition-colors hover:bg-accent"
                             onClick={togglePlay}
                         >
                             <AnimatePresence mode="wait" initial={false}>

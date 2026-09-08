@@ -9,7 +9,7 @@ import { generateThumbnail } from "@/lib/thumbnail";
 import { getMatchingProfile, getYtDlpFormat } from "./profiles";
 import { uploadToCloud } from "./cloud";
 import pLimit from "p-limit";
-import { getFfmpegPath } from "@/lib/ffmpeg";
+import { getFfmpegPath, probeDuration } from "@/lib/ffmpeg";
 import { getYtdlpCookieArgs } from "@/lib/settings";
 import { getYtdlpPath, describeYtdlpError } from "@/lib/ytdlp";
 
@@ -99,7 +99,7 @@ export function setDownloadsDir(newDir: string) {
     fs.writeFileSync(settingsPath, resolved, "utf-8");
 }
 
-const GALLERY_DL_PATH = path.join(os.homedir(), ".local", "bin", "gallery-dl");
+import { GALLERY_DL_PATH } from "@/lib/gallery-dl";
 
 export function getJob(id: string) {
     return activeDownloads.get(id);
@@ -822,6 +822,12 @@ export async function startDownload(
                     localPath: outputPath,
                     fileSize,
                     mediaType: isAudio ? "audio" : "video",
+                    // Probe the finished file rather than trusting the
+                    // extractor: a direct media URL reports no duration at all
+                    // through the generic extractor, which left every such
+                    // download showing "-" for length everywhere in the app.
+                    // Fall back to whatever metadata did supply.
+                    duration: probeDuration(outputPath) ?? duration ?? null,
                 };
 
                 const allTags = new Set<string>();

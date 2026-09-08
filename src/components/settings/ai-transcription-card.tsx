@@ -20,7 +20,7 @@ export function AiTranscriptionCard({ settings, setSettings, onSave }: AiTranscr
     return (
         <Card>
             <CardHeader>
-                <CardTitle className="text-xl flex items-center gap-2">
+                <CardTitle className="flex items-center gap-2">
                     <BrainCircuit className="w-5 h-5 text-primary" />
                     AI Transcription
                 </CardTitle>
@@ -86,9 +86,9 @@ export function AiTranscriptionCard({ settings, setSettings, onSave }: AiTranscr
                         onChange={(e) => setSettings({ ...settings, whisperLanguage: e.target.value })}
                     />
                 </div>
-                <Button onClick={onSave} className="w-full">
-                    Save
-                </Button>
+                <div className="flex justify-end">
+                    <Button onClick={onSave}>Save</Button>
+                </div>
             </CardContent>
         </Card>
     );

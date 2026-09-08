@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { prisma } from "@/lib/prisma";
+import { probeDuration } from "@/lib/ffmpeg";
 
 const execFileAsync = promisify(execFile);
 
@@ -13,19 +14,10 @@ const AUDIO_EXTENSIONS = new Set([".mp3", ".m4a", ".aac", ".ogg", ".opus", ".fla
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp"]);
 const ALL_MEDIA_EXTENSIONS = new Set([...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS, ...IMAGE_EXTENSIONS]);
 
+// Duration probing lives in lib/ffmpeg so the scan and the download path
+// cannot disagree about how a file's length is determined.
 async function getDuration(filePath: string): Promise<number | null> {
-    try {
-        const { stdout } = await execFileAsync("ffprobe", [
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            filePath,
-        ]);
-        const duration = parseFloat(stdout.trim());
-        return isNaN(duration) ? null : duration;
-    } catch {
-        return null;
-    }
+    return probeDuration(filePath);
 }
 
 async function scanDirectory(dir: string): Promise<string[]> {

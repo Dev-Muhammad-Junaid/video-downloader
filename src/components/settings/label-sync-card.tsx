@@ -14,7 +14,7 @@ export function LabelSyncCard({ labels, onToggle }: LabelSyncCardProps) {
     return (
         <Card>
             <CardHeader>
-                <CardTitle className="text-xl flex items-center gap-2">
+                <CardTitle className="flex items-center gap-2">
                     <Tags className="w-5 h-5 text-primary" />
                     Auto-sync by Category
                 </CardTitle>

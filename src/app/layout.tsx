@@ -1,10 +1,22 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-sans",
+// SF Pro is the real UI font on macOS and comes from -apple-system; Inter is
+// only the fallback for non-Apple platforms, chosen because its metrics are
+// the closest match so layout doesn't shift between the two.
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
+  display: "swap",
+});
+
+// Mono is now scoped to content that is genuinely monospace — URLs, file
+// paths, timecodes — instead of being the app-wide UI font.
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
+  subsets: ["latin"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -15,10 +27,12 @@ export const metadata: Metadata = {
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { AppToolbar } from "@/components/app-toolbar";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { OnboardingModal } from "@/components/onboarding-modal";
+import { PlatformClass } from "@/components/platform-class";
 
 export default function RootLayout({
   children,
@@ -38,24 +52,25 @@ export default function RootLayout({
         />
       </head>
       <body
-        className={`${jetbrainsMono.variable} font-sans antialiased`}
+        className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
+        <PlatformClass />
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange
         >
-          <TooltipProvider>
+          <TooltipProvider delay={400}>
             <SidebarProvider>
               <AppSidebar />
-              <main className="w-full h-full flex flex-col flex-1 pb-16 overflow-x-hidden">
-                <div className="w-full flex items-center p-2 border-b">
-                  <SidebarTrigger />
+              <main className="flex h-svh w-full min-w-0 flex-1 flex-col overflow-hidden">
+                <AppToolbar />
+                <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+                  <ErrorBoundary>
+                    {children}
+                  </ErrorBoundary>
                 </div>
-                <ErrorBoundary>
-                  {children}
-                </ErrorBoundary>
               </main>
             </SidebarProvider>
             <Toaster />

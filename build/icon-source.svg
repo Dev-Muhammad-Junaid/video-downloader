@@ -1,39 +1,69 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    SnapDown app icon.
+
+    Built to the macOS icon conventions the rest of the app now follows: a
+    squircle canvas, a top-lit vertical gradient, a hairline rim for edge
+    definition against both light and dark Docks, and a single high-contrast
+    glyph that survives being drawn at 16px.
+
+    The palette is the app's own systemBlue accent rather than the previous
+    purple/magenta, which no longer belonged next to the new UI.
+
+    The glyph is one shape doing two jobs: a downward triangle reads as "play"
+    (media) and as "download" (direction) at the same time, and the bar under
+    it completes the download-to-tray reading.
+  -->
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#7C3AED"/>
-      <stop offset="52%" stop-color="#C026D3"/>
-      <stop offset="100%" stop-color="#F43F5E"/>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"   stop-color="#5AB1FF"/>
+      <stop offset="48%"  stop-color="#1E82FF"/>
+      <stop offset="100%" stop-color="#0A56D6"/>
     </linearGradient>
+
+    <!-- Top-down sheen: macOS icons are lit from above. -->
     <linearGradient id="sheen" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.16"/>
-      <stop offset="45%" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0%"  stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="42%" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
-    <radialGradient id="corner-shade" cx="80%" cy="88%" r="60%">
-      <stop offset="0%" stop-color="#000000" stop-opacity="0.14"/>
-      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+
+    <!-- Grounding shade in the lower corners so the tile doesn't read flat. -->
+    <radialGradient id="ground" cx="50%" cy="104%" r="66%">
+      <stop offset="0%"   stop-color="#03286E" stop-opacity="0.38"/>
+      <stop offset="100%" stop-color="#03286E" stop-opacity="0"/>
     </radialGradient>
-    <filter id="glyph-shadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#3B0764" flood-opacity="0.35"/>
+
+    <linearGradient id="rim" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.42"/>
+      <stop offset="55%"  stop-color="#FFFFFF" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#000018" stop-opacity="0.20"/>
+    </linearGradient>
+
+    <filter id="glyph-lift" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#052F7A" flood-opacity="0.30"/>
     </filter>
   </defs>
 
-  <!-- macOS-style squircle canvas -->
-  <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228" fill="url(#bg)"/>
-  <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228" fill="url(#corner-shade)"/>
-  <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228" fill="url(#sheen)"/>
+  <rect width="1024" height="1024" rx="228" ry="228" fill="url(#bg)"/>
+  <rect width="1024" height="1024" rx="228" ry="228" fill="url(#ground)"/>
+  <rect width="1024" height="1024" rx="228" ry="228" fill="url(#sheen)"/>
 
-  <!-- Glyph: a rounded downward triangle — reads as both "play" (media) and
-       "download" (direction) in one shape, legible at 16px. -->
-  <polygon
-    points="349,336 675,336 512,652"
-    fill="#FFFFFF"
-    stroke="#FFFFFF"
-    stroke-width="58"
-    stroke-linejoin="round"
-    filter="url(#glyph-shadow)"
-  />
+  <g filter="url(#glyph-lift)">
+    <!-- Stem + head drawn as one rounded arrow. Generous stroke joins keep the
+         corners soft at large sizes without turning to mush at 16px. -->
+    <rect x="466" y="252" width="92" height="248" rx="46" fill="#FFFFFF"/>
+    <path
+      d="M 344 430 L 680 430 L 512 664 Z"
+      fill="#FFFFFF"
+      stroke="#FFFFFF"
+      stroke-width="76"
+      stroke-linejoin="round"
+    />
+    <!-- Tray: the surface the arrow lands on. -->
+    <rect x="330" y="732" width="364" height="82" rx="41" fill="#FFFFFF"/>
+  </g>
 
-  <!-- Underline "tray" bar, completes the download-icon reading -->
-  <rect x="368" y="716" width="288" height="54" rx="27" fill="#FFFFFF"/>
+  <!-- Rim last so it sits above the fills. -->
+  <rect x="1" y="1" width="1022" height="1022" rx="227" ry="227"
+        fill="none" stroke="url(#rim)" stroke-width="2.5"/>
 </svg>

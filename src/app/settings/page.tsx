@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { Download, Eye } from "lucide-react";
+import { SectionLabel } from "@/components/ui/section-label";
 import { SystemHealthCard } from "@/components/settings/system-health-card";
 import { FolderSettingCard } from "@/components/settings/folder-setting-card";
 import { R2CredentialsCard } from "@/components/settings/r2-credentials-card";
@@ -304,24 +305,15 @@ export default function SettingsPage() {
     void isLoading;
 
     return (
-        <div className="flex-1 p-8 space-y-6 max-w-[1600px] mx-auto w-full">
-            <motion.h1
-                initial={{ opacity: 0, x: -12 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ type: "spring", damping: 20, stiffness: 180 }}
-                className="text-3xl font-bold tracking-tight"
-            >
-                Settings
-            </motion.h1>
-
+        <div className="mx-auto w-full max-w-[860px] px-6 py-5">
             <motion.div
                 variants={stagger}
                 initial="hidden"
                 animate="show"
-                className="grid grid-cols-1 lg:grid-cols-2 gap-6"
+                className="flex flex-col gap-4"
             >
                 {/* System Health / Preflight — compact collapsible */}
-                <motion.div variants={fadeUp} className="lg:col-span-2">
+                <motion.div variants={fadeUp}>
                     <SystemHealthCard
                         preflight={preflight}
                         preflightLoading={preflightLoading}
@@ -331,10 +323,12 @@ export default function SettingsPage() {
                     />
                 </motion.div>
 
+                <SectionLabel className="mt-3 px-1 first:mt-0">Folders</SectionLabel>
+
                 {/* Destination Folder */}
                 <motion.div variants={fadeUp}>
                     <FolderSettingCard
-                        icon={<Download className="w-5 h-5 text-primary" />}
+                        icon={<Download className="size-4 text-primary" />}
                         title="Download Destination"
                         description="Where downloaded files are saved."
                         inputId="destinationFolder"
@@ -351,7 +345,7 @@ export default function SettingsPage() {
                 {/* Watch Folder */}
                 <motion.div variants={fadeUp}>
                     <FolderSettingCard
-                        icon={<Eye className="w-5 h-5 text-primary" />}
+                        icon={<Eye className="size-4 text-primary" />}
                         title="Watch Folder"
                         description="Files dropped here are auto-imported. Keep it separate from your download folder."
                         inputId="watchFolder"
@@ -365,20 +359,7 @@ export default function SettingsPage() {
                     />
                 </motion.div>
 
-                {/* Cloudflare R2 Credentials */}
-                <motion.div variants={fadeUp} className="lg:col-span-2">
-                    <R2CredentialsCard settings={settings} setSettings={setSettings} onSave={handleSaveCredentials} />
-                </motion.div>
-
-                {/* Export & Backup */}
-                <motion.div variants={fadeUp}>
-                    <ExportBackupCard />
-                </motion.div>
-
-                {/* AI Transcription Settings (WID-307) */}
-                <motion.div variants={fadeUp}>
-                    <AiTranscriptionCard settings={settings} setSettings={setSettings} onSave={handleSaveAi} />
-                </motion.div>
+                <SectionLabel className="mt-3 px-1 first:mt-0">Downloading</SectionLabel>
 
                 {/* Downloader cookies (YouTube bot-check / quality) */}
                 <motion.div variants={fadeUp}>
@@ -390,7 +371,7 @@ export default function SettingsPage() {
                 </motion.div>
 
                 {/* Quality & Format Profiles (WID-306) */}
-                <motion.div variants={fadeUp} className="lg:col-span-2">
+                <motion.div variants={fadeUp}>
                     <ProfilesCard
                         profiles={profiles}
                         editingProfile={editingProfile}
@@ -403,18 +384,37 @@ export default function SettingsPage() {
                     />
                 </motion.div>
 
+                {/* AI Transcription Settings (WID-307) */}
+                <motion.div variants={fadeUp}>
+                    <AiTranscriptionCard settings={settings} setSettings={setSettings} onSave={handleSaveAi} />
+                </motion.div>
+
+                <SectionLabel className="mt-3 px-1 first:mt-0">Cloud</SectionLabel>
+
+                {/* Cloudflare R2 Credentials */}
+                <motion.div variants={fadeUp}>
+                    <R2CredentialsCard settings={settings} setSettings={setSettings} onSave={handleSaveCredentials} />
+                </motion.div>
+
                 {/* Auto Cloud-Sync by Label (WID-306) */}
-                <motion.div variants={fadeUp} className="lg:col-span-2">
+                <motion.div variants={fadeUp}>
                     <LabelSyncCard labels={labels} onToggle={handleToggleLabelSync} />
                 </motion.div>
 
+                <SectionLabel className="mt-3 px-1 first:mt-0">Data & Integrations</SectionLabel>
+
+                {/* Export & Backup */}
+                <motion.div variants={fadeUp}>
+                    <ExportBackupCard />
+                </motion.div>
+
                 {/* Browser Integration (WID-300) */}
-                <motion.div variants={fadeUp} className="lg:col-span-2">
+                <motion.div variants={fadeUp}>
                     <BrowserIntegrationsCard baseUrl={baseUrl} />
                 </motion.div>
 
                 {/* Developer credit / contribute links */}
-                <motion.div variants={fadeUp} className="lg:col-span-2">
+                <motion.div variants={fadeUp}>
                     <DeveloperCreditCard />
                 </motion.div>
             </motion.div>

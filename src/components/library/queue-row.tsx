@@ -83,7 +83,7 @@ export function QueueRow({
             tabIndex={isClickable ? 0 : undefined}
             onKeyDown={isClickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openInPlayer(); } } : undefined}
             className={cn(
-                "relative flex items-start gap-3 p-3 rounded-xl border border-border/60 bg-card/60 backdrop-blur-md shadow-sm transition-all hover:bg-card/80",
+                "relative flex items-start gap-3 rounded-lg border border-border bg-card p-2.5 transition-colors hover:bg-muted/50",
                 isClickable && "cursor-pointer hover:border-primary/40 hover:shadow-md"
             )}
         >
@@ -103,7 +103,7 @@ export function QueueRow({
             )}
 
             <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-                <p className={cn("text-sm font-semibold truncate text-foreground/90", isClickable && "group-hover:text-primary")}>
+                <p className={cn("truncate text-[13px] font-medium", isClickable && "group-hover:text-primary")}>
                     {item.title || item.originalUrl}
                 </p>
                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -118,7 +118,7 @@ export function QueueRow({
                         </Badge>
                     </motion.div>
                     {item.kind === "export" && (
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-sky-500/40 text-sky-600 dark:text-sky-400 gap-1">
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-chart-1/40 text-chart-1 dark:text-chart-1 gap-1">
                             <Scissors className="w-2.5 h-2.5 flex-shrink-0" /> Export
                         </Badge>
                     )}
@@ -158,7 +158,7 @@ export function QueueRow({
                     <div className="flex items-center gap-1.5 w-full" onClick={stop}>
                         {item.needsReview && item.status === "pending" && (
                             <Tooltip>
-                                <TooltipTrigger className="flex-shrink-0 text-amber-500 hover:text-amber-400 cursor-help">
+                                <TooltipTrigger className="flex-shrink-0 text-chart-3 hover:text-chart-3 cursor-help">
                                     <AlertCircle className="w-4 h-4" />
                                 </TooltipTrigger>
                                 <TooltipContent className="max-w-[260px]">

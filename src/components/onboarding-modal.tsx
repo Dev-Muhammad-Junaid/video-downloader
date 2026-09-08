@@ -90,18 +90,18 @@ export function OnboardingModal() {
                             transition={{ duration: 0.2 }}
                             className="flex flex-col items-center gap-4"
                         >
-                            <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
-                                <slide.icon className="w-7 h-7 text-primary" />
+                            <div className="flex size-14 items-center justify-center rounded-[14px] bg-primary/10">
+                                <slide.icon className="size-6 text-primary" strokeWidth={1.75} />
                             </div>
-                            <h2 className="text-lg font-semibold">{slide.title}</h2>
-                            <p className="text-sm text-muted-foreground leading-relaxed max-w-[340px]">
+                            <h2 className="text-[17px] font-semibold tracking-[-0.015em]">{slide.title}</h2>
+                            <p className="max-w-[340px] text-[13px] leading-relaxed text-muted-foreground">
                                 {slide.body}
                             </p>
                         </motion.div>
                     </AnimatePresence>
                 </div>
 
-                <div className="flex items-center justify-between gap-3 px-6 py-4 border-t bg-muted/30">
+                <div className="flex items-center justify-between gap-3 border-t bg-muted/60 px-5 py-3.5">
                     <div className="flex items-center gap-1.5">
                         {slides.map((_, i) => (
                             <button

@@ -51,8 +51,71 @@ export function getFfmpegPath(): string {
     return cachedFfmpegPath;
 }
 
+/**
+ * Reads a media file's duration in seconds, or null when it can't be
+ * determined. Shared so the download path and the watch-folder scan agree —
+ * they previously disagreed, and only the scan probed at all.
+ */
+export function probeDuration(filePath: string): number | null {
+    try {
+        const out = spawnSync(getFfprobePath(), [
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            filePath,
+        ], { encoding: "utf-8", timeout: 30_000 });
+
+        const seconds = parseFloat((out.stdout || "").trim());
+        return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+    } catch {
+        return null;
+    }
+}
+
 export function getFfmpegDir(): string {
     return path.dirname(getFfmpegPath());
+}
+
+let cachedFfprobePath: string | null = null;
+
+/**
+ * Resolves the bundled ffprobe the same way getFfmpegPath resolves ffmpeg.
+ *
+ * ffprobe is NOT part of @ffmpeg-installer — that package ships only the
+ * ffmpeg binary — so looking for it next to ffmpeg (which is what the preflight
+ * check used to do) never found it, and every caller fell through to a bare
+ * "ffprobe" PATH lookup. On a machine without a system ffmpeg install that
+ * simply fails, which is why durations came back empty rather than erroring.
+ */
+export function getFfprobePath(): string {
+    if (cachedFfprobePath) return cachedFfprobePath;
+
+    const override = process.env.APP_FFPROBE_PATH?.trim();
+    if (override) {
+        cachedFfprobePath = override;
+        return cachedFfprobePath;
+    }
+
+    // Same reasoning as getFfmpegPath: build the path by hand rather than
+    // requiring the installer package, whose dynamic require() breaks under
+    // Next/Turbopack server bundling.
+    const platform = process.platform;
+    const arch = process.arch;
+    const exe = platform === "win32" ? "ffprobe.exe" : "ffprobe";
+    const candidates = [
+        path.join(process.cwd(), "node_modules", "@ffprobe-installer", `${platform}-${arch}`, exe),
+    ];
+
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+            cachedFfprobePath = candidate;
+            return cachedFfprobePath;
+        }
+    }
+
+    // Last fallback for dev environments where a system ffprobe exists.
+    cachedFfprobePath = "ffprobe";
+    return cachedFfprobePath;
 }
 
 function getFiltersOutput(): string {

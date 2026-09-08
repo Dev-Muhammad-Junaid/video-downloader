@@ -152,8 +152,8 @@ export function WaveformPlayer({
         return (
             <div className={cn("w-full h-full flex flex-col items-center justify-center gap-8 px-6 py-8 sm:px-10", className)}>
                 <audio ref={audioRef} src={src} preload="metadata" autoPlay={autoPlay} />
-                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/40 to-primary/5 flex items-center justify-center ring-1 ring-white/10 shadow-xl">
-                    <Music className="w-9 h-9 text-white/80" />
+                <div className="flex size-20 items-center justify-center rounded-[18px] bg-white/10 ring-1 ring-white/15">
+                    <Music className="size-8 text-white/80" strokeWidth={1.5} />
                 </div>
                 <div className="w-full max-w-xl space-y-3">
                     <div className="h-20 flex items-center">
@@ -166,13 +166,13 @@ export function WaveformPlayer({
                 </div>
                 <div className="flex items-center gap-6">
                     <button onClick={() => skip(-10)} className="w-10 h-10 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors" aria-label="Back 10 seconds">
-                        <span className="text-[11px] font-bold">-10</span>
+                        <span className="text-[11px] font-semibold tabular">-10</span>
                     </button>
-                    <button onClick={toggle} className="w-14 h-14 rounded-full bg-white text-black flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-transform" aria-label={isPlaying ? "Pause" : "Play"}>
+                    <button onClick={toggle} className="flex size-14 items-center justify-center rounded-full bg-white text-black shadow-[0_2px_10px_rgb(0_0_0/0.3)] transition-transform hover:scale-105 active:scale-95" aria-label={isPlaying ? "Pause" : "Play"}>
                         {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
                     </button>
                     <button onClick={() => skip(10)} className="w-10 h-10 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors" aria-label="Forward 10 seconds">
-                        <span className="text-[11px] font-bold">+10</span>
+                        <span className="text-[11px] font-semibold tabular">+10</span>
                     </button>
                 </div>
             </div>
@@ -185,7 +185,7 @@ export function WaveformPlayer({
             <audio ref={audioRef} src={src} preload="metadata" autoPlay={autoPlay} />
             <button
                 onClick={toggle}
-                className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center shrink-0 shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-transform"
+                className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_2px_8px_rgb(0_0_0/0.22)] transition-transform hover:scale-105 active:scale-95"
                 aria-label={isPlaying ? "Pause" : "Play"}
             >
                 {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}

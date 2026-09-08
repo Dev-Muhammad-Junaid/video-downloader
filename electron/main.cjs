@@ -1,7 +1,7 @@
 // Electron main process. Plain CommonJS — Electron runs this directly with no
 // build/compile step, which keeps the "app shell" independent of the Next.js
 // build pipeline it wraps.
-const { app, BrowserWindow, shell } = require("electron");
+const { app, BrowserWindow, shell, nativeTheme } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
@@ -76,8 +76,13 @@ function stopProductionServer() {
 
 function createWindow() {
     mainWindow = new BrowserWindow({
-        width: 1440,
-        height: 900,
+        // Opens at roughly tablet size rather than filling a desktop display.
+        // Deliberately kept above the sidebar's 1100px auto-collapse threshold
+        // (AUTO_COLLAPSE_WIDTH in app-sidebar.tsx) so the app doesn't launch
+        // with its own navigation already collapsed to an icon rail.
+        width: 1180,
+        height: 820,
+        center: true,
         // Low enough to reach true mobile widths — the app's own responsive
         // breakpoints (sidebar icon-collapse, mobile drawer) handle anything
         // smaller than a "desktop" width, so the window itself shouldn't be
@@ -85,6 +90,15 @@ function createWindow() {
         minWidth: 360,
         minHeight: 500,
         title: "SnapDown",
+        // The defining chrome of a native Mac app: no separate OS title bar,
+        // with the traffic lights floating over the app's own toolbar. The
+        // renderer reserves space for them (see AppToolbar / AppSidebar), and
+        // the y offset centres them in that 52px toolbar.
+        titleBarStyle: "hiddenInset",
+        trafficLightPosition: { x: 19, y: 18 },
+        // Matches the light/dark window background so the first paint doesn't
+        // flash white before the renderer's theme applies.
+        backgroundColor: nativeTheme.shouldUseDarkColors ? "#1c1c1e" : "#ffffff",
         webPreferences: {
             contextIsolation: true,
             nodeIntegration: false,

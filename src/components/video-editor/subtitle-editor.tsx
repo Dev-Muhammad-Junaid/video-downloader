@@ -566,7 +566,7 @@ export function SubtitleEditor({
                                         </div>
                                         <div className="flex items-center gap-1.5">
                                             {isLowConfidence && (
-                                                <span className="flex items-center gap-0.5 text-amber-400/80" title="Low confidence — review recommended">
+                                                <span className="flex items-center gap-0.5 text-chart-3/80" title="Low confidence — review recommended">
                                                     <AlertTriangle className="w-3 h-3" />
                                                 </span>
                                             )}

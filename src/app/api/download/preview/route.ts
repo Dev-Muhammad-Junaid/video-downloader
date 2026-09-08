@@ -8,7 +8,7 @@ import { getYtdlpPath, describeYtdlpError } from "@/lib/ytdlp";
 
 const execFileAsync = promisify(execFile);
 
-const GALLERY_DL_PATH = path.join(os.homedir(), ".local", "bin", "gallery-dl");
+import { GALLERY_DL_PATH } from "@/lib/gallery-dl";
 
 export async function POST(req: Request) {
     try {

@@ -26,12 +26,12 @@ export function UpdateNotifier() {
             <Button
                 variant="ghost"
                 title={`Update available: ${info.latestVersion}`}
-                className="w-full justify-start gap-2 h-8 text-sm text-primary hover:text-primary relative group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:justify-center"
+                className="relative h-[30px] w-full justify-start gap-2.5 px-2 text-[13px] font-medium text-primary hover:text-primary group-data-[collapsible=icon]:size-[30px]! group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0! [&>span>svg]:size-[15px]"
                 onClick={() => setOpen(true)}
             >
                 <span className="relative shrink-0">
-                    <Download className="w-4 h-4" />
-                    <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-primary animate-pulse" />
+                    <Download />
+                    <span className="absolute -right-1 -top-1 size-2 rounded-full bg-primary ring-2 ring-sidebar" />
                 </span>
                 <span className="group-data-[collapsible=icon]:hidden">Update Available</span>
             </Button>
@@ -40,18 +40,18 @@ export function UpdateNotifier() {
                 <DialogContent className="max-w-md">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
-                            <Download className="w-5 h-5 text-primary" />
+                            <Download className="size-4 text-primary" />
                             SnapDown {info.latestVersion} is available
                         </DialogTitle>
                     </DialogHeader>
 
-                    <p className="text-xs text-muted-foreground -mt-2">
+                    <p className="-mt-2 text-[12px] text-muted-foreground">
                         You&rsquo;re on {info.currentVersion}. Downloading and installing is entirely up to you — nothing updates automatically.
                     </p>
 
                     {info.changelog && (
-                        <div className="max-h-64 overflow-y-auto rounded-lg border bg-muted/30 p-3">
-                            <pre className="text-xs whitespace-pre-wrap font-sans text-foreground/90">{info.changelog}</pre>
+                        <div className="max-h-64 overflow-y-auto rounded-md border bg-muted/50 p-3">
+                            <pre className="whitespace-pre-wrap font-sans text-[12px] leading-relaxed text-foreground/90">{info.changelog}</pre>
                         </div>
                     )}
 
@@ -62,7 +62,7 @@ export function UpdateNotifier() {
                             rel="noopener noreferrer"
                             className={cn(buttonVariants({ variant: "default" }), "flex-1 gap-1.5")}
                         >
-                            <Download className="w-4 h-4" />
+                            <Download className="size-3.5" />
                             Download for macOS
                         </a>
                         <a
@@ -72,7 +72,7 @@ export function UpdateNotifier() {
                             className={cn(buttonVariants({ variant: "outline", size: "icon" }))}
                             title="View full release notes on GitHub"
                         >
-                            <ExternalLink className="w-4 h-4" />
+                            <ExternalLink className="size-3.5" />
                         </a>
                     </div>
                     <p className="text-[11px] text-muted-foreground flex items-center gap-1">

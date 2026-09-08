@@ -26,7 +26,7 @@ export function DownloaderCard({ ytCookiesBrowser, setYtCookiesBrowser, onSave }
     return (
         <Card>
             <CardHeader>
-                <CardTitle className="text-xl flex items-center gap-2">
+                <CardTitle className="flex items-center gap-2">
                     <Cookie className="w-5 h-5 text-primary" />
                     Downloader Cookies
                     <Tooltip>
@@ -62,7 +62,9 @@ export function DownloaderCard({ ytCookiesBrowser, setYtCookiesBrowser, onSave }
                         </SelectContent>
                     </Select>
                 </div>
-                <Button onClick={onSave} className="w-full">Save</Button>
+                <div className="flex justify-end">
+                    <Button onClick={onSave}>Save</Button>
+                </div>
             </CardContent>
         </Card>
     );

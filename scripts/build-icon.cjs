@@ -1,6 +1,13 @@
-// Regenerates build/icon.icns from build/icon-source.svg.
-// Run manually after editing the source SVG: `node scripts/build-icon.cjs`
+// Regenerates every derived icon asset from build/icon-source.svg, which is the
+// single source of truth for the app mark. Run after editing that SVG:
+//   node scripts/build-icon.cjs
 // (requires macOS — uses the built-in `iconutil` to produce the .icns).
+//
+// Deriving all of them here matters: these live in three different places for
+// three different consumers, and hand-updating them drifts. In particular
+// src/app/icon.png is a Next.js metadata file, which means Next serves it at
+// /icon.png and it SHADOWS public/icon.png — so a stale one silently wins over
+// a freshly generated public/ copy and the app keeps showing the old mark.
 const sharp = require("sharp");
 const { execFileSync } = require("child_process");
 const fs = require("fs");
@@ -36,6 +43,27 @@ async function main() {
     execFileSync("iconutil", ["-c", "icns", iconsetDir, "-o", icnsPath]);
     fs.rmSync(iconsetDir, { recursive: true, force: true });
     console.log(`[build-icon] wrote ${path.relative(root, icnsPath)}`);
+
+    // Everything else that renders the mark, from the same source.
+    const derived = [
+        // Next.js metadata icon: the favicon, and what /icon.png resolves to
+        // for the sidebar/toolbar <Image>.
+        [path.join(root, "src", "app", "icon.png"), 512],
+        // Chrome/Edge extension action icon.
+        [path.join(root, "extension", "icons", "icon128.png"), 128],
+        // Imported by the UI. This is a *static import* rather than a /icon.png
+        // URL on purpose: Next fingerprints statically imported images, so the
+        // mark's URL changes whenever its bytes do. Referencing /icon.png went
+        // through the image optimizer, which serves an immutable long-lived
+        // cache header on a URL that stays identical across releases — so an
+        // updated icon kept rendering from the old cached response.
+        [path.join(root, "src", "assets", "app-icon.png"), 512],
+    ];
+    for (const [outPath, size] of derived) {
+        fs.mkdirSync(path.dirname(outPath), { recursive: true });
+        await sharp(svgPath).resize(size, size).png().toFile(outPath);
+        console.log(`[build-icon] wrote ${path.relative(root, outPath)}`);
+    }
 }
 
 main();
