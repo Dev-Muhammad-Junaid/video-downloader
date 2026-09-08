@@ -19,6 +19,10 @@ fs.mkdirSync(userDataDir, { recursive: true });
 
 let mainWindow = null;
 let serverProcess = null;
+// Distinguishes a server exit we asked for (quitting) from one we didn't
+// (a crash), so only the latter triggers a restart.
+let stoppingDeliberately = false;
+let isQuitting = false;
 
 function waitForServer(url, { timeoutMs = 30000, intervalMs = 300 } = {}) {
     const deadline = Date.now() + timeoutMs;
@@ -37,6 +41,32 @@ function waitForServer(url, { timeoutMs = 30000, intervalMs = 300 } = {}) {
             });
         };
         tryOnce();
+    });
+}
+
+/**
+ * Is something already serving *our* app on the port?
+ *
+ * Checked rather than assumed, because a bare "does the port answer" probe
+ * happily succeeds against an unrelated dev server — and on a developer's
+ * machine port 3000 is the most contended port there is. Loading that would
+ * show someone else's site inside SnapDown.
+ */
+function probeOurServer(url, { timeoutMs = 2000 } = {}) {
+    return new Promise((resolve) => {
+        const req = http.get(`${url}/api/check-update`, { timeout: timeoutMs }, (res) => {
+            let body = "";
+            res.on("data", (chunk) => { body += chunk; });
+            res.on("end", () => {
+                try {
+                    resolve(Boolean(JSON.parse(body).currentVersion));
+                } catch {
+                    resolve(false);
+                }
+            });
+        });
+        req.on("error", () => resolve(false));
+        req.on("timeout", () => { req.destroy(); resolve(false); });
     });
 }
 
@@ -60,17 +90,61 @@ function startProductionServer() {
         stdio: "inherit",
     });
 
+    // The window is useless without the server behind it, and the failure is
+    // invisible — the page simply never loads and you get an empty window in
+    // the background colour. So an unexpected exit gets restarted rather than
+    // just logged.
     serverProcess.on("exit", (code) => {
-        if (code !== 0 && code !== null) {
-            console.error(`[SnapDown] server process exited with code ${code}`);
-        }
+        serverProcess = null;
+        if (isQuitting || stoppingDeliberately) return;
+
+        console.error(`[SnapDown] server exited unexpectedly (code ${code}) — restarting`);
+        void reviveServer();
     });
 }
 
 function stopProductionServer() {
+    stoppingDeliberately = true;
     if (serverProcess && !serverProcess.killed) {
         serverProcess.kill();
-        serverProcess = null;
+    }
+    serverProcess = null;
+}
+
+/**
+ * Makes sure the app has a working server behind it, starting one if needed.
+ * Safe to call repeatedly — reused on launch, on re-activation from the Dock,
+ * and after a crash.
+ */
+async function ensureServerRunning() {
+    if (isDev) return;
+    stoppingDeliberately = false;
+
+    if (await probeOurServer(APP_URL)) return;
+
+    if (!serverProcess) startProductionServer();
+    await waitForServer(APP_URL);
+}
+
+/** Restart after an unexpected exit, backing off, then give up gracefully. */
+async function reviveServer(attempt = 1) {
+    const MAX_ATTEMPTS = 5;
+    if (isQuitting) return;
+
+    try {
+        await new Promise((r) => setTimeout(r, Math.min(attempt * 500, 3000)));
+        if (isQuitting) return;
+        await ensureServerRunning();
+        // Whatever the window was showing is stale now — reload it into the
+        // freshly started server.
+        mainWindow?.loadURL(APP_URL);
+    } catch (err) {
+        if (attempt >= MAX_ATTEMPTS) {
+            console.error("[SnapDown] server could not be restarted:", err);
+            showStartupFailure(err);
+            return;
+        }
+        void reviveServer(attempt + 1);
     }
 }
 
@@ -129,37 +203,127 @@ function createWindow() {
     // Client-side navigations keep the same document, but a reload doesn't.
     mainWindow.webContents.on("did-navigate-in-page", markAsDesktop);
 
-    mainWindow.loadURL(APP_URL);
+    // A renderer crash leaves the window blank with no indication why, so
+    // bring it back rather than leaving a dead frame on screen.
+    mainWindow.webContents.on("render-process-gone", (_event, details) => {
+        console.error(`[SnapDown] renderer gone: ${details.reason}`);
+        if (!isQuitting) void openApp();
+    });
 
     mainWindow.on("closed", () => {
         mainWindow = null;
     });
 }
 
-app.whenReady().then(async () => {
+/**
+ * Replaces a blank window with something that says what went wrong.
+ *
+ * Without this a server that won't start leaves an empty window painted in the
+ * background colour and nothing else — no text, no error, no hint that a
+ * child process is missing. It keeps retrying in the background and swaps
+ * itself out for the app the moment the server answers.
+ */
+function showStartupFailure(err) {
+    if (!mainWindow) return;
+
+    const detail = String(err?.message || err || "Unknown error")
+        .replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    const dark = nativeTheme.shouldUseDarkColors;
+
+    const page = `
+        <meta charset="utf-8">
+        <style>
+          :root { color-scheme: ${dark ? "dark" : "light"}; }
+          body {
+            margin: 0; height: 100vh; display: flex; align-items: center;
+            justify-content: center; text-align: center; -webkit-app-region: drag;
+            font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+            background: ${dark ? "#1c1c1e" : "#f6f6f8"};
+            color: ${dark ? "#f5f5f7" : "#1d1d1f"};
+          }
+          .box { max-width: 420px; padding: 0 32px; }
+          h1 { font-size: 15px; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.01em; }
+          p { margin: 0 0 6px; color: ${dark ? "#98989d" : "#6e6e73"}; line-height: 1.5; }
+          code {
+            font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+            background: ${dark ? "#2c2c2e" : "#ececef"};
+            padding: 2px 5px; border-radius: 4px;
+          }
+        </style>
+        <div class="box">
+          <h1>SnapDown couldn't start its background service</h1>
+          <p>It will keep trying. If this persists, another program may be using
+             port ${PORT} &mdash; quit it, or set <code>SNAPDOWN_PORT</code> to a free port.</p>
+          <p><code>${detail}</code></p>
+        </div>`;
+
+    mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(page)}`);
+
+    // Keep trying, and take the window back to the app once it's healthy.
+    const retry = setInterval(async () => {
+        if (isQuitting || !mainWindow) return clearInterval(retry);
+        if (await probeOurServer(APP_URL)) {
+            clearInterval(retry);
+            mainWindow.loadURL(APP_URL);
+        }
+    }, 3000);
+}
+
+/** Bring the app back up, whether from launch or from the Dock. */
+async function openApp() {
     try {
-        if (!isDev) {
-            startProductionServer();
-        }
-        // Dev mode: `npm run electron:dev` already waits for `next dev` to be
-        // ready (via wait-on) before launching Electron, so no extra wait here.
-        if (!isDev) {
-            await waitForServer(APP_URL);
-        }
-        createWindow();
+        await ensureServerRunning();
+        if (!mainWindow) createWindow();
+        mainWindow.loadURL(APP_URL);
     } catch (err) {
         console.error("[SnapDown] failed to start:", err);
-        app.quit();
+        // A failure here used to quit the app outright on launch, and produce a
+        // permanently blank window on re-activation. Neither told the user
+        // anything, so show the reason and keep retrying instead.
+        if (!mainWindow) createWindow();
+        showStartupFailure(err);
     }
+}
 
-    app.on("activate", () => {
-        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+// A second launch must not spawn a rival instance: it would fail to bind the
+// port, and worse, whichever instance quits first takes the shared server down
+// with it and leaves the other showing an empty window.
+if (!app.requestSingleInstanceLock()) {
+    app.quit();
+} else {
+    app.on("second-instance", () => {
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.focus();
+        } else {
+            void openApp();
+        }
     });
-});
+
+    app.whenReady().then(() => {
+        void openApp();
+
+        app.on("activate", () => {
+            // Re-opening from the Dock has to re-check the server, not just the
+            // window — the two can outlive each other.
+            void openApp();
+        });
+    });
+}
 
 app.on("window-all-closed", () => {
-    stopProductionServer();
-    if (process.platform !== "darwin") app.quit();
+    // Deliberately does NOT stop the server on macOS. The app stays resident
+    // when its window closes (standard macOS behaviour), so killing the server
+    // here left the process alive with nothing behind it — reopening from the
+    // Dock then loaded a dead URL and showed an empty window. The server is
+    // shut down on quit instead.
+    if (process.platform !== "darwin") {
+        stopProductionServer();
+        app.quit();
+    }
 });
 
-app.on("before-quit", stopProductionServer);
+app.on("before-quit", () => {
+    isQuitting = true;
+    stopProductionServer();
+});
