@@ -99,7 +99,7 @@ export function setDownloadsDir(newDir: string) {
     fs.writeFileSync(settingsPath, resolved, "utf-8");
 }
 
-const GALLERY_DL_PATH = path.join(os.homedir(), ".local", "bin", "gallery-dl");
+import { GALLERY_DL_PATH } from "@/lib/gallery-dl";
 
 export function getJob(id: string) {
     return activeDownloads.get(id);

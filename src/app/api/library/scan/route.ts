@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { prisma } from "@/lib/prisma";
+import { getFfprobePath } from "@/lib/ffmpeg";
 
 const execFileAsync = promisify(execFile);
 
@@ -15,7 +16,7 @@ const ALL_MEDIA_EXTENSIONS = new Set([...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS, 
 
 async function getDuration(filePath: string): Promise<number | null> {
     try {
-        const { stdout } = await execFileAsync("ffprobe", [
+        const { stdout } = await execFileAsync(getFfprobePath(), [
             "-v", "error",
             "-show_entries", "format=duration",
             "-of", "default=noprint_wrappers=1:nokey=1",

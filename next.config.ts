@@ -18,6 +18,8 @@ const nextConfig: NextConfig = {
     "/**/*": [
       "./node_modules/@ffmpeg-installer/darwin-arm64/**",
       "./node_modules/@ffmpeg-installer/darwin-x64/**",
+      "./node_modules/@ffprobe-installer/darwin-arm64/**",
+      "./node_modules/@ffprobe-installer/darwin-x64/**",
     ],
   },
   turbopack: {

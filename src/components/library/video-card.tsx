@@ -29,8 +29,8 @@ import {
     Trash2,
     Tags,
     PlusCircle,
-    CheckSquare,
     Square,
+    Check,
     Music,
 } from "lucide-react";
 import type { Video } from "@/types/media";
@@ -44,7 +44,6 @@ type LabelLite = { id: string; name: string; color: string | null };
  */
 export interface VideoCardProps {
     video: Video;
-    selectionMode: boolean;
     selectedIds: Set<string>;
     displayedVideos: Video[];
     newLabelName: string;
@@ -72,7 +71,6 @@ export interface VideoCardProps {
 
 export function VideoCard({
     video,
-    selectionMode,
     selectedIds,
     displayedVideos,
     newLabelName,
@@ -98,10 +96,22 @@ export function VideoCard({
     openDeleteDialog,
 }: VideoCardProps) {
     const isSelected = selectedIds.has(video.id);
+    const anySelected = selectedIds.size > 0;
     const openInPlayer = () => {
         const idx = displayedVideos.findIndex(v => v.id === video.id);
         setPlayerIndex(idx >= 0 ? idx : 0);
         setPlayerOpen(true);
+    };
+
+    // Finder's model: a plain click opens, a modified click selects. Once
+    // something is selected, a plain click extends the selection instead of
+    // opening — otherwise clicking the next card would blow the selection away.
+    const handleCardClick = (e: React.MouseEvent) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || anySelected) {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleSelection(video.id, e);
+        }
     };
     return (
         <Card
@@ -110,9 +120,9 @@ export function VideoCard({
                 "group relative flex flex-col overflow-hidden rounded-[10px] transition-[box-shadow,border-color] duration-150",
                 "hover:border-border hover:shadow-[0_2px_8px_rgb(0_0_0/0.07)] dark:hover:shadow-[0_2px_8px_rgb(0_0_0/0.35)]",
                 isSelected && "border-primary ring-2 ring-primary/35",
-                selectionMode && "cursor-pointer"
+                anySelected && "cursor-pointer"
             )}
-            onClick={selectionMode ? (e) => toggleSelection(video.id, e) : undefined}
+            onClick={handleCardClick}
         >
             {/* Media Preview — clean, uniform thumbnail for every media type */}
             <div
@@ -121,22 +131,28 @@ export function VideoCard({
                     video.mediaType === "image" ? "bg-muted/40" : video.mediaType === "audio" ? "" : "bg-muted/40"
                 )}
             >
-                {/* Selection checkbox overlay */}
-                {selectionMode && (
-                    <div className={cn(
-                        "absolute top-2.5 left-2.5 z-20 w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-150",
+                {/* Selection affordance. Shortcuts alone would be invisible to
+                    anyone who doesn't already know them, so the checkbox appears
+                    on hover and stays put once a selection exists. */}
+                <button
+                    type="button"
+                    aria-label={isSelected ? `Deselect ${video.title}` : `Select ${video.title}`}
+                    aria-pressed={isSelected}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleSelection(video.id, e); }}
+                    className={cn(
+                        "absolute left-2.5 top-2.5 z-20 flex size-[22px] items-center justify-center rounded-md transition-all duration-150",
+                        "focus-visible:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/45 focus-visible:outline-none",
                         isSelected
-                            ? "bg-primary text-primary-foreground shadow-md scale-100"
-                            : "bg-background/70 backdrop-blur-md border border-border/60 text-muted-foreground hover:bg-background/90 hover:scale-105"
-                    )}>
-                        {isSelected
-                            ? <CheckSquare className="w-4 h-4" />
-                            : <Square className="w-4 h-4" />}
-                    </div>
-                )}
+                            ? "bg-primary text-primary-foreground opacity-100 shadow-[0_1px_3px_rgb(0_0_0/0.3)]"
+                            : "border border-white/25 bg-black/45 text-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 hover:bg-black/65",
+                        anySelected && !isSelected && "opacity-100"
+                    )}
+                >
+                    {isSelected ? <Check className="size-3.5" strokeWidth={3} /> : <Square className="size-3.5" />}
+                </button>
 
-                {/* Expand / Play button — hidden in selection mode */}
-                {!selectionMode && (
+                {/* Expand / Play button — stands down while a selection is active */}
+                {!anySelected && (
                     <Button
                         variant="secondary"
                         size="icon"
@@ -171,8 +187,8 @@ export function VideoCard({
 
                 {video.mediaType === "image" ? (
                     <div
-                        className={cn("w-full h-full", !selectionMode && "cursor-pointer")}
-                        onClick={selectionMode ? undefined : (e) => { e.stopPropagation(); openInPlayer(); }}
+                        className={cn("w-full h-full", !anySelected && "cursor-pointer")}
+                        onClick={anySelected ? undefined : (e) => { e.stopPropagation(); openInPlayer(); }}
                     >
                         <img
                             src={`/api/media?path=${encodeURIComponent(video.localPath)}`}
@@ -183,7 +199,7 @@ export function VideoCard({
                     </div>
                 ) : video.mediaType === "audio" ? (
                     <div className="w-full h-full bg-gradient-to-br from-primary/10 via-muted/30 to-muted/55">
-                        {selectionMode ? (
+                        {anySelected ? (
                             <div className="w-full h-full flex items-center justify-center">
                                 <Music className="w-10 h-10 text-muted-foreground/30" />
                             </div>
@@ -198,8 +214,8 @@ export function VideoCard({
                 ) : (
                     // Video: a clean poster thumbnail with a play overlay — opens the media player.
                     <div
-                        className={cn("w-full h-full relative", !selectionMode && "cursor-pointer")}
-                        onClick={selectionMode ? undefined : (e) => { e.stopPropagation(); openInPlayer(); }}
+                        className={cn("w-full h-full relative", !anySelected && "cursor-pointer")}
+                        onClick={anySelected ? undefined : (e) => { e.stopPropagation(); openInPlayer(); }}
                     >
                         {video.thumbnailPath ? (
                             <img src={`/api/thumbnail/${video.id}`} alt={video.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" loading="lazy" />
@@ -208,7 +224,7 @@ export function VideoCard({
                                 <VideoIcon className="w-10 h-10 text-muted-foreground/30" />
                             </div>
                         )}
-                        {!selectionMode && (
+                        {!anySelected && (
                             <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                 <span className="w-12 h-12 rounded-full bg-black/45 backdrop-blur-sm flex items-center justify-center text-white transition-all group-hover:bg-black/65 group-hover:scale-105">
                                     <Play className="w-5 h-5 fill-white ml-0.5" />
@@ -236,7 +252,7 @@ export function VideoCard({
                 </div>
 
                 {/* Labels */}
-                {((video.labels && video.labels.length > 0) || !selectionMode) && (
+                {((video.labels && video.labels.length > 0) || !anySelected) && (
                     <div className="flex flex-wrap gap-1 mt-0.5">
                         {video.labels?.map(label => (
                             <Badge key={label.id} variant="secondary" className="text-[10px] px-1.5 py-0 hover:bg-destructive/10 hover:text-destructive cursor-pointer hover:line-through transition-all" onClick={(e) => { e.stopPropagation(); detachLabel(video.id, label.id); }} title="Click to remove">
@@ -244,7 +260,7 @@ export function VideoCard({
                             </Badge>
                         ))}
 
-                        {!selectionMode && (
+                        {!anySelected && (
                             <Popover onOpenChange={(open) => { if (open) setNewLabelName(""); }}>
                                 <PopoverTrigger className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-[18px] text-[10px] px-1.5 py-0 text-muted-foreground hover:text-foreground border border-dashed border-border/50 rounded-full")} onClick={(e) => e.stopPropagation()}>
                                     <PlusCircle className="w-3 h-3 mr-1" /> Label
@@ -334,8 +350,9 @@ export function VideoCard({
                 )}
             </div>
 
-            {/* Actions footer — hidden during selection mode to prevent accidental clicks */}
-            {!selectionMode && (
+            {/* Actions footer — stands down while a selection is active, so a stray
+                click cannot fire a per-item action mid-selection */}
+            {!anySelected && (
             <div className="px-3 pb-3 pt-0 flex items-center justify-between mt-auto">
                 <div className="flex items-center gap-1">
                     {video.cloudKey ? (

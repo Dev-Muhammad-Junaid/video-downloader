@@ -36,7 +36,7 @@ import {
     CommandList
 } from "@/components/ui/command";
 import { toast } from "sonner";
-import { Trash2, Tags, CheckSquare, Music, X } from "lucide-react";
+import { Trash2, Tags, Music, X } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { MediaPlayerModal } from "@/components/media-player-modal";
 import { ImageEditorModal } from "@/components/image-editor/image-editor-modal";
@@ -84,8 +84,10 @@ export default function LibraryPage() {
     const [deepSearchLoading, setDeepSearchLoading] = useState(false);
 
     // Bulk Selection State
+    // Selection is no longer a mode you enter — it's just whether anything is
+    // selected. ⌘-click / shift-click / the card's hover checkbox start it,
+    // Escape ends it. Nothing to toggle, so there's no Select button.
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-    const [selectionMode, setSelectionMode] = useState(false);
     const lastSelectedIndex = React.useRef<number | null>(null);
 
     // Dev seed state (only meaningful in development)
@@ -232,30 +234,54 @@ export default function LibraryPage() {
         const currentIndex = displayedVideos.findIndex(v => v.id === videoId);
 
         if (e?.shiftKey && lastSelectedIndex.current !== null && currentIndex !== -1) {
+            // Shift extends from the anchor. The anchor deliberately stays put,
+            // so shift-clicking around re-sweeps from the same origin the way a
+            // file manager does, rather than walking the anchor along with you.
             const start = Math.min(lastSelectedIndex.current, currentIndex);
             const end = Math.max(lastSelectedIndex.current, currentIndex);
-            setSelectedIds(prev => {
-                const next = new Set(prev);
-                for (let i = start; i <= end; i++) {
-                    next.add(displayedVideos[i].id);
-                }
+            setSelectedIds(() => {
+                const next = new Set<string>();
+                for (let i = start; i <= end; i++) next.add(displayedVideos[i].id);
                 return next;
             });
-        } else {
-            setSelectedIds(prev => {
-                const next = new Set(prev);
-                if (next.has(videoId)) next.delete(videoId);
-                else next.add(videoId);
-                return next;
-            });
+            return;
         }
 
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(videoId)) next.delete(videoId);
+            else next.add(videoId);
+            return next;
+        });
         if (currentIndex !== -1) lastSelectedIndex.current = currentIndex;
     }, [displayedVideos]);
 
+    // ⌘A / Esc, the two shortcuts people already expect from Finder. Ignored
+    // while typing so ⌘A still means "select this text" in the search box.
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            const el = document.activeElement;
+            const typing = el instanceof HTMLElement &&
+                (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a" && !typing) {
+                e.preventDefault();
+                setSelectedIds(new Set(displayedVideos.map(v => v.id)));
+                return;
+            }
+            if (e.key === "Escape" && !typing) {
+                setSelectedIds(new Set());
+            }
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [displayedVideos]);
+
+    // Select All means what's actually on screen — selecting filtered-out items
+    // you can't see would make the count lie.
     const selectAll = useCallback(() => {
-        setSelectedIds(new Set(videos.map(v => v.id)));
-    }, [videos]);
+        setSelectedIds(new Set(displayedVideos.map(v => v.id)));
+    }, [displayedVideos]);
 
     const deselectAll = useCallback(() => {
         setSelectedIds(new Set());
@@ -271,7 +297,6 @@ export default function LibraryPage() {
         <VideoCard
             key={video.id}
             video={video}
-            selectionMode={selectionMode}
             selectedIds={selectedIds}
             displayedVideos={displayedVideos}
             newLabelName={newLabelName}
@@ -300,17 +325,15 @@ export default function LibraryPage() {
 
     return (
         <div className="mx-auto w-full max-w-[1600px] space-y-7 px-6 py-5">
-            <ToolbarActions>
-                <Button
-                    variant={selectionMode ? "default" : "outline"}
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={() => { setSelectionMode(!selectionMode); if (selectionMode) deselectAll(); }}
-                >
-                    <CheckSquare />
-                    {selectionMode ? "Done" : "Select"}
-                </Button>
-            </ToolbarActions>
+            {/* Only surfaces once a selection exists — there's no mode to enter. */}
+            {selectedIds.size > 0 && (
+                <ToolbarActions>
+                    <span className="tabular text-[12px] text-muted-foreground">
+                        {selectedIds.size} selected
+                    </span>
+                    <Button variant="outline" size="sm" onClick={deselectAll}>Done</Button>
+                </ToolbarActions>
+            )}
 
 
             {/* Top Section: Dashboard Split View */}
@@ -630,18 +653,21 @@ export default function LibraryPage() {
                         )}
                     </div>
 
-                    {selectionMode && (
-                        <div className="flex flex-wrap items-center gap-2 py-2 px-3 rounded-lg bg-primary/5 border border-primary/15">
-                            <span className="text-xs text-muted-foreground mr-1">
-                                {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Tap items to select"}
-                                <span className="hidden sm:inline ml-1 opacity-60">· Hold Shift for range</span>
+                    {/* Appears with the first selected item and leaves with the last. */}
+                    {selectedIds.size > 0 && (
+                        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/20 bg-primary/6 px-3 py-2">
+                            <span className="tabular mr-1 text-[12px] font-medium">
+                                {selectedIds.size} selected
+                                <span className="ml-1.5 hidden font-normal text-muted-foreground sm:inline">
+                                    · ⇧-click for a range · ⌘A all · esc to clear
+                                </span>
                             </span>
-                            <div className="w-px h-4 bg-border/50" />
-                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={selectAll}>All</Button>
-                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={deselectAll}>Clear</Button>
+                            <div className="h-4 w-px bg-border" />
+                            <Button variant="ghost" size="xs" onClick={selectAll}>Select All</Button>
+                            <Button variant="ghost" size="xs" onClick={deselectAll}>Clear</Button>
                             {selectedIds.size > 0 && (
                                 <>
-                                    <div className="w-px h-5 bg-border/50 mx-1" />
+                                    <div className="mx-1 h-5 w-px bg-border" />
                                     <Button
                                         variant="destructive"
                                         size="sm"
