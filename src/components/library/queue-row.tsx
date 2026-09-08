@@ -118,7 +118,7 @@ export function QueueRow({
                         </Badge>
                     </motion.div>
                     {item.kind === "export" && (
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-sky-500/40 text-sky-600 dark:text-sky-400 gap-1">
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-chart-1/40 text-chart-1 dark:text-chart-1 gap-1">
                             <Scissors className="w-2.5 h-2.5 flex-shrink-0" /> Export
                         </Badge>
                     )}
@@ -158,7 +158,7 @@ export function QueueRow({
                     <div className="flex items-center gap-1.5 w-full" onClick={stop}>
                         {item.needsReview && item.status === "pending" && (
                             <Tooltip>
-                                <TooltipTrigger className="flex-shrink-0 text-amber-500 hover:text-amber-400 cursor-help">
+                                <TooltipTrigger className="flex-shrink-0 text-chart-3 hover:text-chart-3 cursor-help">
                                     <AlertCircle className="w-4 h-4" />
                                 </TooltipTrigger>
                                 <TooltipContent className="max-w-[260px]">

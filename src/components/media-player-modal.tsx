@@ -245,7 +245,7 @@ export function MediaPlayerModal({
                                     {video.mediaType === "image" ? "Image" : video.mediaType === "audio" ? "Audio" : "Video"}
                                 </Badge>
                                 {video.cloudKey && (
-                                    <Badge variant="secondary" className="text-[10px] text-emerald-500">
+                                    <Badge variant="secondary" className="text-[10px] text-chart-2">
                                         <Cloud className="w-3 h-3 mr-1" /> Cloud Synced
                                     </Badge>
                                 )}
@@ -287,7 +287,7 @@ export function MediaPlayerModal({
                             <div className="p-4 border-b border-border bg-muted/20">
                                 <div className="flex items-center justify-between mb-2">
                                     <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                                        <Mic className="w-3.5 h-3.5 text-violet-500" />
+                                        <Mic className="w-3.5 h-3.5 text-chart-4" />
                                         AI Transcription
                                     </p>
                                     {video.transcriptStatus && (
@@ -302,7 +302,7 @@ export function MediaPlayerModal({
                                 
                                 {video.transcriptStatus === "completed" && video.transcriptText ? (
                                     <div className="mt-2 relative group">
-                                        <div className="text-[11px] leading-relaxed text-muted-foreground bg-background p-2 rounded border border-border/50 max-h-[150px] overflow-y-auto whitespace-pre-wrap font-sans italic selection:bg-violet-500/20">
+                                        <div className="text-[11px] leading-relaxed text-muted-foreground bg-background p-2 rounded border border-border/50 max-h-[150px] overflow-y-auto whitespace-pre-wrap font-sans italic selection:bg-chart-4/20">
                                             {video.transcriptText}
                                         </div>
                                         <Button 
@@ -316,7 +316,7 @@ export function MediaPlayerModal({
                                     </div>
                                 ) : video.transcriptStatus === "processing" ? (
                                     <div className="flex items-center gap-2 py-4 justify-center">
-                                        <Loader2 className="w-4 h-4 animate-spin text-violet-500" />
+                                        <Loader2 className="w-4 h-4 animate-spin text-chart-4" />
                                         <span className="text-xs text-muted-foreground">Transcribing...</span>
                                     </div>
                                 ) : video.transcriptStatus === "error" ? (

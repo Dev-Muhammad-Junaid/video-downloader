@@ -103,7 +103,7 @@ export function AppSidebar() {
                 <SidebarGroup className="p-0">
                     {/* Source-list section headers in macOS are small, uppercase and
                         low-contrast — a label for the group, not a heading. */}
-                    <SidebarGroupLabel className="mb-0.5 h-6 px-2 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/70">
+                    <SidebarGroupLabel className="mb-0.5 h-6 px-2 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/70 select-none">
                         Application
                     </SidebarGroupLabel>
                     <SidebarGroupContent>

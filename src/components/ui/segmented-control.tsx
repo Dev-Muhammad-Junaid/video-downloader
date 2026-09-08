@@ -24,18 +24,22 @@ export function SegmentedControl({
     options,
     className,
     size = "default",
+    stretch = false,
 }: {
     value: string;
     onValueChange: (value: string) => void;
     options: SegmentedOption[];
     className?: string;
     size?: "default" | "sm";
+    /** Segments share the control's full width instead of hugging their labels. */
+    stretch?: boolean;
 }) {
     return (
         <div
             role="radiogroup"
             className={cn(
-                "inline-flex w-fit shrink-0 items-center gap-0.5 rounded-[7px] bg-muted p-0.5",
+                "inline-flex shrink-0 items-center gap-0.5 rounded-[7px] bg-muted p-0.5",
+                stretch ? "flex w-full" : "w-fit",
                 "shadow-[inset_0_0_0_0.5px_var(--hairline)]",
                 className
             )}
@@ -54,6 +58,7 @@ export function SegmentedControl({
                             "inline-flex items-center justify-center gap-1.5 rounded-[5px] font-medium whitespace-nowrap transition-[background-color,box-shadow,color] duration-100 outline-none select-none",
                             "focus-visible:ring-[3px] focus-visible:ring-ring/45",
                             "[&_svg]:pointer-events-none [&_svg]:shrink-0",
+                            stretch && "flex-1",
                             size === "sm"
                                 ? "h-[19px] px-2 text-[11px] [&_svg]:size-3"
                                 : "h-[23px] px-2.5 text-[12px] [&_svg]:size-3.5",

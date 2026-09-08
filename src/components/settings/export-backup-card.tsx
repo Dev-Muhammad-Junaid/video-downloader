@@ -44,7 +44,7 @@ export function ExportBackupCard() {
                             toast.success("CSV export started");
                         }}
                     >
-                        <FileDown className="w-6 h-6 text-emerald-500" />
+                        <FileDown className="w-6 h-6 text-chart-2" />
                         <span className="font-medium">Export CSV</span>
                     </Button>
                     <Button
@@ -55,7 +55,7 @@ export function ExportBackupCard() {
                             toast.success("Database backup started");
                         }}
                     >
-                        <Database className="w-6 h-6 text-amber-500" />
+                        <Database className="w-6 h-6 text-chart-3" />
                         <span className="font-medium">Backup DB</span>
                     </Button>
                 </div>

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { Download, Eye } from "lucide-react";
+import { SectionLabel } from "@/components/ui/section-label";
 import { SystemHealthCard } from "@/components/settings/system-health-card";
 import { FolderSettingCard } from "@/components/settings/folder-setting-card";
 import { R2CredentialsCard } from "@/components/settings/r2-credentials-card";
@@ -15,16 +16,6 @@ import { BrowserIntegrationsCard } from "@/components/settings/browser-integrati
 import { DownloaderCard } from "@/components/settings/downloader-card";
 import { DeveloperCreditCard } from "@/components/settings/developer-credit-card";
 import type { SettingsState } from "@/components/settings/types";
-
-/** Group heading between settings cards — the small, quiet, uppercase label
- *  macOS uses to separate sections of a settings list. */
-function SettingsSection({ title }: { title: string }) {
-    return (
-        <h2 className="mt-3 px-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground select-none first:mt-0">
-            {title}
-        </h2>
-    );
-}
 
 export default function SettingsPage() {
     const [settings, setSettings] = useState<SettingsState>({
@@ -332,7 +323,7 @@ export default function SettingsPage() {
                     />
                 </motion.div>
 
-                <SettingsSection title="Folders" />
+                <SectionLabel className="mt-3 px-1 first:mt-0">Folders</SectionLabel>
 
                 {/* Destination Folder */}
                 <motion.div variants={fadeUp}>
@@ -368,7 +359,7 @@ export default function SettingsPage() {
                     />
                 </motion.div>
 
-                <SettingsSection title="Downloading" />
+                <SectionLabel className="mt-3 px-1 first:mt-0">Downloading</SectionLabel>
 
                 {/* Downloader cookies (YouTube bot-check / quality) */}
                 <motion.div variants={fadeUp}>
@@ -398,7 +389,7 @@ export default function SettingsPage() {
                     <AiTranscriptionCard settings={settings} setSettings={setSettings} onSave={handleSaveAi} />
                 </motion.div>
 
-                <SettingsSection title="Cloud" />
+                <SectionLabel className="mt-3 px-1 first:mt-0">Cloud</SectionLabel>
 
                 {/* Cloudflare R2 Credentials */}
                 <motion.div variants={fadeUp}>
@@ -410,7 +401,7 @@ export default function SettingsPage() {
                     <LabelSyncCard labels={labels} onToggle={handleToggleLabelSync} />
                 </motion.div>
 
-                <SettingsSection title="Data & Integrations" />
+                <SectionLabel className="mt-3 px-1 first:mt-0">Data & Integrations</SectionLabel>
 
                 {/* Export & Backup */}
                 <motion.div variants={fadeUp}>

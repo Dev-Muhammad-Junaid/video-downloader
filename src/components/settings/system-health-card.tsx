@@ -50,9 +50,9 @@ export function SystemHealthCard({ preflight, preflightLoading, runPreflight, he
                             return (
                                 <div key={item.name} className={cn(
                                     "flex items-center gap-2 px-2.5 py-2 rounded-lg border text-xs",
-                                    ok ? "border-emerald-500/20 bg-emerald-500/5" : skip ? "border-border/50 bg-muted/20" : "border-destructive/20 bg-destructive/5"
+                                    ok ? "border-chart-2/20 bg-chart-2/5" : skip ? "border-border/50 bg-muted/20" : "border-destructive/20 bg-destructive/5"
                                 )}>
-                                    {ok ? <CircleCheck className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" /> : skip ? <CircleDashed className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" /> : <CircleX className="w-3.5 h-3.5 text-destructive flex-shrink-0" />}
+                                    {ok ? <CircleCheck className="w-3.5 h-3.5 text-chart-2 flex-shrink-0" /> : skip ? <CircleDashed className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" /> : <CircleX className="w-3.5 h-3.5 text-destructive flex-shrink-0" />}
                                     <div className="min-w-0">
                                         <div className="font-medium truncate">{item.name}</div>
                                         <div className="text-[10px] text-muted-foreground truncate">{ok ? (item.version || "OK") : skip ? "Not set" : (item.error || "Error")}</div>

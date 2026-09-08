@@ -192,7 +192,7 @@ export default function CloudSyncPage() {
             ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {/* Total Files */}
-                <Card className="overflow-hidden relative group hover:border-sky-500/30 transition-all">
+                <Card className="overflow-hidden relative group hover:border-chart-1/30 transition-all">
                     <CardHeader className="pb-2 relative">
                         <CardDescription className="flex items-center gap-2 text-xs font-medium">
                             <Upload className="w-3.5 h-3.5" />
@@ -208,7 +208,7 @@ export default function CloudSyncPage() {
                 </Card>
 
                 {/* Storage Used */}
-                <Card className="overflow-hidden relative group hover:border-emerald-500/30 transition-all">
+                <Card className="overflow-hidden relative group hover:border-chart-2/30 transition-all">
                     <CardHeader className="pb-2 relative">
                         <CardDescription className="flex items-center gap-2 text-xs font-medium">
                             <HardDrive className="w-3.5 h-3.5" />
@@ -224,7 +224,7 @@ export default function CloudSyncPage() {
                 </Card>
 
                 {/* Videos / Images Breakdown */}
-                <Card className="overflow-hidden relative group hover:border-violet-500/30 transition-all">
+                <Card className="overflow-hidden relative group hover:border-chart-4/30 transition-all">
                     <CardHeader className="pb-2 relative">
                         <CardDescription className="flex items-center gap-2 text-xs font-medium">
                             <FileVideo className="w-3.5 h-3.5" />
@@ -242,7 +242,7 @@ export default function CloudSyncPage() {
                 </Card>
 
                 {/* Sync Ratio */}
-                <Card className="overflow-hidden relative group hover:border-amber-500/30 transition-all">
+                <Card className="overflow-hidden relative group hover:border-chart-3/30 transition-all">
                     <CardHeader className="pb-2 relative">
                         <CardDescription className="flex items-center gap-2 text-xs font-medium">
                             <TrendingUp className="w-3.5 h-3.5" />
@@ -389,7 +389,7 @@ export default function CloudSyncPage() {
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                className="h-8 w-8 hover:bg-sky-500/10 hover:text-sky-600"
+                                                className="h-8 w-8 hover:bg-chart-1/10 hover:text-chart-1"
                                                 onClick={async () => {
                                                     const url = await getPresignedUrl(video.id);
                                                     if (url) window.open(url, '_blank');
@@ -401,7 +401,7 @@ export default function CloudSyncPage() {
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                className="h-8 w-8 hover:bg-emerald-500/10 hover:text-emerald-600"
+                                                className="h-8 w-8 hover:bg-chart-2/10 hover:text-chart-2"
                                                 onClick={async () => {
                                                     const url = await getPresignedUrl(video.id);
                                                     if (url) {

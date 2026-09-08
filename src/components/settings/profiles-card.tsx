@@ -353,14 +353,14 @@ export function ProfilesCard({
                                         <span className="font-medium">{profile.name}</span>
                                         {profile.priority === -1 && <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded font-medium">Default</span>}
                                         {!profile.isActive && <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded font-medium">Inactive</span>}
-                                        {profile.requireManualFormat && <span className="text-[10px] bg-amber-500/20 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded font-medium">Manual</span>}
+                                        {profile.requireManualFormat && <span className="text-[10px] bg-chart-3/20 text-chart-3 dark:text-chart-3 px-1.5 py-0.5 rounded font-medium">Manual</span>}
                                         {(profile.resolutionMode === 'strict' || (!profile.resolutionMode && profile.strictResolution)) && (
                                             <span className="text-[10px] bg-purple-500/20 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded font-medium">Strict</span>
                                         )}
                                         {profile.resolutionMode === 'minimum' && (
-                                            <span className="text-[10px] bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded font-medium">Minimum</span>
+                                            <span className="text-[10px] bg-chart-2/20 text-chart-2 dark:text-chart-2 px-1.5 py-0.5 rounded font-medium">Minimum</span>
                                         )}
-                                        {profile.extractAudio && <span className="text-[10px] bg-sky-500/20 text-sky-600 dark:text-sky-400 px-1.5 py-0.5 rounded font-medium">Audio Only</span>}
+                                        {profile.extractAudio && <span className="text-[10px] bg-chart-1/20 text-chart-1 dark:text-chart-1 px-1.5 py-0.5 rounded font-medium">Audio Only</span>}
                                         {profile.autoCloudSync && <CloudSync className="w-3.5 h-3.5 text-blue-500" />}
                                     </div>
                                     <div className="text-xs text-muted-foreground flex gap-x-3 gap-y-1 flex-wrap items-center">

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
+import appIcon from "@/assets/app-icon.png";
 import { usePathname } from "next/navigation";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
@@ -67,7 +68,7 @@ export function AppToolbar() {
              */}
             <div className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 select-none items-center gap-1.5 md:flex">
                 <Image
-                    src="/icon.png"
+                    src={appIcon}
                     alt=""
                     width={17}
                     height={17}
