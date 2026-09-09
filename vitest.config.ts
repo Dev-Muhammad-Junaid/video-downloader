@@ -6,7 +6,7 @@ export default defineConfig({
         // Only the pure-logic suite runs here. The feature-level checks live in
         // scripts/smoke-test.mjs, because they need a real server, real
         // binaries and real files — things a unit runner shouldn't fake.
-        include: ["tests/unit/**/*.test.ts"],
+        include: ["tests/unit/**/*.test.ts", "tests/unit/**/*.test.tsx"],
         environment: "node",
     },
     resolve: {

@@ -11,6 +11,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Download, ExternalLink, SquareArrowOutUpRight } from "lucide-react";
 import { useUpdateCheck } from "@/hooks/use-update-check";
+import { Markdown } from "@/components/ui/markdown";
 
 /** Sidebar footer entry: shows nothing until an update is actually available,
  *  then a small badged button that opens the changelog + download dialog. Not
@@ -51,7 +52,7 @@ export function UpdateNotifier() {
 
                     {info.changelog && (
                         <div className="max-h-64 overflow-y-auto rounded-md border bg-muted/50 p-3">
-                            <pre className="whitespace-pre-wrap font-sans text-[12px] leading-relaxed text-foreground/90">{info.changelog}</pre>
+                            <Markdown content={info.changelog} />
                         </div>
                     )}
 
