@@ -24,6 +24,7 @@ import {
 import { TimelineScrubber } from "./timeline-scrubber";
 import { toast } from "sonner";
 import { useVideoExport } from "@/hooks/use-video-export";
+import { ExportQualityMenu } from "@/components/video-editor/export-quality-menu";
 import { motion, AnimatePresence, useAnimationFrame } from "framer-motion";
 import { CropOverlay, CropState } from "./crop-overlay";
 import { SubtitleRenderer } from "./subtitle-renderer";
@@ -371,7 +372,7 @@ export function VideoEditorModal({
 
     // Export submit (trim / crop / burn-subtitles + combinations) lives in a hook;
     // it composes the burn ASS exactly like the preview so they stay 1:1.
-    const { isExporting, includeSubtitles, setIncludeSubtitles, handleApplyExport } = useVideoExport({
+    const { isExporting, includeSubtitles, setIncludeSubtitles, quality, setQuality, handleApplyExport } = useVideoExport({
         video,
         mode,
         trimStart,
@@ -386,6 +387,14 @@ export function VideoEditorModal({
     });
 
     const hasSubtitles = subtitles.length > 0;
+
+    // Whether this export will actually run an encoder. Trim alone is a stream
+    // copy (`-c copy`), so quality is not a choice there; everything else
+    // re-encodes and the tier applies.
+    const willReencode =
+        mode === "subtitles" ||
+        mode === "crop" ||
+        (mode === "trim" && (aspectRatio !== "original" || (includeSubtitles && hasSubtitles)));
 
     // ai-subtitles (Nutlope) preview: fixed frame + object-contain so the picture
     // scales/letterboxes inside as the aspect box morphs. "Original" uses 16:9 like their Auto.
@@ -509,6 +518,11 @@ export function VideoEditorModal({
                     >
                         <RotateCcw className="w-4 h-4 mr-2" /> Reset
                     </Button>
+                    {/* Quality picker — only meaningful when the export re-encodes.
+                        A plain trim is a stream copy, so no encoder runs at all. */}
+                    {willReencode && (
+                        <ExportQualityMenu value={quality} onChange={setQuality} />
+                    )}
                     <Button
                         size="sm"
                         

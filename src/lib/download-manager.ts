@@ -966,7 +966,7 @@ export async function createExportJob(opts: { title: string; mediaType?: string;
         id,
         url: "",
         title: opts.title,
-        status: "processing",
+        status: "queued",
         progress: 0,
         kind: "export",
     };
@@ -981,7 +981,7 @@ export async function createExportJob(opts: { title: string; mediaType?: string;
                 title: opts.title,
                 mediaType: opts.mediaType ?? "video",
                 sourcePlatform: "local",
-                status: "processing",
+                status: "queued",
                 progress: 0,
             },
         });
@@ -995,16 +995,36 @@ export async function createExportJob(opts: { title: string; mediaType?: string;
  *  re-seeding its live entry so progress/SSE work again. */
 export async function resetExportJob(id: string, title: string): Promise<void> {
     activeDownloads.set(id, {
-        id, url: "", title, status: "processing", progress: 0, kind: "export",
+        id, url: "", title, status: "queued", progress: 0, kind: "export",
     });
     try {
         await prisma.downloadQueueJob.update({
             where: { id },
-            data: { status: "processing", progress: 0, error: null, completedAt: null },
+            data: { status: "queued", progress: 0, error: null, completedAt: null },
         });
     } catch (err) {
         console.error("[Export] Failed to reset export job", err);
     }
+}
+
+/**
+ * Flip an export job from "queued" to "processing" — called when the export
+ * limiter actually lets it start, so a job waiting behind another one shows as
+ * queued rather than pretending to encode at 0%.
+ *
+ * Returns false if the job is no longer startable (cancelled while queued), so
+ * the caller can skip the work entirely.
+ */
+export async function markExportRunning(id: string): Promise<boolean> {
+    const job = activeDownloads.get(id);
+    if (job?.status === "cancelled") return false;
+    if (job) job.status = "processing";
+    try {
+        await prisma.downloadQueueJob.update({ where: { id }, data: { status: "processing" } });
+    } catch (err) {
+        console.error("[Export] Failed to mark export running", err);
+    }
+    return true;
 }
 
 /** Update an export job's progress (0–100). Memory-only — the SSE reads this;
