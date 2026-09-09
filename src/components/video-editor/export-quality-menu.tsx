@@ -13,10 +13,9 @@ import type { ExportQuality } from "@/lib/encoder";
  * every tier now runs on the hardware media engine, so none of them is the
  * "slow" option the old software x264 path was. The tooltips carry the detail.
  *
- * Deliberately a SegmentedControl rather than a dropdown: neither the Base UI
- * DropdownMenu nor Select popup opens on a real pointer press in this app (the
- * Settings selects have the same problem), whereas plain buttons — what the
- * mode switcher beside this uses — work.
+ * A SegmentedControl rather than a dropdown: there are only three tiers, and
+ * showing all of them keeps the current choice visible in the toolbar without
+ * a click. It also matches the mode switcher sitting beside it.
  */
 
 export const EXPORT_QUALITY_OPTIONS: {
