@@ -5,6 +5,7 @@ import os from "os";
 import { prisma } from "@/lib/prisma";
 import { generateThumbnail } from "@/lib/thumbnail";
 import { ensureFfmpegFilterSupported, getFfmpegPath } from "@/lib/ffmpeg";
+import { decodeArgs, videoEncoderArgs, DEFAULT_EXPORT_QUALITY, type ExportQuality } from "@/lib/encoder";
 
 import { parseTimeToSeconds } from "@/lib/time";
 
@@ -17,9 +18,9 @@ import { parseTimeToSeconds } from "@/lib/time";
  * writes exactly the intended duration, so the export is both correct and
  * fast (work is proportional to the clip length, not the source length).
  */
-function trimArgs(input: string, startTime: string, endTime: string): string[] {
+function trimArgs(input: string, startTime: string, endTime: string, hwDecode = false): string[] {
     const dur = Math.max(0, parseTimeToSeconds(endTime) - parseTimeToSeconds(startTime));
-    return ["-ss", String(startTime), "-i", input, "-t", String(dur)];
+    return [...(hwDecode ? decodeArgs() : []), "-ss", String(startTime), "-i", input, "-t", String(dur)];
 }
 
 /**
@@ -199,6 +200,7 @@ export async function cropVideo(
     inheritSrtContent?: string,
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
+    quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
 ) {
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
@@ -217,8 +219,10 @@ export async function cropVideo(
     const filterArg = `crop=${w}:${h}:${x}:${y}`;
     const args = [
         "-y",
+        ...decodeArgs(),
         "-i", originalVideo.localPath,
         "-filter:v", filterArg,
+        ...videoEncoderArgs(quality),
         "-c:a", "copy",       // Copy audio track to save time
         newFilePath
     ];
@@ -273,6 +277,7 @@ export async function trimAndCrop(
     inheritSrtContent?: string,
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
+    quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
 ) {
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
@@ -289,8 +294,9 @@ export async function trimAndCrop(
     const filterArg = `crop=${w}:${h}:${x}:${y}`;
     const args = [
         "-y",
-        ...trimArgs(originalVideo.localPath, startTime, endTime),
+        ...trimArgs(originalVideo.localPath, startTime, endTime, true),
         "-filter:v", filterArg,
+        ...videoEncoderArgs(quality),
         "-c:a", "copy",
         newFilePath
     ];
@@ -383,7 +389,7 @@ export async function convertToMp4(videoId: string) {
     const newFileName = `${parsedPath.name}_converted_${newId}.mp4`;
     const newFilePath = path.join(parsedPath.dir, newFileName);
 
-    const args = ["-y", "-i", originalVideo.localPath, "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", newFilePath];
+    const args = ["-y", ...decodeArgs(), "-i", originalVideo.localPath, ...videoEncoderArgs(DEFAULT_EXPORT_QUALITY), "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", newFilePath];
     console.log(`[FFmpeg Convert] Running: ffmpeg ${args.join(" ")}`);
     await runFfmpeg(args);
 
@@ -593,6 +599,7 @@ export async function trimBurnSubtitles(
     inheritSrtContent?: string,
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
+    quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
 ) {
     ensureSubtitleFilterSupport();
     const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
@@ -610,7 +617,7 @@ export async function trimBurnSubtitles(
 
     try {
         const filterArg = buildSubtitlesFilter(tmpAssPath);
-        const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime), "-vf", filterArg, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p", "-x264-params", "aq-mode=3", "-c:a", "copy", newFilePath];
+        const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime, true), "-vf", filterArg, ...videoEncoderArgs(quality), "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg TrimBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args, onProgress, registerProc);
     } finally {
@@ -643,6 +650,7 @@ export async function cropBurnSubtitles(
     inheritSrtContent?: string,
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
+    quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
 ) {
     ensureSubtitleFilterSupport();
     const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
@@ -659,7 +667,7 @@ export async function cropBurnSubtitles(
 
     try {
         const filterArg = `crop=${w}:${h}:${x}:${y},${buildSubtitlesFilter(tmpAssPath)}`;
-        const args = ["-y", "-i", originalVideo.localPath, "-vf", filterArg, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p", "-x264-params", "aq-mode=3", "-c:a", "copy", newFilePath];
+        const args = ["-y", ...decodeArgs(), "-i", originalVideo.localPath, "-vf", filterArg, ...videoEncoderArgs(quality), "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg CropBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args, onProgress, registerProc);
     } finally {
@@ -693,6 +701,7 @@ export async function trimCropBurnSubtitles(
     inheritSrtContent?: string,
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
+    quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
 ) {
     ensureSubtitleFilterSupport();
     const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
@@ -709,7 +718,7 @@ export async function trimCropBurnSubtitles(
 
     try {
         const filterArg = `crop=${w}:${h}:${x}:${y},${buildSubtitlesFilter(tmpAssPath)}`;
-        const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime), "-vf", filterArg, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p", "-x264-params", "aq-mode=3", "-c:a", "copy", newFilePath];
+        const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime, true), "-vf", filterArg, ...videoEncoderArgs(quality), "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg TrimCropBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args, onProgress, registerProc);
     } finally {
@@ -741,6 +750,7 @@ export async function burnSubtitles(
     inheritSrtContent?: string,
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
+    quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
 ) {
     ensureSubtitleFilterSupport();
 
@@ -760,7 +770,7 @@ export async function burnSubtitles(
 
     try {
         const filterArg = buildSubtitlesFilter(tmpAssPath);
-        const args = ["-y", "-i", originalVideo.localPath, "-vf", filterArg, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p", "-x264-params", "aq-mode=3", "-c:a", "copy", newFilePath];
+        const args = ["-y", ...decodeArgs(), "-i", originalVideo.localPath, "-vf", filterArg, ...videoEncoderArgs(quality), "-c:a", "copy", newFilePath];
         console.log(`[FFmpeg BurnSubs] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args, onProgress, registerProc);
     } finally {

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useCallback, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import type { Video } from "@/types/media";
@@ -12,6 +12,45 @@ import {
 } from "@/components/video-editor/subtitle-types";
 import { SubtitleStyleConfig } from "@/lib/ass-builder";
 import { CropState } from "@/components/video-editor/crop-overlay";
+import type { ExportQuality } from "@/lib/encoder";
+
+/** Remembers the user's last pick so the choice persists between exports. */
+const QUALITY_STORAGE_KEY = "snapdown.exportQuality";
+
+function isQuality(v: unknown): v is ExportQuality {
+    return v === "fast" || v === "balanced" || v === "maximum";
+}
+
+/**
+ * The remembered tier, read through useSyncExternalStore rather than restored
+ * in an effect: the server snapshot is the default, so the first client render
+ * matches the server and hydration stays clean, and the stored value is picked
+ * up in the same commit instead of a second one.
+ */
+const qualityListeners = new Set<() => void>();
+
+function subscribeQuality(onChange: () => void) {
+    qualityListeners.add(onChange);
+    // Another window (or another editor instance) changing the pick.
+    window.addEventListener("storage", onChange);
+    return () => {
+        qualityListeners.delete(onChange);
+        window.removeEventListener("storage", onChange);
+    };
+}
+
+function readQuality(): ExportQuality {
+    try {
+        const saved = window.localStorage.getItem(QUALITY_STORAGE_KEY);
+        if (isQuality(saved)) return saved;
+    } catch { /* private mode / storage blocked — the default is fine */ }
+    return "balanced";
+}
+
+function writeQuality(next: ExportQuality) {
+    try { window.localStorage.setItem(QUALITY_STORAGE_KEY, next); } catch { /* ignore */ }
+    qualityListeners.forEach((l) => l());
+}
 
 type AspectRatio = "original" | "16:9" | "9:16" | "1:1" | "4:5";
 
@@ -51,6 +90,8 @@ export function useVideoExport({
 }: UseVideoExportParams) {
     const [isExporting, setIsExporting] = useState(false);
     const [includeSubtitles, setIncludeSubtitles] = useState(false);
+    const quality = useSyncExternalStore(subscribeQuality, readQuality, () => "balanced" as ExportQuality);
+    const setQuality = useCallback((next: ExportQuality) => writeQuality(next), []);
 
     const hasSubtitles = subtitles.length > 0;
 
@@ -141,6 +182,12 @@ export function useVideoExport({
                 };
             }
 
+            // The encoder tier applies to every re-encoding action. A pure trim
+            // is a stream copy, so it ignores this — harmless to send.
+            if (bodyPayload.params) {
+                (bodyPayload.params as Record<string, unknown>).quality = quality;
+            }
+
             const data = await api.post<{ jobId?: string }>("/api/library/edit", bodyPayload);
 
             // Video exports now run as background jobs (response carries a jobId,
@@ -160,5 +207,5 @@ export function useVideoExport({
         }
     };
 
-    return { isExporting, includeSubtitles, setIncludeSubtitles, handleApplyExport };
+    return { isExporting, includeSubtitles, setIncludeSubtitles, quality, setQuality, handleApplyExport };
 }
