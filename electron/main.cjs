@@ -1,11 +1,12 @@
 // Electron main process. Plain CommonJS — Electron runs this directly with no
 // build/compile step, which keeps the "app shell" independent of the Next.js
 // build pipeline it wraps.
-const { app, BrowserWindow, shell, nativeTheme } = require("electron");
+const { app, BrowserWindow, shell, nativeTheme, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
 const { spawn } = require("child_process");
+const { runUpdate } = require("./updater.cjs");
 
 const isDev = !app.isPackaged;
 const PORT = process.env.SNAPDOWN_PORT || 3000;
@@ -176,6 +177,7 @@ function createWindow() {
         webPreferences: {
             contextIsolation: true,
             nodeIntegration: false,
+            preload: path.join(__dirname, "preload.cjs"),
         },
         show: false,
     });
@@ -302,6 +304,20 @@ if (!app.requestSingleInstanceLock()) {
 
     app.whenReady().then(() => {
         void openApp();
+
+        // In-app update. The renderer can request one but has no say in what
+        // gets downloaded or where it's installed — see electron/updater.cjs.
+        ipcMain.handle("update:install", async (event) => {
+            const result = await runUpdate(event.sender);
+            // The installer waits for this process to exit before swapping the
+            // bundle, so quitting is the last step, not a suggestion to the user.
+            setTimeout(() => {
+                isQuitting = true;
+                stopProductionServer();
+                app.quit();
+            }, 400);
+            return result;
+        });
 
         app.on("activate", () => {
             // Re-opening from the Dock has to re-check the server, not just the

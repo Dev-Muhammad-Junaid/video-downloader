@@ -12,6 +12,9 @@ import { cn } from "@/lib/utils";
 import { Download, ExternalLink, SquareArrowOutUpRight } from "lucide-react";
 import { useUpdateCheck } from "@/hooks/use-update-check";
 import { Markdown } from "@/components/ui/markdown";
+import { useInAppUpdate } from "@/hooks/use-in-app-update";
+import { Progress } from "@/components/ui/progress";
+import { Loader2, ShieldCheck, AlertTriangle } from "lucide-react";
 
 /** Sidebar footer entry: shows nothing until an update is actually available,
  *  then a small badged button that opens the changelog + download dialog. Not
@@ -19,6 +22,8 @@ import { Markdown } from "@/components/ui/markdown";
 export function UpdateNotifier() {
     const info = useUpdateCheck();
     const [open, setOpen] = useState(false);
+    const { available: canSelfUpdate, phase, progress, error, install } = useInAppUpdate();
+    const busy = phase !== "idle" && phase !== "error";
 
     if (!info?.updateAvailable) return null;
 
@@ -56,15 +61,65 @@ export function UpdateNotifier() {
                         </div>
                     )}
 
-                    <div className="flex items-center gap-2 pt-2">
+                    {/* In the desktop app the update installs itself; the
+                        manual download stays available as a fallback and for
+                        anyone who'd rather do it by hand. */}
+                    {canSelfUpdate && phase !== "error" && (
+                        <div className="pt-2">
+                            {busy ? (
+                                <div className="rounded-md border bg-muted/40 p-3">
+                                    <p className="flex items-center gap-2 text-[12px] font-medium text-foreground">
+                                        {phase === "verifying"
+                                            ? <ShieldCheck className="size-3.5 text-primary" />
+                                            : <Loader2 className="size-3.5 animate-spin text-primary" />}
+                                        {phase === "locating" && "Finding the latest release\u2026"}
+                                        {phase === "downloading" && "Downloading\u2026"}
+                                        {phase === "verifying" && "Checking the download is genuine\u2026"}
+                                        {phase === "installing" && "Installing \u2014 SnapDown will reopen itself"}
+                                    </p>
+                                    {phase === "downloading" && progress && progress.total > 0 && (
+                                        <>
+                                            <Progress value={(progress.received / progress.total) * 100} className="mt-2 h-1.5" />
+                                            <p className="mt-1.5 text-[11px] text-muted-foreground">
+                                                {(progress.received / 1048576).toFixed(0)} of {(progress.total / 1048576).toFixed(0)} MB
+                                            </p>
+                                        </>
+                                    )}
+                                </div>
+                            ) : (
+                                <>
+                                    <Button className="w-full gap-1.5" onClick={install}>
+                                        <Download className="size-3.5" />
+                                        Update and restart
+                                    </Button>
+                                    <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
+                                        SnapDown will download the update, verify its signature, replace itself and reopen.
+                                        Your library and downloads are stored outside the app and aren&rsquo;t touched.
+                                    </p>
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    {error && (
+                        <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-2.5 text-[11px] leading-relaxed text-destructive">
+                            <AlertTriangle className="mt-px size-3.5 shrink-0" />
+                            <span>{error}</span>
+                        </div>
+                    )}
+
+                    <div className={cn("flex items-center gap-2", canSelfUpdate ? "pt-1" : "pt-2")}>
                         <a
                             href={info.downloadUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className={cn(buttonVariants({ variant: "default" }), "flex-1 gap-1.5")}
+                            className={cn(
+                                buttonVariants({ variant: canSelfUpdate ? "outline" : "default" }),
+                                "flex-1 gap-1.5",
+                            )}
                         >
                             <Download className="size-3.5" />
-                            Download for macOS
+                            {canSelfUpdate ? "Download manually" : "Download for macOS"}
                         </a>
                         <a
                             href={info.releaseUrl}
@@ -76,29 +131,24 @@ export function UpdateNotifier() {
                             <ExternalLink className="size-3.5" />
                         </a>
                     </div>
-                    {/* Spelled out because the obvious approach — drag the old
-                        app to the Trash, then copy the new one in — gives the
-                        bundle a new identity at that path, which leaves the Dock
-                        icon pointing at nothing ("the application can't be
-                        opened"). Replacing in place keeps it working. */}
-                    <div className="rounded-md border bg-muted/40 p-2.5 text-[11px] text-muted-foreground">
-                        <p className="mb-1.5 flex items-center gap-1 font-medium text-foreground">
-                            <SquareArrowOutUpRight className="w-3 h-3" />
-                            Installing the update
-                        </p>
-                        <ol className="list-decimal space-y-1 pl-4 leading-relaxed marker:text-muted-foreground/70">
-                            <li>Quit SnapDown.</li>
-                            <li>Open the downloaded .dmg and drag SnapDown onto Applications.</li>
-                            <li>
-                                Choose <span className="font-medium text-foreground">Replace</span> when macOS asks.
-                                Don&rsquo;t delete the old app first — that&rsquo;s what leaves a dead icon in your Dock.
-                            </li>
-                            <li>Reopen SnapDown.</li>
-                        </ol>
-                        <p className="mt-2 leading-relaxed">
-                            Your library and downloads live outside the app, so updating never touches them.
-                        </p>
-                    </div>
+
+                    {!canSelfUpdate && (
+                        <div className="rounded-md border bg-muted/40 p-2.5 text-[11px] text-muted-foreground">
+                            <p className="mb-1.5 flex items-center gap-1 font-medium text-foreground">
+                                <SquareArrowOutUpRight className="w-3 h-3" />
+                                Installing the update
+                            </p>
+                            <ol className="list-decimal space-y-1 pl-4 leading-relaxed marker:text-muted-foreground/70">
+                                <li>Quit SnapDown.</li>
+                                <li>Open the downloaded .dmg and drag SnapDown onto Applications.</li>
+                                <li>
+                                    Choose <span className="font-medium text-foreground">Replace</span> when macOS asks.
+                                    Don&rsquo;t delete the old app first \u2014 that&rsquo;s what leaves a dead icon in your Dock.
+                                </li>
+                                <li>Reopen SnapDown.</li>
+                            </ol>
+                        </div>
+                    )}
                 </DialogContent>
             </Dialog>
         </>

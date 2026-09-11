@@ -67,3 +67,7 @@ transcripts/
 
 # electron-builder packaged app output
 /dist/
+
+# release signing key must never be committed (it lives in ~/.snapdown)
+*.pem
+*.sig

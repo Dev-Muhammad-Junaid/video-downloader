@@ -21,11 +21,19 @@ NOTES_FILE="${3:?missing notes file}"
 
 DMG="dist/SnapDown-${VERSION}-arm64.dmg"
 MANIFEST="dist/latest-mac.yml"
+SIG="${DMG}.sig"
 
 [ -f "$DMG" ] || { echo "error: $DMG not found — run 'npm run electron:build' first" >&2; exit 1; }
 [ -f "$NOTES_FILE" ] || { echo "error: notes file $NOTES_FILE not found" >&2; exit 1; }
 
-ASSETS=("$DMG")
+# Sign before publishing. The in-app updater REFUSES to install a release with
+# no .sig, so an unsigned publish would silently strand every user on their
+# current version — fail loudly here instead.
+echo "Signing ${DMG}..."
+node scripts/sign-release.cjs "$DMG"
+[ -f "$SIG" ] || { echo "error: signing produced no $SIG" >&2; exit 1; }
+
+ASSETS=("$DMG" "$SIG")
 if [ -f "$MANIFEST" ]; then
     # Sanity check: a stale manifest from a previous build would advertise the
     # wrong version and hash.
