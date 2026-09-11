@@ -32,6 +32,7 @@ import {
     Square,
     Check,
     Music,
+    FileWarning,
 } from "lucide-react";
 import type { Video } from "@/types/media";
 
@@ -243,6 +244,19 @@ export function VideoCard({
             {/* Card body */}
             <div className="p-3 flex flex-col gap-2 flex-1">
                 <h3 className="line-clamp-2 text-[13px] font-medium leading-snug" title={video.title}>{video.title}</h3>
+
+                {/* The file isn't reachable. The entry is kept on purpose — an
+                    unplugged drive is not the same as deleted media — so say so
+                    plainly rather than hiding or removing it. */}
+                {video.fileMissing && (
+                    <div
+                        className="flex items-start gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-snug text-amber-700 dark:text-amber-400"
+                        title={`Expected at: ${video.localPath}`}
+                    >
+                        <FileWarning className="mt-px w-3.5 h-3.5 shrink-0" />
+                        <span>File not found — reconnect the drive, or re-download it.</span>
+                    </div>
+                )}
 
                 {/* Meta row */}
                 <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">

@@ -25,6 +25,10 @@ export type Video = {
     transcriptStatus?: string | null;
     transcriptText?: string | null;
     transcriptPath?: string | null;
+    /** The file this entry points at isn't reachable right now — an unplugged
+     *  drive, a moved folder, or media deleted outside the app. The entry is
+     *  deliberately kept rather than removed, so the user decides. */
+    fileMissing?: boolean;
     // Search snippet (populated in deep-search mode)
     transcriptSnippet?: string | null;
     matchedIn?: string[];

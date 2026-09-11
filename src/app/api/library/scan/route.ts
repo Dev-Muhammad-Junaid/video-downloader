@@ -58,29 +58,21 @@ export async function POST(req: Request) {
         const videoFiles = await scanDirectory(resolvedPath);
         const imported: any[] = [];
 
-        // Pre-fetch all existing entries for dedup and pruning
+        // Pre-fetch all existing entries for dedup.
+        //
+        // This used to also PRUNE — deleting every row whose file it couldn't
+        // stat, across the WHOLE library rather than just the folder being
+        // scanned. Importing a folder would silently destroy entries for media
+        // on an unplugged external drive or a not-yet-mounted network volume.
+        // Importing files is not a mandate to delete unrelated ones, so the
+        // scan is now purely additive; the listing flags unreachable entries
+        // and the user decides what to remove.
         const allExisting = await prisma.video.findMany({
             select: { id: true, localPath: true },
         });
 
-        // Prune entries whose files no longer exist on disk
-        const pruneIds: string[] = [];
-        for (const entry of allExisting) {
-            try {
-                await fs.access(entry.localPath);
-            } catch {
-                // File doesn't exist anymore — mark for deletion
-                pruneIds.push(entry.id);
-            }
-        }
-        if (pruneIds.length > 0) {
-            await prisma.video.deleteMany({ where: { id: { in: pruneIds } } });
-            console.log(`Pruned ${pruneIds.length} stale library entries (files deleted from disk)`);
-        }
-
-        const remainingExisting = allExisting.filter(v => !pruneIds.includes(v.id));
-        const existingPaths = new Set(remainingExisting.map(v => v.localPath));
-        const existingFilenames = new Set(remainingExisting.map(v => path.basename(v.localPath)));
+        const existingPaths = new Set(allExisting.map(v => v.localPath));
+        const existingFilenames = new Set(allExisting.map(v => path.basename(v.localPath)));
 
         for (const filePath of videoFiles) {
             const fileName = path.basename(filePath);
