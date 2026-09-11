@@ -76,10 +76,29 @@ export function UpdateNotifier() {
                             <ExternalLink className="size-3.5" />
                         </a>
                     </div>
-                    <p className="text-[11px] text-muted-foreground flex items-center gap-1">
-                        <SquareArrowOutUpRight className="w-3 h-3" />
-                        After downloading, quit SnapDown, drag the new version into Applications, and relaunch.
-                    </p>
+                    {/* Spelled out because the obvious approach — drag the old
+                        app to the Trash, then copy the new one in — gives the
+                        bundle a new identity at that path, which leaves the Dock
+                        icon pointing at nothing ("the application can't be
+                        opened"). Replacing in place keeps it working. */}
+                    <div className="rounded-md border bg-muted/40 p-2.5 text-[11px] text-muted-foreground">
+                        <p className="mb-1.5 flex items-center gap-1 font-medium text-foreground">
+                            <SquareArrowOutUpRight className="w-3 h-3" />
+                            Installing the update
+                        </p>
+                        <ol className="list-decimal space-y-1 pl-4 leading-relaxed marker:text-muted-foreground/70">
+                            <li>Quit SnapDown.</li>
+                            <li>Open the downloaded .dmg and drag SnapDown onto Applications.</li>
+                            <li>
+                                Choose <span className="font-medium text-foreground">Replace</span> when macOS asks.
+                                Don&rsquo;t delete the old app first — that&rsquo;s what leaves a dead icon in your Dock.
+                            </li>
+                            <li>Reopen SnapDown.</li>
+                        </ol>
+                        <p className="mt-2 leading-relaxed">
+                            Your library and downloads live outside the app, so updating never touches them.
+                        </p>
+                    </div>
                 </DialogContent>
             </Dialog>
         </>
