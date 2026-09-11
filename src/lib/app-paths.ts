@@ -17,3 +17,33 @@ export function getAppDataDir(): string {
 export function appDataPath(...segments: string[]): string {
     return path.join(getAppDataDir(), ...segments);
 }
+
+/**
+ * Default location for downloaded media.
+ *
+ * It used to be `<cwd>/downloads`, which inside the packaged app resolves to
+ * `SnapDown.app/Contents/Resources/standalone/downloads` — INSIDE THE APP
+ * BUNDLE. Replacing the app during an update deletes the bundle and every
+ * media file in it, and the pointer file recording a custom destination lived
+ * there too, so the app also forgot where the user had moved their library.
+ *
+ * Media belongs somewhere the user owns and an update cannot touch. ~/Movies
+ * is the macOS convention and is visible in Finder, unlike Application
+ * Support.
+ *
+ * Dev keeps using the project directory, which is not destroyed by anything.
+ */
+export function getDefaultMediaDir(): string {
+    const userDataDir = process.env.SNAPDOWN_USER_DATA_DIR?.trim();
+    if (!userDataDir) return path.join(process.cwd(), "downloads");
+
+    const home = process.env.HOME?.trim();
+    return home ? path.join(home, "Movies", "SnapDown") : path.join(userDataDir, "downloads");
+}
+
+/** Whether the given path sits inside the running app bundle, i.e. somewhere
+ *  the next update will delete. */
+export function isInsideAppBundle(target: string): boolean {
+    const marker = ".app/Contents/";
+    return path.resolve(target).includes(marker);
+}

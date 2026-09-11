@@ -10,6 +10,7 @@ import { getMatchingProfile, getYtDlpFormat } from "./profiles";
 import { uploadToCloud } from "./cloud";
 import pLimit from "p-limit";
 import { getFfmpegPath, probeDuration } from "@/lib/ffmpeg";
+import { appDataPath, getDefaultMediaDir, isInsideAppBundle } from "@/lib/app-paths";
 import { getYtdlpCookieArgs } from "@/lib/settings";
 import { getYtdlpPath, describeYtdlpError } from "@/lib/ytdlp";
 
@@ -67,17 +68,50 @@ globalForDownloads.cleanupIntervalId = setInterval(() => {
 }, CLEANUP_INTERVAL_MS);
 
 
-// Ensure downloads directory exists — read configurable destination
-const settingsPath = path.join(process.cwd(), "download_destination");
-let downloadsDir = path.join(process.cwd(), "downloads"); // default
-try {
-    if (fs.existsSync(settingsPath)) {
-        const customDir = fs.readFileSync(settingsPath, "utf-8").trim();
-        if (customDir && fs.existsSync(customDir)) {
-            downloadsDir = customDir;
+/**
+ * Where downloaded media goes.
+ *
+ * Both this pointer file and the default directory used to live under
+ * `process.cwd()`, which in the packaged app is inside SnapDown.app itself.
+ * An update replaces the bundle, so the media was deleted AND the record of
+ * any custom destination went with it — the app came back pointing at a fresh
+ * empty folder with no way to know where the user's library had been.
+ *
+ * The pointer now lives in the user data directory, which survives updates,
+ * and the default is outside the bundle entirely.
+ */
+const settingsPath = appDataPath("download_destination");
+
+/** Pre-0.3.4 installs kept the pointer inside the bundle. Recover it once so a
+ *  custom destination set before this fix isn't forgotten. */
+function migrateLegacyDestinationPointer(): void {
+    const legacyPath = path.join(process.cwd(), "download_destination");
+    try {
+        if (fs.existsSync(settingsPath) || !fs.existsSync(legacyPath)) return;
+        const legacyValue = fs.readFileSync(legacyPath, "utf-8").trim();
+        if (!legacyValue) return;
+        fs.writeFileSync(settingsPath, legacyValue, "utf-8");
+        console.log(`[Downloads] Recovered destination "${legacyValue}" from the old in-bundle pointer`);
+    } catch { /* best effort — the default below still applies */ }
+}
+
+function resolveInitialDownloadsDir(): string {
+    migrateLegacyDestinationPointer();
+    try {
+        if (fs.existsSync(settingsPath)) {
+            const customDir = fs.readFileSync(settingsPath, "utf-8").trim();
+            // A destination inside the app bundle is one an update will delete,
+            // so refuse to keep using it even if it currently exists.
+            if (customDir && !isInsideAppBundle(customDir)) return customDir;
+            if (customDir) {
+                console.warn(`[Downloads] Ignoring destination inside the app bundle: ${customDir}`);
+            }
         }
-    }
-} catch { }
+    } catch { /* fall through to the default */ }
+    return getDefaultMediaDir();
+}
+
+let downloadsDir = resolveInitialDownloadsDir();
 if (!fs.existsSync(downloadsDir)) {
     fs.mkdirSync(downloadsDir, { recursive: true });
 }
@@ -91,6 +125,9 @@ export function setDownloadsDir(newDir: string) {
     const homeDir = os.homedir();
     if (!resolved.startsWith(homeDir) && !resolved.startsWith("/Volumes")) {
         throw new Error("Download directory must be within your home directory or mounted volumes");
+    }
+    if (isInsideAppBundle(resolved)) {
+        throw new Error("That folder is inside the SnapDown app itself — updating the app would delete everything in it. Pick a folder in your home directory instead.");
     }
     downloadsDir = resolved;
     if (!fs.existsSync(downloadsDir)) {
