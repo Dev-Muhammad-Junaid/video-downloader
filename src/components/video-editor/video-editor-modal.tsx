@@ -23,12 +23,11 @@ import {
     Palette,
 } from "lucide-react";
 import { TimelineScrubber } from "./timeline-scrubber";
-import { useKeyframes } from "@/hooks/use-keyframes";
 import { useTimelineAssets } from "@/hooks/use-timeline-assets";
-import { AudioControls, DEFAULT_AUDIO_SETTINGS, type VideoAudioSettings } from "./audio-controls";
+import { AudioControls } from "./audio-controls";
 import { toast } from "sonner";
 import { useVideoExport } from "@/hooks/use-video-export";
-import { ExportDialog } from "@/components/video-editor/export-dialog";
+import { ExportDialog, DEFAULT_EXPORT_OPTIONS, type ExportFormat, type ExportResolution } from "@/components/video-editor/export-dialog";
 import { motion, AnimatePresence, useAnimationFrame } from "framer-motion";
 import { CropOverlay, CropState } from "./crop-overlay";
 import { SubtitleRenderer } from "./subtitle-renderer";
@@ -431,21 +430,21 @@ export function VideoEditorModal({
      * the handles show where the cut will really land, and the toggle is the
      * way out when the exact frame matters more than the speed.
      */
-    const [preciseTrim, setPreciseTrim] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
 
     // Preview volume is separate from export audio on purpose — muting what you
     // hear while editing must not silently mute the file you export.
     const [previewVolume, setPreviewVolume] = useState(1);
     const [previewMuted, setPreviewMuted] = useState(false);
-    const [audioSettings, setAudioSettings] = useState<VideoAudioSettings>(DEFAULT_AUDIO_SETTINGS);
+    const [keepAudio, setKeepAudio] = useState(DEFAULT_EXPORT_OPTIONS.keepAudio);
+    const [format, setFormat] = useState<ExportFormat>(DEFAULT_EXPORT_OPTIONS.format);
+    const [resolution, setResolution] = useState<ExportResolution>(DEFAULT_EXPORT_OPTIONS.resolution);
 
     useEffect(() => {
         if (!videoRef.current) return;
         videoRef.current.volume = previewVolume;
         videoRef.current.muted = previewMuted;
     }, [previewVolume, previewMuted]);
-    const { keyframes, available: canSnap } = useKeyframes(video.id, mode === "trim");
     const { peaks, filmstripUrl } = useTimelineAssets(video.id, mode === "trim");
 
     // Export submit (trim / crop / burn-subtitles + combinations) lives in a hook;
@@ -460,22 +459,16 @@ export function VideoEditorModal({
         subtitles,
         styleConfig,
         videoRef,
-        precise: preciseTrim,
-        audio: audioSettings,
+        output: { removeAudio: !keepAudio, format, resolution },
         onRefreshLibrary,
         onClose,
     });
 
     const hasSubtitles = subtitles.length > 0;
 
-
-    // Whether this export will actually run an encoder. Trim alone is a stream
-    // copy (`-c copy`), so quality is not a choice there; everything else
-    // re-encodes and the tier applies.
-    const willReencode =
-        mode === "subtitles" ||
-        mode === "crop" ||
-        (mode === "trim" && (aspectRatio !== "original" || (includeSubtitles && hasSubtitles)));
+    // Every export re-encodes now — trims included, so a cut lands exactly
+    // where it is placed — which means the quality choice always applies and
+    // there is no longer a case where it would be a setting that does nothing.
 
     // ai-subtitles (Nutlope) preview: fixed frame + object-contain so the picture
     // scales/letterboxes inside as the aspect box morphs. "Original" uses 16:9 like their Auto.
@@ -908,12 +901,10 @@ export function VideoEditorModal({
                     </span>
 
                     <AudioControls
-                        previewVolume={previewVolume}
-                        onPreviewVolumeChange={setPreviewVolume}
-                        previewMuted={previewMuted}
-                        onPreviewMutedChange={setPreviewMuted}
-                        settings={audioSettings}
-                        onSettingsChange={setAudioSettings}
+                        volume={previewVolume}
+                        onVolumeChange={setPreviewVolume}
+                        muted={previewMuted}
+                        onMutedChange={setPreviewMuted}
                     />
 
                     <div className="hidden sm:block sm:flex-1" />
@@ -968,8 +959,6 @@ export function VideoEditorModal({
                                 trimEnd={trimEnd}
                                 onTrimChange={(start, end) => { setTrimStart(start); setTrimEnd(end); }}
                                 onSeek={handleSeek}
-                                keyframes={keyframes}
-                                precise={preciseTrim}
                                 filmstripUrl={filmstripUrl}
                                 peaks={peaks}
                             />
@@ -1006,15 +995,15 @@ export function VideoEditorModal({
                 open={exportOpen}
                 onOpenChange={setExportOpen}
                 mode={mode}
-                quality={quality}
-                onQualityChange={setQuality}
+                options={{ quality, includeSubtitles, keepAudio, format, resolution }}
+                onChange={(o) => {
+                    setQuality(o.quality);
+                    setIncludeSubtitles(o.includeSubtitles);
+                    setKeepAudio(o.keepAudio);
+                    setFormat(o.format);
+                    setResolution(o.resolution);
+                }}
                 hasSubtitles={hasSubtitles}
-                includeSubtitles={includeSubtitles}
-                onIncludeSubtitlesChange={setIncludeSubtitles}
-                canChoosePrecision={mode === "trim" && canSnap && aspectRatio === "original" && !(includeSubtitles && hasSubtitles)}
-                precise={preciseTrim}
-                onPreciseChange={setPreciseTrim}
-                willReencode={willReencode}
                 isExporting={isExporting}
                 onExport={() => { setExportOpen(false); void handleApplyExport(); }}
             />

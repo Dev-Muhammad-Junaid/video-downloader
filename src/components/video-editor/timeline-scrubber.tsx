@@ -11,22 +11,15 @@ interface TimelineScrubberProps {
     trimEnd: number;
     onTrimChange: (start: number, end: number) => void;
     onSeek: (time: number) => void;
-    /** Positions a stream-copy cut can actually land on. Used to snap the
-     *  handles — deliberately NOT drawn, since a tick per keyframe turned the
-     *  track into visual noise. Empty = snapping unavailable. */
-    keyframes?: number[];
     /** Tiled thumbnail strip drawn as the track background, so the timeline
      *  shows what is in the video rather than a blank bar. */
     filmstripUrl?: string | null;
     /** Normalised amplitude peaks (0–1), drawn along the bottom so speech and
      *  silence are visible without playing through. */
     peaks?: number[];
-    /** When true the export re-encodes, so any position is valid and the
-     *  handles are left exactly where the user puts them. */
-    precise?: boolean;
 }
 
-export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTrimChange, onSeek, keyframes = [], precise = false, filmstripUrl = null, peaks = [] }: TimelineScrubberProps) {
+export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTrimChange, onSeek, filmstripUrl = null, peaks = [] }: TimelineScrubberProps) {
     const [localTrim, setLocalTrim] = useState([trimStart, trimEnd]);
 
     // Motion values for ultra-smooth UI
@@ -61,26 +54,12 @@ export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTri
         }
     };
 
-    /** Nearest keyframe, or the value untouched when snapping doesn't apply. */
-    const snap = (time: number) => {
-        if (precise || keyframes.length === 0) return time;
-        let best = keyframes[0];
-        for (const k of keyframes) {
-            if (Math.abs(time - k) < Math.abs(time - best)) best = k;
-        }
-        return best;
-    };
-
+    // No snapping: exports always re-encode, so a cut lands exactly where the
+    // handle is put. Snapping only ever existed because a stream copy could
+    // not cut between keyframes.
     const handleCommit = (val: number | readonly number[]) => {
         const valueArray = Array.isArray(val) ? val : [val, val];
-        const start = snap(valueArray[0]);
-        const end = snap(valueArray[1]);
-        // Show the snapped position rather than leaving the handle where the
-        // pointer was — the cut is what matters, not the gesture.
-        setLocalTrim([start, end]);
-        mvTrimStart.set(start);
-        mvTrimEnd.set(end);
-        onTrimChange(start, end);
+        onTrimChange(valueArray[0], valueArray[1]);
     };
 
     // Calculate motion templates for GPU rendering

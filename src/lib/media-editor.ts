@@ -128,64 +128,61 @@ function ensureSubtitleFilterSupport() {
 }
 
 /**
- * Audio options for a VIDEO export.
+ * Output options for a video export.
  *
- * Every video path used to hardcode `-c:a copy`, so a video's audio was
- * untouchable — there was no way to change its level, let alone drop it. The
- * filter chain to do all of this already existed for audio-only files
- * (buildAudioFilterChain: gain, loudness normalisation, fades); it just wasn't
- * reachable if the file happened to have a video track.
+ * Audio is now keep-or-drop only. Gain and loudness normalisation lived here
+ * briefly but belong to the audio editor, not to exporting a video — mixing
+ * them in made the export dialog a small audio workstation nobody asked for.
  */
-export interface VideoAudioOptions {
+export interface VideoOutputOptions {
     /** Drop the audio track entirely (`-an`). */
     removeAudio?: boolean;
-    gainDb?: number;
-    normalize?: boolean;
-    fadeIn?: number;
-    fadeOut?: number;
+    /** Output container. "original" keeps the source's extension. */
+    format?: "original" | "mp4" | "mov" | "mkv";
+    /** Target height. "original" leaves the frame size alone; anything else
+     *  scales DOWN only — upscaling invents detail and just wastes bytes. */
+    resolution?: "original" | "1080" | "720" | "480";
+}
+
+/** Audio args for a video export: copy the track, or drop it. */
+export function videoAudioArgs(opts?: VideoOutputOptions): string[] {
+    return opts?.removeAudio ? ["-an"] : ["-c:a", "copy"];
 }
 
 /**
- * Output args for a video export's audio.
+ * A `scale` filter for the requested resolution, or "" to leave it alone.
  *
- * Copies the track untouched when nothing is asked for, so the common case
- * stays lossless and instant. Any actual change forces an audio re-encode —
- * filters can't be applied to a copied stream — which is why this returns the
- * codec too rather than leaving it to each call site.
+ * `-2` keeps the aspect ratio and rounds the width to an even number, which
+ * H.264 requires — `-1` can produce an odd width and fail the encode outright.
+ * `min(iw,...)` clamps so asking for 1080p on a 720p source is a no-op rather
+ * than an upscale.
  */
-export function videoAudioArgs(opts?: VideoAudioOptions): string[] {
-    if (opts?.removeAudio) return ["-an"];
-
-    const chain = buildAudioFilterChain({
-        gainDb: opts?.gainDb,
-        normalize: opts?.normalize,
-        fadeIn: opts?.fadeIn,
-        fadeOut: opts?.fadeOut,
-    });
-
-    if (!chain) return ["-c:a", "copy"];
-    return ["-af", chain, "-c:a", "aac", "-b:a", "192k"];
+export function scaleFilter(resolution?: VideoOutputOptions["resolution"]): string {
+    if (!resolution || resolution === "original") return "";
+    const h = Number(resolution);
+    return `scale=-2:'min(ih,${h})'`;
 }
 
-/** True when the audio is being altered, so callers relying on a full stream
- *  copy (`-c copy`) know they must copy only the video. */
-export function audioIsModified(opts?: VideoAudioOptions): boolean {
-    return videoAudioArgs(opts)[0] !== "-c:a";
+/** Join filters, skipping empties, for ffmpeg's comma-separated -vf syntax. */
+export function joinFilters(...parts: (string | undefined)[]): string {
+    return parts.filter((p): p is string => !!p).join(",");
+}
+
+/** Output path with the chosen container's extension. */
+export function outputExtension(sourcePath: string, format?: VideoOutputOptions["format"]): string {
+    if (!format || format === "original") return path.parse(sourcePath).ext;
+    return `.${format}`;
 }
 
 /**
  * Trim a video.
  *
- * Two cuts are possible and they are genuinely different:
- *
- *  - Stream copy (`precise: false`) is instant and lossless, but can only cut
- *    at a keyframe. On a typical download those sit 0.5–6 seconds apart, so the
- *    cut lands wherever the nearest one is. The editor snaps its handles to
- *    those points so this stays an honest choice rather than a silent shift.
- *
- *  - Re-encoding (`precise: true`) cuts exactly where asked, at the cost of an
- *    encode. Cheap now that exports run on the hardware media engine, so it is
- *    a reasonable thing to offer rather than a last resort.
+ * Always re-encodes. A stream copy is instant and lossless but can only cut at
+ * a keyframe, which on a typical download means landing anywhere from half a
+ * second to six seconds from where the cut was placed — silently. Re-encoding
+ * cuts exactly where asked, and on the hardware media engine it is fast enough
+ * that the trade is worth making every time rather than offering it as an
+ * option nobody should have had to understand.
  */
 export async function trimVideo(
     videoId: string,
@@ -195,8 +192,7 @@ export async function trimVideo(
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
     quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
-    precise = false,
-    audio?: VideoAudioOptions,
+    output?: VideoOutputOptions,
 ) {
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
@@ -207,32 +203,23 @@ export async function trimVideo(
 
     const parsedPath = path.parse(originalVideo.localPath);
     const newId = Math.random().toString(36).substring(2, 15);
-    const newFileName = `${parsedPath.name}_clipped_${newId}${parsedPath.ext}`;
+    const ext = outputExtension(originalVideo.localPath, output?.format);
+    const newFileName = `${parsedPath.name}_clipped_${newId}${ext}`;
     const newFilePath = path.join(parsedPath.dir, newFileName);
 
     // trimArgs uses -ss + -t (duration) so the output is exactly the trimmed
-    // length. Precise cuts re-encode the video and keep the audio as-is;
-    // otherwise both streams are copied and the cut snaps to a keyframe.
-    const args = precise
-        ? [
-            "-y",
-            ...trimArgs(originalVideo.localPath, startTime, endTime, true),
-            ...videoEncoderArgs(quality),
-            ...videoAudioArgs(audio),
-            newFilePath,
-        ]
-        : [
-            "-y",
-            ...trimArgs(originalVideo.localPath, startTime, endTime),
-            // Video is always copied here; the audio codec depends on whether
-            // anything is being done to it. `-c copy` would copy both and make
-            // audio filters impossible.
-            "-c:v", "copy",
-            ...videoAudioArgs(audio),
-            newFilePath,
-        ];
+    // length; -to would be measured from the post-seek zero.
+    const scale = scaleFilter(output?.resolution);
+    const args = [
+        "-y",
+        ...trimArgs(originalVideo.localPath, startTime, endTime, true),
+        ...(scale ? ["-vf", scale] : []),
+        ...videoEncoderArgs(quality),
+        ...videoAudioArgs(output),
+        newFilePath,
+    ];
 
-    console.log(`[FFmpeg Trim${precise ? " (precise)" : ""}] Running: ffmpeg ${args.join(" ")}`);
+    console.log(`[FFmpeg Trim] Running: ffmpeg ${args.join(" ")}`);
     await runFfmpeg(args, onProgress, registerProc);
 
     let fileSize = 0;
@@ -277,7 +264,7 @@ export async function cropVideo(
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
     quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
-    audio?: VideoAudioOptions,
+    output?: VideoOutputOptions,
 ) {
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
@@ -288,19 +275,19 @@ export async function cropVideo(
 
     const parsedPath = path.parse(originalVideo.localPath);
     const newId = Math.random().toString(36).substring(2, 15);
-    const newFileName = `${parsedPath.name}_cropped_${newId}${parsedPath.ext}`;
+    const newFileName = `${parsedPath.name}_cropped_${newId}${outputExtension(originalVideo.localPath, output?.format)}`;
     const newFilePath = path.join(parsedPath.dir, newFileName);
 
     // Build FFmpeg command for cropping. 
     // This REQUIRES re-encoding, so it takes longer.
-    const filterArg = `crop=${w}:${h}:${x}:${y}`;
+    const filterArg = joinFilters(`crop=${w}:${h}:${x}:${y}`, scaleFilter(output?.resolution));
     const args = [
         "-y",
         ...decodeArgs(),
         "-i", originalVideo.localPath,
         "-filter:v", filterArg,
         ...videoEncoderArgs(quality),
-        ...videoAudioArgs(audio),
+        ...videoAudioArgs(output),
         newFilePath
     ];
 
@@ -355,7 +342,7 @@ export async function trimAndCrop(
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
     quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
-    audio?: VideoAudioOptions,
+    output?: VideoOutputOptions,
 ) {
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
@@ -366,16 +353,16 @@ export async function trimAndCrop(
 
     const parsedPath = path.parse(originalVideo.localPath);
     const newId = Math.random().toString(36).substring(2, 15);
-    const newFileName = `${parsedPath.name}_trimcrop_${newId}${parsedPath.ext}`;
+    const newFileName = `${parsedPath.name}_trimcrop_${newId}${outputExtension(originalVideo.localPath, output?.format)}`;
     const newFilePath = path.join(parsedPath.dir, newFileName);
 
-    const filterArg = `crop=${w}:${h}:${x}:${y}`;
+    const filterArg = joinFilters(`crop=${w}:${h}:${x}:${y}`, scaleFilter(output?.resolution));
     const args = [
         "-y",
         ...trimArgs(originalVideo.localPath, startTime, endTime, true),
         "-filter:v", filterArg,
         ...videoEncoderArgs(quality),
-        ...videoAudioArgs(audio),
+        ...videoAudioArgs(output),
         newFilePath
     ];
 
@@ -678,7 +665,7 @@ export async function trimBurnSubtitles(
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
     quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
-    audio?: VideoAudioOptions,
+    output?: VideoOutputOptions,
 ) {
     ensureSubtitleFilterSupport();
     const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
@@ -687,7 +674,7 @@ export async function trimBurnSubtitles(
 
     const parsedPath = path.parse(originalVideo.localPath);
     const newId = Math.random().toString(36).substring(2, 15);
-    const newFileName = `${parsedPath.name}_trimcap_${newId}${parsedPath.ext}`;
+    const newFileName = `${parsedPath.name}_trimcap_${newId}${outputExtension(originalVideo.localPath, output?.format)}`;
     const newFilePath = path.join(parsedPath.dir, newFileName);
     const tmpAssPath = path.join(os.tmpdir(), `_tmp_subs_${newId}.ass`);
     // The client already produced the exact ASS the preview rendered — burn it
@@ -695,8 +682,8 @@ export async function trimBurnSubtitles(
     fs.writeFileSync(tmpAssPath, assContent, "utf-8");
 
     try {
-        const filterArg = buildSubtitlesFilter(tmpAssPath);
-        const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime, true), "-vf", filterArg, ...videoEncoderArgs(quality), ...videoAudioArgs(audio), newFilePath];
+        const filterArg = joinFilters(buildSubtitlesFilter(tmpAssPath), scaleFilter(output?.resolution));
+        const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime, true), "-vf", filterArg, ...videoEncoderArgs(quality), ...videoAudioArgs(output), newFilePath];
         console.log(`[FFmpeg TrimBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args, onProgress, registerProc);
     } finally {
@@ -730,7 +717,7 @@ export async function cropBurnSubtitles(
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
     quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
-    audio?: VideoAudioOptions,
+    output?: VideoOutputOptions,
 ) {
     ensureSubtitleFilterSupport();
     const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
@@ -739,15 +726,15 @@ export async function cropBurnSubtitles(
 
     const parsedPath = path.parse(originalVideo.localPath);
     const newId = Math.random().toString(36).substring(2, 15);
-    const newFileName = `${parsedPath.name}_cropcap_${newId}${parsedPath.ext}`;
+    const newFileName = `${parsedPath.name}_cropcap_${newId}${outputExtension(originalVideo.localPath, output?.format)}`;
     const newFilePath = path.join(parsedPath.dir, newFileName);
     const tmpAssPath = path.join(os.tmpdir(), `_tmp_subs_${newId}.ass`);
     // Client-composed ASS (built against the crop output dims) — burn verbatim.
     fs.writeFileSync(tmpAssPath, assContent, "utf-8");
 
     try {
-        const filterArg = `crop=${w}:${h}:${x}:${y},${buildSubtitlesFilter(tmpAssPath)}`;
-        const args = ["-y", ...decodeArgs(), "-i", originalVideo.localPath, "-vf", filterArg, ...videoEncoderArgs(quality), ...videoAudioArgs(audio), newFilePath];
+        const filterArg = joinFilters(`crop=${w}:${h}:${x}:${y}`, buildSubtitlesFilter(tmpAssPath), scaleFilter(output?.resolution));
+        const args = ["-y", ...decodeArgs(), "-i", originalVideo.localPath, "-vf", filterArg, ...videoEncoderArgs(quality), ...videoAudioArgs(output), newFilePath];
         console.log(`[FFmpeg CropBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args, onProgress, registerProc);
     } finally {
@@ -782,7 +769,7 @@ export async function trimCropBurnSubtitles(
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
     quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
-    audio?: VideoAudioOptions,
+    output?: VideoOutputOptions,
 ) {
     ensureSubtitleFilterSupport();
     const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
@@ -791,15 +778,15 @@ export async function trimCropBurnSubtitles(
 
     const parsedPath = path.parse(originalVideo.localPath);
     const newId = Math.random().toString(36).substring(2, 15);
-    const newFileName = `${parsedPath.name}_trimcropcap_${newId}${parsedPath.ext}`;
+    const newFileName = `${parsedPath.name}_trimcropcap_${newId}${outputExtension(originalVideo.localPath, output?.format)}`;
     const newFilePath = path.join(parsedPath.dir, newFileName);
     const tmpAssPath = path.join(os.tmpdir(), `_tmp_subs_${newId}.ass`);
     // Client-composed ASS (built against the crop output dims) — burn verbatim.
     fs.writeFileSync(tmpAssPath, assContent, "utf-8");
 
     try {
-        const filterArg = `crop=${w}:${h}:${x}:${y},${buildSubtitlesFilter(tmpAssPath)}`;
-        const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime, true), "-vf", filterArg, ...videoEncoderArgs(quality), ...videoAudioArgs(audio), newFilePath];
+        const filterArg = joinFilters(`crop=${w}:${h}:${x}:${y}`, buildSubtitlesFilter(tmpAssPath), scaleFilter(output?.resolution));
+        const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime, true), "-vf", filterArg, ...videoEncoderArgs(quality), ...videoAudioArgs(output), newFilePath];
         console.log(`[FFmpeg TrimCropBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args, onProgress, registerProc);
     } finally {
@@ -832,7 +819,7 @@ export async function burnSubtitles(
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
     quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
-    audio?: VideoAudioOptions,
+    output?: VideoOutputOptions,
 ) {
     ensureSubtitleFilterSupport();
 
@@ -842,7 +829,7 @@ export async function burnSubtitles(
 
     const parsedPath = path.parse(originalVideo.localPath);
     const newId = Math.random().toString(36).substring(2, 15);
-    const newFileName = `${parsedPath.name}_captioned_${newId}${parsedPath.ext}`;
+    const newFileName = `${parsedPath.name}_captioned_${newId}${outputExtension(originalVideo.localPath, output?.format)}`;
     const newFilePath = path.join(parsedPath.dir, newFileName);
 
     const tmpAssPath = path.join(os.tmpdir(), `_tmp_subs_${newId}.ass`);
@@ -851,8 +838,8 @@ export async function burnSubtitles(
     fs.writeFileSync(tmpAssPath, assContent, "utf-8");
 
     try {
-        const filterArg = buildSubtitlesFilter(tmpAssPath);
-        const args = ["-y", ...decodeArgs(), "-i", originalVideo.localPath, "-vf", filterArg, ...videoEncoderArgs(quality), ...videoAudioArgs(audio), newFilePath];
+        const filterArg = joinFilters(buildSubtitlesFilter(tmpAssPath), scaleFilter(output?.resolution));
+        const args = ["-y", ...decodeArgs(), "-i", originalVideo.localPath, "-vf", filterArg, ...videoEncoderArgs(quality), ...videoAudioArgs(output), newFilePath];
         console.log(`[FFmpeg BurnSubs] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args, onProgress, registerProc);
     } finally {

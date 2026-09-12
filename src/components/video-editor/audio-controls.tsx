@@ -1,74 +1,36 @@
 "use client";
 
-import { Volume2, VolumeX, Volume1 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Volume2, VolumeX, Volume1 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
- * Audio controls for the video editor.
+ * Preview volume for the editor.
  *
- * Two separate things live here, and the split matters: the preview volume
- * only changes what you hear while editing, while the export settings change
- * the file you get. Conflating them is the classic way to have someone mute
- * the preview and be surprised their export is silent.
+ * Strictly what you hear while editing — it has no effect on the exported
+ * file. Whether the export keeps its audio is an export decision and lives in
+ * the export dialog, alongside format and resolution.
  *
- * Rendered inline rather than in a Popover. A Popover portals to document.body,
- * and inside this editor it opened correctly — right position, opacity 1,
- * z-index 50 — but painted BEHIND the modal, so the button appeared to do
- * nothing at all. Keeping the panel in the editor's own DOM sidesteps the
- * stacking-context fight entirely.
- *
- * Every video export path previously hardcoded `-c:a copy`, so none of the
- * export side was possible at all — even though the underlying ffmpeg filter
- * chain already existed for audio-only files.
+ * Rendered inline rather than in a Popover. A Popover portals to document.body
+ * and, inside this editor, painted behind the modal — the button appeared to
+ * do nothing at all.
  */
-
-export interface VideoAudioSettings {
-    removeAudio: boolean;
-    gainDb: number;
-    normalize: boolean;
-}
-
-export const DEFAULT_AUDIO_SETTINGS: VideoAudioSettings = {
-    removeAudio: false,
-    gainDb: 0,
-    normalize: false,
-};
-
-/** Whether the export will actually touch the audio. Drives the button's
- *  active state, so a non-default setting is visible without opening it. */
-export function audioSettingsAreDefault(s: VideoAudioSettings): boolean {
-    return !s.removeAudio && s.gainDb === 0 && !s.normalize;
-}
-
 interface AudioControlsProps {
-    /** Preview-only volume, 0–1. */
-    previewVolume: number;
-    onPreviewVolumeChange: (v: number) => void;
-    previewMuted: boolean;
-    onPreviewMutedChange: (m: boolean) => void;
-    settings: VideoAudioSettings;
-    onSettingsChange: (s: VideoAudioSettings) => void;
+    /** 0–1. */
+    volume: number;
+    onVolumeChange: (v: number) => void;
+    muted: boolean;
+    onMutedChange: (m: boolean) => void;
 }
 
-export function AudioControls({
-    previewVolume,
-    onPreviewVolumeChange,
-    previewMuted,
-    onPreviewMutedChange,
-    settings,
-    onSettingsChange,
-}: AudioControlsProps) {
+export function AudioControls({ volume, onVolumeChange, muted, onMutedChange }: AudioControlsProps) {
     const [open, setOpen] = useState(false);
     const wrapRef = useRef<HTMLDivElement>(null);
 
-    const modified = !audioSettingsAreDefault(settings);
-    const Icon = settings.removeAudio || previewMuted ? VolumeX : previewVolume < 0.5 ? Volume1 : Volume2;
-    const set = (patch: Partial<VideoAudioSettings>) => onSettingsChange({ ...settings, ...patch });
+    const Icon = muted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
 
-    // Close on an outside click or Escape, the way a popover would.
     useEffect(() => {
         if (!open) return;
         const onDown = (e: MouseEvent) => {
@@ -88,110 +50,39 @@ export function AudioControls({
             <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
-                title={modified ? "Audio — export settings changed" : "Audio"}
-                aria-label="Audio"
+                title={muted ? "Unmute preview" : "Preview volume"}
+                aria-label="Preview volume"
                 aria-expanded={open}
-                className={cn(
-                    buttonVariants({ variant: "ghost", size: "icon-sm" }),
-                    "relative",
-                    (open || modified) && "bg-accent",
-                    modified && "text-primary",
-                )}
+                className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), open && "bg-accent")}
             >
                 <Icon className="size-4" />
-                {modified && <span className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-primary" />}
             </button>
 
             {open && (
-                <div
-                    className="absolute bottom-full left-0 z-50 mb-2 w-64 rounded-lg border bg-popover p-3 shadow-lg ring-1 ring-foreground/10"
-                    role="group"
-                    aria-label="Audio settings"
-                >
-                    <div className="space-y-3">
-                        <div>
-                            <div className="mb-1.5 flex items-center justify-between">
-                                <span className="text-[11px] font-medium text-foreground">Preview volume</span>
-                                <button
-                                    type="button"
-                                    onClick={() => onPreviewMutedChange(!previewMuted)}
-                                    className="text-[11px] text-muted-foreground hover:text-foreground"
-                                >
-                                    {previewMuted ? "Unmute" : "Mute"}
-                                </button>
-                            </div>
-                            <Slider
-                                value={[previewMuted ? 0 : Math.round(previewVolume * 100)]}
-                                max={100}
-                                step={1}
-                                onValueChange={(v) => {
-                                    const next = (Array.isArray(v) ? v[0] : v) as number;
-                                    onPreviewVolumeChange(next / 100);
-                                    if (next > 0 && previewMuted) onPreviewMutedChange(false);
-                                }}
-                            />
-                            <p className="mt-1 text-[10px] text-muted-foreground">
-                                Only what you hear here — the export is unaffected.
-                            </p>
-                        </div>
-
-                        <div className="border-t pt-3">
-                            <span className="text-[11px] font-medium text-foreground">In the exported file</span>
-
-                            <label className="mt-2 flex items-center gap-2 text-[11px] cursor-pointer select-none">
-                                <input
-                                    type="checkbox"
-                                    checked={settings.removeAudio}
-                                    onChange={(e) => set({ removeAudio: e.target.checked })}
-                                    className="rounded border-border"
-                                />
-                                <span>Remove audio entirely</span>
-                            </label>
-
-                            {/* Gain and loudness are meaningless with no audio
-                                track, so they're hidden rather than left to
-                                contradict it. */}
-                            {!settings.removeAudio && (
-                                <>
-                                    <div className="mt-2.5">
-                                        <div className="mb-1 flex items-center justify-between text-[11px]">
-                                            <span className="text-muted-foreground">Volume</span>
-                                            <span className="font-mono tabular-nums text-foreground">
-                                                {settings.gainDb > 0 ? "+" : ""}{settings.gainDb} dB
-                                            </span>
-                                        </div>
-                                        <Slider
-                                            value={[settings.gainDb]}
-                                            min={-20}
-                                            max={12}
-                                            step={1}
-                                            onValueChange={(v) => set({ gainDb: (Array.isArray(v) ? v[0] : v) as number })}
-                                        />
-                                    </div>
-
-                                    <label className="mt-2.5 flex items-center gap-2 text-[11px] cursor-pointer select-none">
-                                        <input
-                                            type="checkbox"
-                                            checked={settings.normalize}
-                                            onChange={(e) => set({ normalize: e.target.checked })}
-                                            className="rounded border-border"
-                                        />
-                                        <span>Even out loudness</span>
-                                    </label>
-                                </>
-                            )}
-
-                            {modified && (
-                                <button
-                                    type="button"
-                                    onClick={() => onSettingsChange(DEFAULT_AUDIO_SETTINGS)}
-                                    className="mt-2.5 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                                >
-                                    Reset audio
-                                </button>
-                            )}
-                        </div>
+                <div className="absolute bottom-full left-0 z-50 mb-2 w-52 rounded-lg border bg-popover p-3 shadow-lg ring-1 ring-foreground/10">
+                    <div className="mb-2 flex items-center justify-between">
+                        <span className="text-[11px] font-medium text-foreground">Preview volume</span>
+                        <button
+                            type="button"
+                            onClick={() => onMutedChange(!muted)}
+                            className="text-[11px] text-muted-foreground hover:text-foreground"
+                        >
+                            {muted ? "Unmute" : "Mute"}
+                        </button>
                     </div>
+                    <Slider
+                        value={[muted ? 0 : Math.round(volume * 100)]}
+                        max={100}
+                        step={1}
+                        onValueChange={(v) => {
+                            const next = (Array.isArray(v) ? v[0] : v) as number;
+                            onVolumeChange(next / 100);
+                            if (next > 0 && muted) onMutedChange(false);
+                        }}
+                    />
+                    <p className="mt-1.5 text-[10px] text-muted-foreground">
+                        Only affects playback here, not the export.
+                    </p>
                 </div>
             )}
         </div>

@@ -67,10 +67,9 @@ interface UseVideoExportParams {
     /** Re-encode so the cut lands exactly where asked, rather than snapping to
      *  the nearest keyframe. Only applies to a pure trim; every other action
      *  re-encodes anyway. */
-    precise?: boolean;
-    /** Audio changes to apply to the exported file (remove / gain / normalise).
-     *  Distinct from the preview volume, which never leaves the editor. */
-    audio?: { removeAudio: boolean; gainDb: number; normalize: boolean };
+    /** Container, resolution and whether to keep the audio track. Distinct
+     *  from the preview volume, which never leaves the editor. */
+    output?: { removeAudio: boolean; format: string; resolution: string };
     onRefreshLibrary?: () => void;
     onClose: () => void;
 }
@@ -92,8 +91,7 @@ export function useVideoExport({
     subtitles,
     styleConfig,
     videoRef,
-    precise = false,
-    audio,
+    output,
     onRefreshLibrary,
     onClose,
 }: UseVideoExportParams) {
@@ -181,7 +179,7 @@ export function useVideoExport({
                     bodyPayload.params = { startTime: trimStart, endTime: trimEnd, assContent: composeBurnAss(clippedSubtitles, displayDims), inheritSrtContent };
                 } else {
                     bodyPayload.action = "trim";
-                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, inheritSrtContent, precise };
+                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, inheritSrtContent };
                 }
             } else if (mode === "crop") {
                 const cropPx = getCropPixels();
@@ -208,10 +206,10 @@ export function useVideoExport({
             // is a stream copy, so it ignores this — harmless to send.
             if (bodyPayload.params) {
                 (bodyPayload.params as Record<string, unknown>).quality = quality;
-                // Only send audio settings that actually change something, so a
-                // plain trim stays a lossless stream copy.
-                if (audio && (audio.removeAudio || audio.gainDb !== 0 || audio.normalize)) {
-                    (bodyPayload.params as Record<string, unknown>).audio = audio;
+                // Only send what differs from the source, so an untouched
+                // export doesn't carry settings that change nothing.
+                if (output && (output.removeAudio || output.format !== "original" || output.resolution !== "original")) {
+                    (bodyPayload.params as Record<string, unknown>).output = output;
                 }
             }
 
