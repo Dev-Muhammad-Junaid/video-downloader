@@ -15,6 +15,9 @@ interface TimelineScrubberProps {
      *  handles — deliberately NOT drawn, since a tick per keyframe turned the
      *  track into visual noise. Empty = snapping unavailable. */
     keyframes?: number[];
+    /** Tiled thumbnail strip drawn as the track background, so the timeline
+     *  shows what is in the video rather than a blank bar. */
+    filmstripUrl?: string | null;
     /** Normalised amplitude peaks (0–1), drawn along the bottom so speech and
      *  silence are visible without playing through. */
     peaks?: number[];
@@ -23,7 +26,7 @@ interface TimelineScrubberProps {
     precise?: boolean;
 }
 
-export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTrimChange, onSeek, keyframes = [], precise = false, peaks = [] }: TimelineScrubberProps) {
+export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTrimChange, onSeek, keyframes = [], precise = false, filmstripUrl = null, peaks = [] }: TimelineScrubberProps) {
     const [localTrim, setLocalTrim] = useState([trimStart, trimEnd]);
 
     // Motion values for ultra-smooth UI
@@ -95,6 +98,26 @@ export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTri
         <div className="relative w-full h-14 bg-muted rounded-lg flex items-center px-6 overflow-hidden ring-1 ring-border/50">
             {/* Waveform along the bottom. Drawn as one polygon rather than a
                 bar per peak — 400 DOM nodes per render is not worth it. */}
+            {/* Thumbnails behind everything, dimmed so the controls stay
+                readable over whatever the video happens to look like. Stretched
+                to `100% 100%` rather than `cover`, which centre-crops — only
+                the middle of the video would show, and a thumbnail would no
+                longer sit above the moment it came from. Spans the slider's own
+                range, not the padded track, so the two line up. */}
+            {filmstripUrl && (
+                <>
+                    <div
+                        className="pointer-events-none absolute inset-x-6 inset-y-0 opacity-70"
+                        style={{
+                            backgroundImage: `url(${filmstripUrl})`,
+                            backgroundSize: "100% 100%",
+                            backgroundRepeat: "no-repeat",
+                        }}
+                    />
+                    <div className="pointer-events-none absolute inset-x-6 inset-y-0 bg-background/25" />
+                </>
+            )}
+
             {/* Current position. Sits above the waveform so it stays visible
                 over it, and below the slider so it never blocks a handle. */}
             <motion.div

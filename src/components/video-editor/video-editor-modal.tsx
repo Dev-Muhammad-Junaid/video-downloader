@@ -16,6 +16,7 @@ import {
     Loader2,
     Crop as CropIcon,
     Captions,
+    ChevronDown,
     Download,
     Mic,
     RectangleHorizontal,
@@ -445,11 +446,11 @@ export function VideoEditorModal({
         videoRef.current.muted = previewMuted;
     }, [previewVolume, previewMuted]);
     const { keyframes, available: canSnap } = useKeyframes(video.id, mode === "trim");
-    const { peaks } = useTimelineAssets(video.id, mode === "trim");
+    const { peaks, filmstripUrl } = useTimelineAssets(video.id, mode === "trim");
 
     // Export submit (trim / crop / burn-subtitles + combinations) lives in a hook;
     // it composes the burn ASS exactly like the preview so they stay 1:1.
-    const { isExporting, includeSubtitles, setIncludeSubtitles, quality, setQuality, handleApplyExport } = useVideoExport({
+    const { isExporting, includeSubtitles, setIncludeSubtitles, subtitlesExplicitlyEnabled, quality, setQuality, handleApplyExport } = useVideoExport({
         video,
         mode,
         trimStart,
@@ -584,23 +585,41 @@ export function VideoEditorModal({
                     </Button>
                     {/* Quality picker — only meaningful when the export re-encodes.
                         A plain trim is a stream copy, so no encoder runs at all. */}
-                    <Button
-                        size="sm"
-                        
-                        onClick={() => setExportOpen(true)}
-                        disabled={isExporting || (mode === "subtitles" && !hasSubtitles)}
-                    >
-                        {isExporting ? (
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        ) : mode === "trim" ? (
-                            <Scissors className="w-4 h-4 mr-2" />
-                        ) : mode === "crop" ? (
-                            <CropIcon className="w-4 h-4 mr-2" />
-                        ) : (
-                            <Download className="w-4 h-4 mr-2" />
-                        )}
-                        Export<span className="hidden sm:inline"> {mode === "trim" ? "Trim" : mode === "crop" ? "Crop" : "with Subtitles"}</span>
-                    </Button>
+                    {/* Split button. Pressing Export just exports, with the
+                        defaults already chosen — subtitles included when the
+                        video has them, audio untouched, quality matching the
+                        source. The caret is for the times you want to change
+                        one of those, which is the exception rather than a
+                        question worth asking on every export. */}
+                    <div className="flex items-stretch">
+                        <Button
+                            size="sm"
+                            className="rounded-r-none pr-2.5"
+                            onClick={() => void handleApplyExport()}
+                            disabled={isExporting || (mode === "subtitles" && !hasSubtitles)}
+                        >
+                            {isExporting ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            ) : mode === "trim" ? (
+                                <Scissors className="w-4 h-4 mr-2" />
+                            ) : mode === "crop" ? (
+                                <CropIcon className="w-4 h-4 mr-2" />
+                            ) : (
+                                <Download className="w-4 h-4 mr-2" />
+                            )}
+                            Export<span className="hidden sm:inline"> {mode === "trim" ? "Trim" : mode === "crop" ? "Crop" : "with Subtitles"}</span>
+                        </Button>
+                        <Button
+                            size="sm"
+                            aria-label="Export options"
+                            title="Export options"
+                            className="rounded-l-none border-l border-primary-foreground/25 px-1.5"
+                            onClick={() => setExportOpen(true)}
+                            disabled={isExporting || (mode === "subtitles" && !hasSubtitles)}
+                        >
+                            <ChevronDown className="w-3.5 h-3.5" />
+                        </Button>
+                    </div>
                 </div>
             </div>
 
@@ -951,6 +970,7 @@ export function VideoEditorModal({
                                 onSeek={handleSeek}
                                 keyframes={keyframes}
                                 precise={preciseTrim}
+                                filmstripUrl={filmstripUrl}
                                 peaks={peaks}
                             />
 
@@ -963,7 +983,7 @@ export function VideoEditorModal({
 
             {/* Floating style panel for trim/crop modes with "Include Subtitles" on */}
             <AnimatePresence>
-                {mode !== "subtitles" && includeSubtitles && hasSubtitles && (
+                {mode !== "subtitles" && subtitlesExplicitlyEnabled && hasSubtitles && (
                     <motion.div
                         key="style-panel-float"
                         initial={{ opacity: 0, scale: 0.94 }}

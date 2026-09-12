@@ -98,11 +98,24 @@ export function useVideoExport({
     onClose,
 }: UseVideoExportParams) {
     const [isExporting, setIsExporting] = useState(false);
-    const [includeSubtitles, setIncludeSubtitles] = useState(false);
+    /**
+     * Subtitles are included by default when the video has them.
+     *
+     * Pressing Export should produce the obvious thing without asking: if a
+     * video has subtitles, the version you want almost always has them too.
+     * Defaulting to off meant every captioned export needed a checkbox found
+     * and ticked first, and silently produced a bare video if you didn't.
+     *
+     * `undefined` means "not chosen yet", so this follows the video rather than
+     * sticking at whatever the previous one needed.
+     */
+    const [includeOverride, setIncludeSubtitlesOverride] = useState<boolean | undefined>(undefined);
     const quality = useSyncExternalStore(subscribeQuality, readQuality, () => "balanced" as ExportQuality);
     const setQuality = useCallback((next: ExportQuality) => writeQuality(next), []);
 
     const hasSubtitles = subtitles.length > 0;
+    const includeSubtitles = includeOverride ?? hasSubtitles;
+    const setIncludeSubtitles = setIncludeSubtitlesOverride;
 
     // Compute pixel-level crop from the percentage state + actual video dimensions
     const getCropPixels = () => {
@@ -221,5 +234,18 @@ export function useVideoExport({
         }
     };
 
-    return { isExporting, includeSubtitles, setIncludeSubtitles, quality, setQuality, handleApplyExport };
+    return {
+        isExporting,
+        includeSubtitles,
+        setIncludeSubtitles,
+        /** True only when the user actively turned subtitles ON for this
+         *  export, as opposed to them being on because the video has them.
+         *  The floating style panel keys off this — appearing over the video
+         *  simply because a default was applied is not something anyone asked
+         *  for. */
+        subtitlesExplicitlyEnabled: includeOverride === true,
+        quality,
+        setQuality,
+        handleApplyExport,
+    };
 }
