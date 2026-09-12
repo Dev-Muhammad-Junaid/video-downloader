@@ -36,13 +36,20 @@ export function rescueBundledMedia(): void {
 
     try {
         const rows = db
-            .prepare("SELECT id, localPath, transcriptPath FROM Video")
-            .all() as { id: string; localPath: string; transcriptPath: string | null }[];
+            .prepare("SELECT id, localPath, transcriptPath, thumbnailPath FROM Video")
+            .all() as {
+                id: string;
+                localPath: string;
+                transcriptPath: string | null;
+                thumbnailPath: string | null;
+            }[];
 
-        // Transcripts were written to <bundle>/transcripts for the same reason
-        // media was, so they were destroyed by updates too. They cost real money
-        // to regenerate, so move them as well.
-        rescueTranscripts(db, rows);
+        // Transcripts and thumbnails were written under the bundle for the same
+        // reason media was, so updates destroyed them too. Transcripts cost real
+        // money to regenerate; thumbnails just cost time, but a library of blank
+        // cards after every update is its own kind of broken.
+        rescueSidecars(db, rows, "transcriptPath", "transcripts");
+        rescueSidecars(db, rows, "thumbnailPath", "thumbnails");
 
         const atRisk = rows.filter((r) => r.localPath && isInsideAppBundle(r.localPath));
         if (atRisk.length === 0) return;
@@ -103,21 +110,26 @@ export function rescueBundledMedia(): void {
     }
 }
 
-/** Move .vtt transcripts out of the bundle into the user data directory. */
-function rescueTranscripts(
+/**
+ * Move generated sidecar files (transcripts, thumbnails) out of the bundle
+ * into the user data directory and repoint their rows.
+ */
+function rescueSidecars(
     db: Database.Database,
-    rows: { id: string; transcriptPath: string | null }[],
+    rows: { id: string; transcriptPath: string | null; thumbnailPath: string | null }[],
+    column: "transcriptPath" | "thumbnailPath",
+    dirName: string,
 ): void {
-    const atRisk = rows.filter((r) => r.transcriptPath && isInsideAppBundle(r.transcriptPath));
+    const atRisk = rows.filter((r) => r[column] && isInsideAppBundle(r[column]!));
     if (atRisk.length === 0) return;
 
-    const destDir = appDataPath("transcripts");
+    const destDir = appDataPath(dirName);
     fs.mkdirSync(destDir, { recursive: true });
-    const update = db.prepare("UPDATE Video SET transcriptPath = ? WHERE id = ?");
+    const update = db.prepare(`UPDATE Video SET ${column} = ? WHERE id = ?`);
     let moved = 0;
 
     for (const row of atRisk) {
-        const source = row.transcriptPath!;
+        const source = row[column]!;
         if (!fs.existsSync(source)) continue;
         const target = path.join(destDir, path.basename(source));
         try {
@@ -134,5 +146,5 @@ function rescueTranscripts(
         moved++;
     }
 
-    if (moved > 0) console.log(`[rescue] Moved ${moved} transcript(s) out of the app bundle`);
+    if (moved > 0) console.log(`[rescue] Moved ${moved} ${dirName} file(s) out of the app bundle`);
 }

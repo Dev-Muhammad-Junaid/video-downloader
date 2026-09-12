@@ -1,10 +1,19 @@
 import { spawn } from "child_process";
 import path from "path";
+import { appDataPath } from "@/lib/app-paths";
 import fs from "fs";
 import { getFfmpegPath } from "@/lib/ffmpeg";
 
 // Thumbnails directory within the project
-const thumbnailsDir = path.join(process.cwd(), "thumbnails");
+/**
+ * Generated thumbnails.
+ *
+ * Was `<cwd>/thumbnails`, which in the packaged app is inside the .app bundle,
+ * so every thumbnail was deleted by each update and the library came back as a
+ * wall of blank cards until each one was regenerated. Same defect as the one
+ * that destroyed downloaded media and transcripts.
+ */
+const thumbnailsDir = appDataPath("thumbnails");
 if (!fs.existsSync(thumbnailsDir)) {
     fs.mkdirSync(thumbnailsDir, { recursive: true });
 }

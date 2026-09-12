@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import fs from "fs";
-import path from "path";
+import { appDataPath } from "@/lib/app-paths";
 
 export async function GET(req: Request) {
     try {
@@ -10,7 +10,12 @@ export async function GET(req: Request) {
 
         if (format === "db") {
             // Stream the raw SQLite database file
-            const dbPath = path.join(process.cwd(), "prisma", "dev.db");
+            // The live database is in the user data directory. This used to
+            // read <cwd>/prisma/dev.db, which in the packaged app is inside the
+            // .app bundle and has never held the user's data — so "export
+            // database" either 404'd or handed back an empty shipped file
+            // while appearing to succeed.
+            const dbPath = appDataPath("dev.db");
             if (!fs.existsSync(dbPath)) {
                 return NextResponse.json({ error: "Database file not found" }, { status: 404 });
             }

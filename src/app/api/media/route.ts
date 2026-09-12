@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { getDownloadsDir } from "@/lib/download-manager";
+import { appDataPath, getDefaultMediaDir } from "@/lib/app-paths";
 import { getServerSettings } from "@/lib/settings";
 
 const MIME_TYPES: Record<string, string> = {
@@ -47,6 +48,16 @@ export async function GET(req: Request) {
     const downloadsDir = getDownloadsDir();
     const allowedRoots = [
         path.resolve(downloadsDir),
+        // The default media location, which is where the rescue migration puts
+        // files recovered from an old app bundle. Without this they'd be on
+        // disk but refused by this route whenever the configured destination
+        // is somewhere else.
+        path.resolve(getDefaultMediaDir()),
+        // Generated assets now live in the user data directory rather than
+        // inside the .app bundle, which updates delete.
+        path.resolve(appDataPath("thumbnails")),
+        path.resolve(appDataPath("transcripts")),
+        // Kept for dev, where cwd is the project directory.
         path.resolve(process.cwd(), "downloads"),
         path.resolve(process.cwd(), "thumbnails"),
         "/tmp",
