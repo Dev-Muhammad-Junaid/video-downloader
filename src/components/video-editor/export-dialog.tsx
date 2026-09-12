@@ -7,7 +7,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
+import { StepSlider } from "@/components/ui/step-slider";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Captions, Download, Loader2, Volume2 } from "lucide-react";
 import type { ExportQuality } from "@/lib/encoder";
@@ -77,7 +77,7 @@ export function ExportDialog({
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Download className="size-4 text-primary" />
-                        Export options
+                        Export {mode === "trim" ? "trim" : mode === "crop" ? "crop" : "with subtitles"}
                     </DialogTitle>
                 </DialogHeader>
 
@@ -87,15 +87,11 @@ export function ExportDialog({
                             <span className="text-[12px] font-medium text-foreground">Quality</span>
                             <span className="text-[12px] text-primary">{active.label}</span>
                         </div>
-                        <Slider
-                            value={[qualityIndex]}
-                            min={0}
-                            max={QUALITIES.length - 1}
-                            step={1}
-                            onValueChange={(v) => {
-                                const i = (Array.isArray(v) ? v[0] : v) as number;
-                                set({ quality: QUALITIES[i].id });
-                            }}
+                        <StepSlider
+                            aria-label="Quality"
+                            value={qualityIndex}
+                            steps={QUALITIES.length}
+                            onValueChange={(i) => set({ quality: QUALITIES[i].id })}
                         />
                         <div className="mt-1.5 flex justify-between text-[10px] text-muted-foreground">
                             {QUALITIES.map((q) => <span key={q.id}>{q.label}</span>)}

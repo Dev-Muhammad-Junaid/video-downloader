@@ -24,7 +24,7 @@ import {
     animate,
     useDragControls,
 } from "framer-motion";
-import { GripVertical, Bold, Italic } from "lucide-react";
+import { GripVertical, Bold, Italic, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STYLE_PRESETS } from "./subtitle-types";
 import { BOX_STYLE_PRESETS, getPresetDefaults, createDefaultStyleConfig } from "@/lib/ass-builder";
@@ -152,11 +152,14 @@ interface SubtitleStylePanelProps {
     onChange: (updates: Partial<SubtitleStyleConfig>) => void;
     /** When true, renders as a plain scrollable div instead of a floating overlay */
     embedded?: boolean;
+    /** Dismiss the floating panel. Styling is optional, so it should be
+     *  possible to get it out of the way and see the video underneath. */
+    onClose?: () => void;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function SubtitleStylePanel({ config, onChange, embedded = false }: SubtitleStylePanelProps) {
+export function SubtitleStylePanel({ config, onChange, embedded = false, onClose }: SubtitleStylePanelProps) {
     // Motion values / drag — only used in floating mode
     const mx = useMotionValue(0);
     const my = useMotionValue(0);
@@ -561,6 +564,20 @@ export function SubtitleStylePanel({ config, onChange, embedded = false }: Subti
                 <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground flex-1">
                     Subtitle Style
                 </span>
+                {onClose && (
+                    <button
+                        type="button"
+                        title="Hide subtitle style"
+                        aria-label="Hide subtitle style"
+                        // Stop the pointer reaching the drag handle underneath,
+                        // or closing turns into an accidental drag.
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={onClose}
+                        className="shrink-0 rounded p-0.5 text-muted-foreground/70 hover:bg-muted hover:text-foreground"
+                    >
+                        <X className="w-3.5 h-3.5" />
+                    </button>
+                )}
             </div>
             {panelBody}
         </motion.div>

@@ -131,6 +131,7 @@ export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTri
                     minStepsBetweenValues={0.5}
                     onValueChange={handleValueChange}
                     onValueCommitted={handleCommit}
+                    variant="pill"
                     className="w-full"
                 />
             </div>

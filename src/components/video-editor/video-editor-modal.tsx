@@ -431,11 +431,21 @@ export function VideoEditorModal({
      * way out when the exact frame matters more than the speed.
      */
     const [exportOpen, setExportOpen] = useState(false);
+    /**
+     * Lets the floating subtitle panel be dismissed without turning subtitles
+     * off.
+     *
+     * Stores WHICH state it was dismissed for rather than a plain boolean, so
+     * the dismissal lapses on its own when the thing that summons the panel
+     * happens again — switching mode, or re-enabling subtitles. Derived rather
+     * than reset from an effect, which would be a render just to undo a flag.
+     */
+    const [dismissedFor, setDismissedFor] = useState<string | null>(null);
 
     // Preview volume is separate from export audio on purpose — muting what you
     // hear while editing must not silently mute the file you export.
+    // Zero is muted — no separate flag to keep in sync with the slider.
     const [previewVolume, setPreviewVolume] = useState(1);
-    const [previewMuted, setPreviewMuted] = useState(false);
     const [keepAudio, setKeepAudio] = useState(DEFAULT_EXPORT_OPTIONS.keepAudio);
     const [format, setFormat] = useState<ExportFormat>(DEFAULT_EXPORT_OPTIONS.format);
     const [resolution, setResolution] = useState<ExportResolution>(DEFAULT_EXPORT_OPTIONS.resolution);
@@ -443,8 +453,8 @@ export function VideoEditorModal({
     useEffect(() => {
         if (!videoRef.current) return;
         videoRef.current.volume = previewVolume;
-        videoRef.current.muted = previewMuted;
-    }, [previewVolume, previewMuted]);
+        videoRef.current.muted = previewVolume === 0;
+    }, [previewVolume]);
     const { peaks, filmstripUrl } = useTimelineAssets(video.id, mode === "trim");
 
     // Export submit (trim / crop / burn-subtitles + combinations) lives in a hook;
@@ -465,6 +475,9 @@ export function VideoEditorModal({
     });
 
     const hasSubtitles = subtitles.length > 0;
+
+    const stylePanelTrigger = `${mode}:${subtitlesExplicitlyEnabled}`;
+    const stylePanelHidden = dismissedFor === stylePanelTrigger;
 
     // Every export re-encodes now — trims included, so a cut lands exactly
     // where it is placed — which means the quality choice always applies and
@@ -600,7 +613,7 @@ export function VideoEditorModal({
                             ) : (
                                 <Download className="w-4 h-4 mr-2" />
                             )}
-                            Export<span className="hidden sm:inline"> {mode === "trim" ? "Trim" : mode === "crop" ? "Crop" : "with Subtitles"}</span>
+                            Export
                         </Button>
                         <Button
                             size="sm"
@@ -900,12 +913,7 @@ export function VideoEditorModal({
                         -{formatTime(Math.max(0, duration - currentTime))}
                     </span>
 
-                    <AudioControls
-                        volume={previewVolume}
-                        onVolumeChange={setPreviewVolume}
-                        muted={previewMuted}
-                        onMutedChange={setPreviewMuted}
-                    />
+                    <AudioControls volume={previewVolume} onVolumeChange={setPreviewVolume} />
 
                     <div className="hidden sm:block sm:flex-1" />
 
@@ -972,7 +980,7 @@ export function VideoEditorModal({
 
             {/* Floating style panel for trim/crop modes with "Include Subtitles" on */}
             <AnimatePresence>
-                {mode !== "subtitles" && subtitlesExplicitlyEnabled && hasSubtitles && (
+                {mode !== "subtitles" && subtitlesExplicitlyEnabled && hasSubtitles && !stylePanelHidden && (
                     <motion.div
                         key="style-panel-float"
                         initial={{ opacity: 0, scale: 0.94 }}
@@ -985,6 +993,7 @@ export function VideoEditorModal({
                             <SubtitleStylePanel
                                 config={styleConfig}
                                 onChange={updateStyleConfig}
+                                onClose={() => setDismissedFor(stylePanelTrigger)}
                             />
                         </div>
                     </motion.div>

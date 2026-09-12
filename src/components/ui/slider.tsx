@@ -4,14 +4,19 @@ import { Slider as SliderPrimitive } from "@base-ui/react/slider"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * `pill` gives the raised rounded-rectangle handle used on the timeline —
+ * larger to grab, and shaped like a trim handle rather than a dot.
+ */
 function Slider({
   className,
   defaultValue,
   value,
   min = 0,
   max = 100,
+  variant = "default",
   ...props
-}: SliderPrimitive.Root.Props) {
+}: SliderPrimitive.Root.Props & { variant?: "default" | "pill" }) {
   const _values = Array.isArray(value)
     ? value
     : Array.isArray(defaultValue)
@@ -43,7 +48,12 @@ function Slider({
           <SliderPrimitive.Thumb
             data-slot="slider-thumb"
             key={index}
-            className="relative block size-3 shrink-0 rounded-full border border-ring bg-white ring-ring/50 transition-[color,box-shadow] select-none after:absolute after:-inset-2 hover:ring-3 focus-visible:ring-3 focus-visible:outline-hidden active:ring-3 disabled:pointer-events-none disabled:opacity-50"
+            className={cn(
+              "relative block shrink-0 bg-white ring-ring/50 transition-[color,box-shadow] select-none after:absolute after:-inset-2 hover:ring-3 focus-visible:ring-3 focus-visible:outline-hidden active:ring-3 disabled:pointer-events-none disabled:opacity-50",
+              variant === "pill"
+                ? "h-5 w-2.5 rounded-[4px] shadow-[0_1px_3px_rgb(0_0_0/0.4)]"
+                : "size-3 rounded-full border border-ring",
+            )}
           />
         ))}
       </SliderPrimitive.Control>
