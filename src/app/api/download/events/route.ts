@@ -15,12 +15,16 @@ export async function GET() {
             };
 
             const interval = setInterval(() => {
-                const jobs: Record<string, { status: string; progress: number; error?: string }> = {};
+                // `kind` rides along so the client can tell an export apart
+                // from a download when announcing completion — without it every
+                // finished export was reported as "Download complete!".
+                const jobs: Record<string, { status: string; progress: number; error?: string; kind?: string }> = {};
                 for (const [id, job] of activeDownloads) {
                     jobs[id] = {
                         status: job.status,
                         progress: job.progress,
                         error: job.error,
+                        kind: job.kind,
                     };
                 }
                 send(JSON.stringify(jobs));

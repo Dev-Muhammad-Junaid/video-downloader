@@ -19,12 +19,25 @@ function isNewer(a: string, b: string): boolean {
     return false;
 }
 
-export async function GET() {
+/**
+ * How long a GitHub response is reused.
+ *
+ * This was an hour, which combined with the client's six-hourly poll meant a
+ * freshly published release could stay invisible for seven hours — the app
+ * would sit there insisting it was up to date. Releases are cheap to check and
+ * GitHub allows 60 unauthenticated requests an hour, so a few minutes is
+ * plenty of protection against hammering the API.
+ */
+const CACHE_SECONDS = 300;
+
+export async function GET(req: Request) {
     try {
+        // `?force=1` skips the cache entirely, for an explicit "check now".
+        const force = new URL(req.url).searchParams.get("force") === "1";
+
         const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
             headers: { Accept: "application/vnd.github+json" },
-            // Releases don't change often; avoid hammering GitHub's API on every check.
-            next: { revalidate: 3600 },
+            ...(force ? { cache: "no-store" as const } : { next: { revalidate: CACHE_SECONDS } }),
         });
 
         if (!res.ok) {

@@ -12,6 +12,26 @@ import type { QueueItem, DownloadProfile } from "@/types/media";
  * completes so the library re-fetches (the one cross-concern dependency).
  */
 export function useDownloadQueue({ refreshLibrary }: { refreshLibrary: () => void }) {
+    /**
+     * Job ids whose completion has already been announced.
+     *
+     * Completion used to be detected only as a STATE TRANSITION inside the SSE
+     * handler: a job had to already be in the local queue as "processing" when
+     * a "completed" message arrived. Anything that finished before the UI saw
+     * it running was skipped, because the handler early-returns when the
+     * incoming status already matches local state — so the library was never
+     * refreshed and the new file didn't appear until a manual reload.
+     *
+     * Exports hit this constantly. A trim is a stream copy and finishes in well
+     * under the five second queue poll, so the job routinely first appears
+     * already completed.
+     *
+     * Tracking announced ids instead makes the refresh depend on the fact of
+     * completion rather than on having observed the moment it happened, and
+     * works the same whether the news arrives by SSE or by poll.
+     */
+    const announcedCompletionsRef = React.useRef<Set<string>>(new Set());
+    const completionsSeededRef = React.useRef(false);
     const [urlText, setUrlText] = useState("");
     const [queue, setQueue] = useState<QueueItem[]>([]);
     const [profiles, setProfiles] = useState<DownloadProfile[]>([]);
@@ -169,6 +189,14 @@ export function useDownloadQueue({ refreshLibrary }: { refreshLibrary: () => voi
         };
     }, [matchProfileForUrl, pickFormatForProfile, profiles, selectedQueueProfile]);
 
+    /** Toast and refresh the library the first time a job is seen finished. */
+    const announceCompletion = useCallback((jobId: string, kind?: string) => {
+        if (!jobId || announcedCompletionsRef.current.has(jobId)) return;
+        announcedCompletionsRef.current.add(jobId);
+        toast.success(kind === "export" ? "Export complete!" : "Download complete!");
+        refreshLibrary();
+    }, [refreshLibrary]);
+
     const fetchQueue = async () => {
         try {
             const res = await fetch("/api/download/queue");
@@ -192,6 +220,21 @@ export function useDownloadQueue({ refreshLibrary }: { refreshLibrary: () => voi
                     matchedFormatLabel: j.formatLabel,
                     downloadPath: j.downloadPath,
                 }));
+
+                // Jobs already finished when the app opened are not news — seed
+                // them so a restart doesn't replay every past completion.
+                if (!completionsSeededRef.current) {
+                    for (const job of activeJobs) {
+                        if (job.status === "completed") announcedCompletionsRef.current.add(job.jobId as string);
+                    }
+                    completionsSeededRef.current = true;
+                } else {
+                    for (const job of activeJobs) {
+                        if (job.status === "completed") {
+                            announceCompletion(job.jobId as string, job.kind);
+                        }
+                    }
+                }
 
                 setQueue(prev => {
                     const localOnly = prev.filter(p => !p.jobId && (p.status === 'parsing' || p.status === 'pending'));
@@ -430,15 +473,12 @@ export function useDownloadQueue({ refreshLibrary }: { refreshLibrary: () => voi
         if (sseRef.current) return;
         const es = new EventSource("/api/download/events");
         sseRef.current = es;
-        let prevCompletedSet = new Set<string>();
 
         es.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
                 if (data._heartbeat || data._connected) return;
 
-                const completedNow = new Set<string>();
-                const completedKinds: Record<string, string> = {};
                 setQueue(prev => {
                     let changed = false;
                     const next = prev.map(q => {
@@ -454,23 +494,17 @@ export function useDownloadQueue({ refreshLibrary }: { refreshLibrary: () => voi
                         } else {
                             updated.errorText = undefined;
                         }
-                        if (live.status === "completed") {
-                            completedNow.add(q.jobId!);
-                            completedKinds[q.jobId!] = q.kind || "download";
-                        }
                         return updated;
                     });
                     return changed ? next : prev;
                 });
 
-                // Check for newly completed jobs (downloads and exports)
-                for (const jobId of completedNow) {
-                    if (!prevCompletedSet.has(jobId)) {
-                        toast.success(completedKinds[jobId] === "export" ? "Export complete!" : "Download complete!");
-                        refreshLibrary();
-                    }
+                // Completion is announced from the incoming payload rather than
+                // from a local state change, so a job that finishes before the
+                // UI ever shows it running still refreshes the library.
+                for (const [jobId, live] of Object.entries(data as Record<string, { status?: string; kind?: string }>)) {
+                    if (live?.status === "completed") announceCompletion(jobId, live.kind);
                 }
-                prevCompletedSet = completedNow;
             } catch { /* ignore parse errors */ }
         };
 
@@ -480,7 +514,7 @@ export function useDownloadQueue({ refreshLibrary }: { refreshLibrary: () => voi
             // Reconnect after 3s
             setTimeout(() => setupSSE(), 3000);
         };
-    }, [refreshLibrary]);
+    }, [announceCompletion]);
 
     // Legacy per-job polling as fallback for when SSE is not yet connected
     const pollProgress = (itemId: string, jobId: string) => {
