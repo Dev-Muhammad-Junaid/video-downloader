@@ -4,10 +4,18 @@ import fs from "fs";
 import os from "os";
 import OpenAI from "openai";
 import { prisma } from "@/lib/prisma";
-import { getFfmpegPath } from "@/lib/ffmpeg";
+import { getFfmpegPath, probeDuration } from "@/lib/ffmpeg";
+import { appDataPath } from "@/lib/app-paths";
 
-// Directory to store generated subtitle files
-const transcriptsDir = path.join(process.cwd(), "transcripts");
+/**
+ * Where generated .vtt subtitle files live.
+ *
+ * This used to be `<cwd>/transcripts`, which inside the packaged app is
+ * SnapDown.app/Contents/Resources/standalone/transcripts — inside the bundle,
+ * so every transcript was deleted by the next app update (the same defect that
+ * destroyed downloaded media). The user data directory survives updates.
+ */
+const transcriptsDir = appDataPath("transcripts");
 if (!fs.existsSync(transcriptsDir)) {
     fs.mkdirSync(transcriptsDir, { recursive: true });
 }
@@ -17,21 +25,57 @@ export function getTranscriptsDir() {
 }
 
 /**
- * Extract audio from a video file into a temporary MP3 file using ffmpeg.
- * Returns the path to the temp audio file.
+ * The Whisper endpoints reject uploads over 25 MB with a bare
+ * "413 Request Entity Too Large". Stay under it with headroom for multipart
+ * overhead.
  */
-function extractAudio(videoPath: string): Promise<string> {
+const MAX_UPLOAD_BYTES = 24 * 1024 * 1024;
+
+/**
+ * Extract speech audio to a temp file.
+ *
+ * Opus at 16 kbps rather than the previous MP3 at 64 kbps. Opus is designed
+ * for exactly this — wideband speech at very low bitrates — and Whisper
+ * downsamples to 16 kHz mono internally anyway, so the extra bits were being
+ * spent on detail the model discards. Measured on a real file:
+ *
+ *   mp3 64k (old)   0.92 MB / 2 min   →  hits 25 MB at  55 min
+ *   opus 16k        0.23 MB / 2 min   →  hits 25 MB at 3.6 h
+ *
+ * That alone turns "anything over ~55 minutes fails" into "anything under
+ * three and a half hours is a single upload". Verified against the live Groq
+ * whisper-large-v3-turbo endpoint, which accepts ogg/opus and returns the
+ * same verbose_json segments.
+ *
+ * `startSeconds`/`durationSeconds` extract one slice, for chunked uploads.
+ */
+function extractAudio(
+    videoPath: string,
+    startSeconds?: number,
+    durationSeconds?: number,
+): Promise<string> {
     return new Promise((resolve, reject) => {
-        const tmpPath = path.join(os.tmpdir(), `snapdown_audio_${Date.now()}.mp3`);
-        const proc = spawn(getFfmpegPath(), [
-            "-i", videoPath,
+        const tmpPath = path.join(
+            os.tmpdir(),
+            `snapdown_audio_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.ogg`,
+        );
+        const args: string[] = [];
+        // Input-side seek: ffmpeg skips to the keyframe before decoding, so
+        // slicing a long file stays fast instead of decoding from zero.
+        if (startSeconds !== undefined) args.push("-ss", String(startSeconds));
+        args.push("-i", videoPath);
+        if (durationSeconds !== undefined) args.push("-t", String(durationSeconds));
+        args.push(
             "-vn",                     // No video
-            "-ar", "16000",            // 16kHz sample rate (Whisper's preferred rate)
+            "-ar", "16000",            // 16kHz — Whisper's own working rate
             "-ac", "1",                // Mono
-            "-b:a", "64k",             // Lower bitrate for faster uploads
-            "-y",                      // Overwrite output without asking
+            "-c:a", "libopus",
+            "-b:a", "16k",
+            "-y",
             tmpPath,
-        ]);
+        );
+
+        const proc = spawn(getFfmpegPath(), args);
 
         let stderr = "";
         proc.stderr.on("data", (d) => { stderr += d.toString(); });
@@ -117,38 +161,98 @@ export async function transcribeVideo(
         ...(provider === "groq" ? { baseURL: "https://api.groq.com/openai/v1" } : {}),
     });
 
-    let tempAudioPath: string | null = null;
+    const model = provider === "groq" ? "whisper-large-v3-turbo" : "whisper-1";
+    const created: string[] = [];
 
-    try {
-        // 1. Extract audio
-        tempAudioPath = await extractAudio(localPath);
+    const cleanUp = () => {
+        for (const f of created) {
+            try { fs.unlinkSync(f); } catch { /* already gone */ }
+        }
+    };
 
-        // 2. Send to Whisper API
-        const audioFile = fs.createReadStream(tempAudioPath);
-        const transcript = await openai.audio.transcriptions.create({
-            file: audioFile,
-            model: provider === "groq" ? "whisper-large-v3-turbo" : "whisper-1",
+    /** One upload. Kept separate so the single and chunked paths agree. */
+    const transcribeChunk = async (audioPath: string) =>
+        (await openai.audio.transcriptions.create({
+            file: fs.createReadStream(audioPath),
+            model,
             response_format: "verbose_json",
             timestamp_granularities: ["segment"],
             ...(language ? { language } : {}),
-        });
+        })) as OpenAI.Audio.TranscriptionVerbose;
 
-        // 3. Generate VTT content
+    try {
+        const firstPass = await extractAudio(localPath);
+        created.push(firstPass);
+
+        let transcript: OpenAI.Audio.TranscriptionVerbose;
+
+        if (fs.statSync(firstPass).size <= MAX_UPLOAD_BYTES) {
+            transcript = await transcribeChunk(firstPass);
+        } else {
+            // Long enough that even 16 kbps Opus exceeds the upload limit
+            // (roughly 3.5 hours), so send it in pieces and stitch the results
+            // back together. Without this the API just returns a bare 413 and
+            // the transcription fails outright, which is what used to happen to
+            // anything over about 55 minutes.
+            const duration = probeDuration(localPath);
+            if (!duration) {
+                throw new Error(
+                    "This file is too large to transcribe in one request, and its duration " +
+                    "couldn't be determined in order to split it.",
+                );
+            }
+
+            const size = fs.statSync(firstPass).size;
+            const chunkCount = Math.ceil(size / MAX_UPLOAD_BYTES);
+            const chunkSeconds = duration / chunkCount;
+            console.log(`[Transcription] ${(size / 1048576).toFixed(1)} MB exceeds the upload limit — splitting into ${chunkCount} chunks`);
+
+            const allSegments: OpenAI.Audio.TranscriptionVerbose["segments"] = [];
+            const allText: string[] = [];
+
+            for (let i = 0; i < chunkCount; i++) {
+                const offset = i * chunkSeconds;
+                const chunkPath = await extractAudio(localPath, offset, chunkSeconds);
+                created.push(chunkPath);
+
+                const part = await transcribeChunk(chunkPath);
+                allText.push(part.text.trim());
+
+                // Each chunk's timestamps start at zero, so shift them back to
+                // where they belong in the full recording — otherwise every
+                // chunk's subtitles would pile up at the start of the video.
+                for (const seg of part.segments ?? []) {
+                    allSegments.push({ ...seg, start: seg.start + offset, end: seg.end + offset });
+                }
+
+                try { fs.unlinkSync(chunkPath); } catch { /* best effort */ }
+            }
+
+            transcript = {
+                text: allText.join(" "),
+                segments: allSegments,
+            } as OpenAI.Audio.TranscriptionVerbose;
+        }
+
         const vttContent = transcriptToVtt(transcript);
         const vttPath = path.join(transcriptsDir, `${videoId}.vtt`);
         fs.writeFileSync(vttPath, vttContent, "utf-8");
 
-        // 4. Clean up temp audio
-        try { fs.unlinkSync(tempAudioPath); } catch { }
+        cleanUp();
 
         return {
             text: transcript.text,
             vttPath,
         };
     } catch (err) {
-        // Clean up temp audio on failure
-        if (tempAudioPath) {
-            try { fs.unlinkSync(tempAudioPath); } catch { }
+        cleanUp();
+        // A bare "413 Request Entity Too Large" tells the user nothing about
+        // what to do, and it's the error they were most likely to hit.
+        if (err instanceof Error && /413|too large/i.test(err.message)) {
+            throw new Error(
+                "The audio was too large for the transcription service to accept, even after " +
+                "compression and splitting. Try a shorter clip, or trim the video first.",
+            );
         }
         throw err;
     }

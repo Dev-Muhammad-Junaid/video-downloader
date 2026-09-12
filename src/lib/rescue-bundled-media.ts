@@ -36,8 +36,13 @@ export function rescueBundledMedia(): void {
 
     try {
         const rows = db
-            .prepare("SELECT id, localPath FROM Video")
-            .all() as { id: string; localPath: string }[];
+            .prepare("SELECT id, localPath, transcriptPath FROM Video")
+            .all() as { id: string; localPath: string; transcriptPath: string | null }[];
+
+        // Transcripts were written to <bundle>/transcripts for the same reason
+        // media was, so they were destroyed by updates too. They cost real money
+        // to regenerate, so move them as well.
+        rescueTranscripts(db, rows);
 
         const atRisk = rows.filter((r) => r.localPath && isInsideAppBundle(r.localPath));
         if (atRisk.length === 0) return;
@@ -96,4 +101,38 @@ export function rescueBundledMedia(): void {
     } finally {
         try { db.close(); } catch { /* ignore */ }
     }
+}
+
+/** Move .vtt transcripts out of the bundle into the user data directory. */
+function rescueTranscripts(
+    db: Database.Database,
+    rows: { id: string; transcriptPath: string | null }[],
+): void {
+    const atRisk = rows.filter((r) => r.transcriptPath && isInsideAppBundle(r.transcriptPath));
+    if (atRisk.length === 0) return;
+
+    const destDir = appDataPath("transcripts");
+    fs.mkdirSync(destDir, { recursive: true });
+    const update = db.prepare("UPDATE Video SET transcriptPath = ? WHERE id = ?");
+    let moved = 0;
+
+    for (const row of atRisk) {
+        const source = row.transcriptPath!;
+        if (!fs.existsSync(source)) continue;
+        const target = path.join(destDir, path.basename(source));
+        try {
+            fs.renameSync(source, target);
+        } catch {
+            try {
+                fs.copyFileSync(source, target);
+                try { fs.unlinkSync(source); } catch { /* leave the original */ }
+            } catch {
+                continue;
+            }
+        }
+        update.run(target, row.id);
+        moved++;
+    }
+
+    if (moved > 0) console.log(`[rescue] Moved ${moved} transcript(s) out of the app bundle`);
 }
