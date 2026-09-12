@@ -12,7 +12,7 @@ import pLimit from "p-limit";
 import { getFfmpegPath, probeDuration } from "@/lib/ffmpeg";
 import { appDataPath, getDefaultMediaDir, isInsideAppBundle } from "@/lib/app-paths";
 import { getYtdlpCookieArgs } from "@/lib/settings";
-import { getYtdlpPath, describeYtdlpError } from "@/lib/ytdlp";
+import { getYtdlpPath, describeYtdlpError, playlistScopeArgs } from "@/lib/ytdlp";
 
 export type DownloadStatus = "pending" | "queued" | "downloading" | "processing" | "paused" | "completed" | "error" | "cancelled";
 
@@ -765,6 +765,9 @@ export async function startDownload(
             }
         } catch { }
 
+        // A pasted video link that happens to carry ?list= must download that
+        // video, not the playlist YouTube attached to it.
+        ytdlpArgs.push(...playlistScopeArgs(url));
         ytdlpArgs.push(...formatArgs);
         ytdlpArgs.push("--ffmpeg-location", getFfmpegPath());
         ytdlpArgs.push("-o", outputPath, "--write-info-json", "--newline", "--", url);

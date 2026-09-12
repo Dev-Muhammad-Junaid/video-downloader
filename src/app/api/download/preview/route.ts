@@ -4,7 +4,7 @@ import { promisify } from "util";
 import path from "path";
 import os from "os";
 import { getYtdlpCookieArgs } from "@/lib/settings";
-import { getYtdlpPath, describeYtdlpError } from "@/lib/ytdlp";
+import { getYtdlpPath, describeYtdlpError, urlTargetsSingleVideo, playlistScopeArgs } from "@/lib/ytdlp";
 
 const execFileAsync = promisify(execFile);
 
@@ -25,7 +25,11 @@ export async function POST(req: Request) {
             const playlistItemMatch = parsedInputUrl.searchParams.get("snapdown_playlist_item");
             
             let playlistOut = "";
-            if (!playlistItemMatch) {
+            // Only probe for a playlist when the URL actually names one. A
+            // video link carrying ?list= (YouTube adds one to nearly every
+            // link, and Mix/Radio lists run to hundreds of entries) would
+            // otherwise be enumerated here and time out before returning.
+            if (!playlistItemMatch && !urlTargetsSingleVideo(url)) {
                 const { stdout } = await execFileAsync(getYtdlpPath(), [...getYtdlpCookieArgs(), "--flat-playlist", "-j", "--", url], { timeout: 15000 });
                 playlistOut = stdout;
             }
@@ -101,6 +105,11 @@ export async function POST(req: Request) {
             if (targetItemIndex) {
                 ytdlpArgs.push("-I", targetItemIndex);
             }
+            // Without this a video link carrying ?list= makes yt-dlp resolve the
+            // whole playlist here, which for a Mix/Radio list means hundreds of
+            // entries: slow enough to look like a hang, and it ends up
+            // describing the wrong video.
+            ytdlpArgs.push(...playlistScopeArgs(url));
             ytdlpArgs.push("-j", "--", url);
             const { stdout } = await execFileAsync(getYtdlpPath(), ytdlpArgs);
             const lines = stdout.trim().split("\n");

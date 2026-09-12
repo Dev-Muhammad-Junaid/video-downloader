@@ -77,3 +77,48 @@ export function describeYtdlpError(stderr: string): string {
 
     return "";
 }
+
+/**
+ * Whether a URL names one specific video, even if it also carries a playlist.
+ *
+ * Pasting a video link that happens to include `?list=...` used to start a
+ * PLAYLIST download. YouTube adds a list parameter to almost every link it
+ * generates, and auto-generated Mix/Radio lists (`list=RD...`) are effectively
+ * endless — one such link expanded to 552 entries. yt-dlp then worked through
+ * all of them, writing every one to the single output path the job expected,
+ * so the download appeared to hang and never produced the video the user asked
+ * for.
+ *
+ * A link to a video means "download this video". A link to a playlist
+ * (`/playlist?list=...`, with no video id) still means the playlist.
+ */
+export function urlTargetsSingleVideo(rawUrl: string): boolean {
+    try {
+        const url = new URL(rawUrl);
+        const host = url.hostname.replace(/^www\./, "");
+
+        // The user explicitly picked one entry out of a playlist — that path
+        // handles its own item selection and must not be overridden.
+        if (url.searchParams.get("snapdown_playlist_item")) return false;
+
+        if (host === "youtu.be") return url.pathname.replace(/^\//, "").length > 0;
+
+        if (host.endsWith("youtube.com")) {
+            // /playlist?list=... is a playlist proper.
+            if (url.pathname.startsWith("/playlist")) return false;
+            if (url.searchParams.get("v")) return true;
+            // /shorts/<id>, /live/<id>, /embed/<id>
+            return /^\/(shorts|live|embed)\/[^/]+/.test(url.pathname);
+        }
+
+        return false;
+    } catch {
+        return false;
+    }
+}
+
+/** `--no-playlist` when the URL names one video, so a stray `list=` parameter
+ *  can't turn a single download into hundreds. */
+export function playlistScopeArgs(rawUrl: string): string[] {
+    return urlTargetsSingleVideo(rawUrl) ? ["--no-playlist"] : [];
+}
