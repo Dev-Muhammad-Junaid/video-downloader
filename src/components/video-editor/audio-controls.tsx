@@ -3,7 +3,7 @@
 import { Volume2, VolumeX, Volume1 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
@@ -62,21 +62,24 @@ export function AudioControls({
 
     return (
         <Popover>
+            {/* The trigger is the button itself, styled with buttonVariants.
+                Wrapping a <Button> via `render` looked equivalent but left the
+                control inert — it rendered and took clicks without ever opening
+                the popover. This is the pattern used elsewhere in the app. */}
             <PopoverTrigger
-                render={
-                    <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        title={modified ? "Audio — export settings changed" : "Audio"}
-                        className={cn("relative shrink-0", modified && "text-primary")}
-                    >
-                        <Icon className="size-4" />
-                        {modified && (
-                            <span className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-primary" />
-                        )}
-                    </Button>
-                }
-            />
+                title={modified ? "Audio — export settings changed" : "Audio"}
+                aria-label="Audio"
+                className={cn(
+                    buttonVariants({ variant: "ghost", size: "icon-sm" }),
+                    "relative shrink-0",
+                    modified && "text-primary",
+                )}
+            >
+                <Icon className="size-4" />
+                {modified && (
+                    <span className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-primary" />
+                )}
+            </PopoverTrigger>
             <PopoverContent align="start" className="w-64 p-3">
                 <div className="space-y-3">
                     <div>

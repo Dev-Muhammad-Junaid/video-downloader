@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { TimelineScrubber } from "./timeline-scrubber";
 import { useKeyframes } from "@/hooks/use-keyframes";
+import { useTimelineAssets } from "@/hooks/use-timeline-assets";
 import { AudioControls, DEFAULT_AUDIO_SETTINGS, type VideoAudioSettings } from "./audio-controls";
 import { toast } from "sonner";
 import { useVideoExport } from "@/hooks/use-video-export";
@@ -443,6 +444,7 @@ export function VideoEditorModal({
         videoRef.current.muted = previewMuted;
     }, [previewVolume, previewMuted]);
     const { keyframes, available: canSnap } = useKeyframes(video.id, mode === "trim");
+    const { peaks, filmstripUrl } = useTimelineAssets(video.id, mode === "trim");
 
     // Export submit (trim / crop / burn-subtitles + combinations) lives in a hook;
     // it composes the burn ASS exactly like the preview so they stay 1:1.
@@ -961,6 +963,8 @@ export function VideoEditorModal({
                                 onSeek={handleSeek}
                                 keyframes={keyframes}
                                 precise={preciseTrim}
+                                filmstripUrl={filmstripUrl}
+                                peaks={peaks}
                             />
 
                             {/* Only meaningful when there is a real limit to opt

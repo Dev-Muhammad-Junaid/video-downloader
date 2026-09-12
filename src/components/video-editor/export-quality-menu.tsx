@@ -35,16 +35,20 @@ interface ExportQualityMenuProps {
 
 export function ExportQualityMenu({ value, onChange }: ExportQualityMenuProps) {
     return (
-        <SegmentedControl
-            size="sm"
-            value={value}
-            onValueChange={(v) => onChange(v as ExportQuality)}
-            options={EXPORT_QUALITY_OPTIONS.map((o) => ({
-                value: o.id,
-                label: o.label,
-                title: `${o.label} — ${o.detail}`,
-            }))}
-            className="hidden md:inline-flex"
-        />
+        <div className="hidden md:flex items-center gap-1.5">
+            {/* Unlabelled, these three words don't say what they control — the
+                first question asked about them was what they were for. */}
+            <span className="text-[11px] text-muted-foreground">Quality</span>
+            <SegmentedControl
+                size="sm"
+                value={value}
+                onValueChange={(v) => onChange(v as ExportQuality)}
+                options={EXPORT_QUALITY_OPTIONS.map((o) => ({
+                    value: o.id,
+                    label: o.label,
+                    title: `${o.label} — ${o.detail}`,
+                }))}
+            />
+        </div>
     );
 }

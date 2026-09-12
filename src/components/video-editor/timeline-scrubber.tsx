@@ -15,12 +15,18 @@ interface TimelineScrubberProps {
      *  used to snap the handles, so the slider stops offering precision the
      *  export can't honour. Empty = snapping unavailable. */
     keyframes?: number[];
+    /** Tiled thumbnail strip drawn as the track background, so the timeline
+     *  shows what is actually in the video rather than a blank bar. */
+    filmstripUrl?: string | null;
+    /** Normalised amplitude peaks (0–1), drawn along the bottom so speech and
+     *  silence are visible without playing through. */
+    peaks?: number[];
     /** When true the export re-encodes, so any position is valid and the
      *  handles are left exactly where the user puts them. */
     precise?: boolean;
 }
 
-export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTrimChange, onSeek, keyframes = [], precise = false }: TimelineScrubberProps) {
+export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTrimChange, onSeek, keyframes = [], precise = false, filmstripUrl = null, peaks = [] }: TimelineScrubberProps) {
     const [localTrim, setLocalTrim] = useState([trimStart, trimEnd]);
 
     // Motion values for ultra-smooth UI
@@ -89,7 +95,45 @@ export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTri
     const endRegionWidth = useMotionTemplate`calc(1.5rem + ${rightWidth}% - (2rem * ${rightWidth}/100))`;
 
     return (
-        <div className="relative w-full h-12 bg-muted rounded-lg flex items-center px-6 overflow-hidden ring-1 ring-border/50">
+        <div className="relative w-full h-14 bg-muted rounded-lg flex items-center px-6 overflow-hidden ring-1 ring-border/50">
+            {/* Thumbnails behind everything, dimmed so the controls stay
+                readable over whatever the video happens to look like. */}
+            {filmstripUrl && (
+                <div
+                    className="pointer-events-none absolute inset-x-6 inset-y-0 opacity-70"
+                    style={{
+                        backgroundImage: `url(${filmstripUrl})`,
+                        // Stretch the whole strip across the track, not `cover`,
+                        // which centre-crops it — only the middle of the video
+                        // would show, and a thumbnail would no longer sit above
+                        // the moment it came from.
+                        backgroundSize: "100% 100%",
+                        backgroundRepeat: "no-repeat",
+                    }}
+                />
+            )}
+            {filmstripUrl && <div className="pointer-events-none absolute inset-x-6 inset-y-0 bg-background/25" />}
+
+            {/* Waveform along the bottom. Drawn as one polygon rather than a
+                bar per peak — 400 DOM nodes per render is not worth it. */}
+            {/* An <svg> carries its own intrinsic size, so `inset-x-6` alone left
+                it 80px wide instead of filling the track — the wrapper owns the
+                geometry and the svg just fills it. */}
+            {peaks.length > 0 && (
+                <div className="pointer-events-none absolute inset-x-6 bottom-0 h-5">
+                    <svg
+                        className="h-full w-full"
+                        viewBox={`0 0 ${peaks.length} 100`}
+                        preserveAspectRatio="none"
+                        aria-hidden="true"
+                    >
+                        <polygon
+                            className="fill-foreground/30"
+                            points={`0,100 ${peaks.map((p, i) => `${i},${100 - p * 100}`).join(" ")} ${peaks.length - 1},100`}
+                        />
+                    </svg>
+                </div>
+            )}
             {/* Where a fast cut can actually land. Hidden in precise mode,
                 where the export re-encodes and any position is valid. */}
             {!precise && duration > 0 && keyframes.length > 0 && keyframes.length < 600 && (
