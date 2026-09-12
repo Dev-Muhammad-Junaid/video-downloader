@@ -1,6 +1,6 @@
 {
   "name": "snapdown",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "A local-first media studio: download, organize, edit, transcribe, and cloud-back-up video/image/audio from social platforms.",
   "author": "Muhammad Junaid <https://github.com/Dev-Muhammad-Junaid>",
   "license": "MIT",
