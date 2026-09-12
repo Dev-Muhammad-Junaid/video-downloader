@@ -7,7 +7,7 @@ import { Github, Heart, Sparkles } from "lucide-react";
 import { restartOnboarding } from "@/components/onboarding-modal";
 
 const GITHUB_USERNAME = "Dev-Muhammad-Junaid";
-const REPO_URL = "https://github.com/Dev-Muhammad-Junaid/video-downloader";
+const REPO_URL = "https://github.com/Dev-Muhammad-Junaid/SnapDown";
 
 export function DeveloperCreditCard() {
     return (

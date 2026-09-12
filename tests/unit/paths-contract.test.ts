@@ -71,3 +71,25 @@ describe("where user data lives", () => {
         }
     });
 });
+
+describe("the update source is pinned", () => {
+    it("names the repo directly rather than relying on a rename redirect", () => {
+        // The repo was renamed video-downloader → SnapDown. GitHub 301s the old
+        // name only while nothing else claims it; create a repo under the old
+        // name and it resolves there instead. An updater that downloads and
+        // executes code must not follow that.
+        const updater = fs.readFileSync(path.resolve("electron/updater.cjs"), "utf-8");
+        const check = fs.readFileSync(path.resolve("src/app/api/check-update/route.ts"), "utf-8");
+
+        for (const [name, source] of [["updater", updater], ["check-update", check]] as const) {
+            expect(source, `${name} still points at the old repo name`).not.toContain("video-downloader");
+            expect(source, `${name} should name the current repo`).toContain("Dev-Muhammad-Junaid/SnapDown");
+        }
+    });
+
+    it("the updater only accepts GitHub hosts over HTTPS", () => {
+        const updater = fs.readFileSync(path.resolve("electron/updater.cjs"), "utf-8");
+        expect(updater).toContain("ALLOWED_HOSTS");
+        expect(updater).toMatch(/protocol !== "https:"/);
+    });
+});

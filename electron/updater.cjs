@@ -39,7 +39,11 @@ const path = require("path");
 const https = require("https");
 const { spawn, execFileSync } = require("child_process");
 
-const REPO = "Dev-Muhammad-Junaid/video-downloader";
+// Pinned by name, not followed by redirect. GitHub 301s an old repo name only
+// while nothing else claims it — create a new repo under the old name and that
+// name starts resolving somewhere else. For a component that downloads and
+// executes code, that is not a link worth depending on.
+const REPO = "Dev-Muhammad-Junaid/SnapDown";
 
 // Ed25519 public key matching ~/.snapdown/release-signing-key.pem.
 // Replacing this invalidates every previously published signature.

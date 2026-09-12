@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import packageJson from "../../../../package.json";
 
-const REPO = "Dev-Muhammad-Junaid/video-downloader";
+const REPO = "Dev-Muhammad-Junaid/SnapDown";
 
 /** "v1.2.3" or "1.2.3" -> [1,2,3]. Non-numeric parts sort as 0. */
 function parseVersion(v: string): number[] {
