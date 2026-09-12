@@ -93,11 +93,11 @@ export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTri
             {/* Where a fast cut can actually land. Hidden in precise mode,
                 where the export re-encodes and any position is valid. */}
             {!precise && duration > 0 && keyframes.length > 0 && keyframes.length < 600 && (
-                <div className="pointer-events-none absolute inset-x-6 top-0 h-1.5">
+                <div className="pointer-events-none absolute inset-x-6 inset-y-0">
                     {keyframes.map((k, i) => (
                         <span
                             key={i}
-                            className="absolute top-0 h-1.5 w-px bg-foreground/25"
+                            className="absolute top-1.5 bottom-1.5 w-px bg-foreground/15"
                             style={{ left: `${(k / duration) * 100}%` }}
                         />
                     ))}
@@ -118,7 +118,7 @@ export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTri
                     minStepsBetweenValues={0.5}
                     onValueChange={handleValueChange}
                     onValueCommitted={handleCommit}
-                    className="w-full h-8"
+                    className="w-full"
                 />
             </div>
             

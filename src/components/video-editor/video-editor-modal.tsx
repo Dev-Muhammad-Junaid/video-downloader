@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { TimelineScrubber } from "./timeline-scrubber";
 import { useKeyframes } from "@/hooks/use-keyframes";
+import { AudioControls, DEFAULT_AUDIO_SETTINGS, type VideoAudioSettings } from "./audio-controls";
 import { toast } from "sonner";
 import { useVideoExport } from "@/hooks/use-video-export";
 import { ExportQualityMenu } from "@/components/video-editor/export-quality-menu";
@@ -429,6 +430,18 @@ export function VideoEditorModal({
      * way out when the exact frame matters more than the speed.
      */
     const [preciseTrim, setPreciseTrim] = useState(false);
+
+    // Preview volume is separate from export audio on purpose — muting what you
+    // hear while editing must not silently mute the file you export.
+    const [previewVolume, setPreviewVolume] = useState(1);
+    const [previewMuted, setPreviewMuted] = useState(false);
+    const [audioSettings, setAudioSettings] = useState<VideoAudioSettings>(DEFAULT_AUDIO_SETTINGS);
+
+    useEffect(() => {
+        if (!videoRef.current) return;
+        videoRef.current.volume = previewVolume;
+        videoRef.current.muted = previewMuted;
+    }, [previewVolume, previewMuted]);
     const { keyframes, available: canSnap } = useKeyframes(video.id, mode === "trim");
 
     // Export submit (trim / crop / burn-subtitles + combinations) lives in a hook;
@@ -444,6 +457,7 @@ export function VideoEditorModal({
         styleConfig,
         videoRef,
         precise: preciseTrim,
+        audio: audioSettings,
         onRefreshLibrary,
         onClose,
     });
@@ -889,6 +903,15 @@ export function VideoEditorModal({
                     <span className="text-[11px] text-muted-foreground/70 font-mono tabular-nums min-w-[48px]">
                         -{formatTime(Math.max(0, duration - currentTime))}
                     </span>
+
+                    <AudioControls
+                        previewVolume={previewVolume}
+                        onPreviewVolumeChange={setPreviewVolume}
+                        previewMuted={previewMuted}
+                        onPreviewMutedChange={setPreviewMuted}
+                        settings={audioSettings}
+                        onSettingsChange={setAudioSettings}
+                    />
 
                     <div className="hidden sm:block sm:flex-1" />
 

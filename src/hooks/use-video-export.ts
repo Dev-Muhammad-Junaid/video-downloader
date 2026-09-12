@@ -68,6 +68,9 @@ interface UseVideoExportParams {
      *  the nearest keyframe. Only applies to a pure trim; every other action
      *  re-encodes anyway. */
     precise?: boolean;
+    /** Audio changes to apply to the exported file (remove / gain / normalise).
+     *  Distinct from the preview volume, which never leaves the editor. */
+    audio?: { removeAudio: boolean; gainDb: number; normalize: boolean };
     onRefreshLibrary?: () => void;
     onClose: () => void;
 }
@@ -90,6 +93,7 @@ export function useVideoExport({
     styleConfig,
     videoRef,
     precise = false,
+    audio,
     onRefreshLibrary,
     onClose,
 }: UseVideoExportParams) {
@@ -191,6 +195,11 @@ export function useVideoExport({
             // is a stream copy, so it ignores this — harmless to send.
             if (bodyPayload.params) {
                 (bodyPayload.params as Record<string, unknown>).quality = quality;
+                // Only send audio settings that actually change something, so a
+                // plain trim stays a lossless stream copy.
+                if (audio && (audio.removeAudio || audio.gainDb !== 0 || audio.normalize)) {
+                    (bodyPayload.params as Record<string, unknown>).audio = audio;
+                }
             }
 
             const data = await api.post<{ jobId?: string }>("/api/library/edit", bodyPayload);

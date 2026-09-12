@@ -128,6 +128,52 @@ function ensureSubtitleFilterSupport() {
 }
 
 /**
+ * Audio options for a VIDEO export.
+ *
+ * Every video path used to hardcode `-c:a copy`, so a video's audio was
+ * untouchable — there was no way to change its level, let alone drop it. The
+ * filter chain to do all of this already existed for audio-only files
+ * (buildAudioFilterChain: gain, loudness normalisation, fades); it just wasn't
+ * reachable if the file happened to have a video track.
+ */
+export interface VideoAudioOptions {
+    /** Drop the audio track entirely (`-an`). */
+    removeAudio?: boolean;
+    gainDb?: number;
+    normalize?: boolean;
+    fadeIn?: number;
+    fadeOut?: number;
+}
+
+/**
+ * Output args for a video export's audio.
+ *
+ * Copies the track untouched when nothing is asked for, so the common case
+ * stays lossless and instant. Any actual change forces an audio re-encode —
+ * filters can't be applied to a copied stream — which is why this returns the
+ * codec too rather than leaving it to each call site.
+ */
+export function videoAudioArgs(opts?: VideoAudioOptions): string[] {
+    if (opts?.removeAudio) return ["-an"];
+
+    const chain = buildAudioFilterChain({
+        gainDb: opts?.gainDb,
+        normalize: opts?.normalize,
+        fadeIn: opts?.fadeIn,
+        fadeOut: opts?.fadeOut,
+    });
+
+    if (!chain) return ["-c:a", "copy"];
+    return ["-af", chain, "-c:a", "aac", "-b:a", "192k"];
+}
+
+/** True when the audio is being altered, so callers relying on a full stream
+ *  copy (`-c copy`) know they must copy only the video. */
+export function audioIsModified(opts?: VideoAudioOptions): boolean {
+    return videoAudioArgs(opts)[0] !== "-c:a";
+}
+
+/**
  * Trim a video.
  *
  * Two cuts are possible and they are genuinely different:
@@ -150,6 +196,7 @@ export async function trimVideo(
     registerProc?: (proc: FfmpegProc) => void,
     quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
     precise = false,
+    audio?: VideoAudioOptions,
 ) {
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
@@ -171,13 +218,17 @@ export async function trimVideo(
             "-y",
             ...trimArgs(originalVideo.localPath, startTime, endTime, true),
             ...videoEncoderArgs(quality),
-            "-c:a", "copy",
+            ...videoAudioArgs(audio),
             newFilePath,
         ]
         : [
             "-y",
             ...trimArgs(originalVideo.localPath, startTime, endTime),
-            "-c", "copy",   // Instant and lossless, but keyframe-bound
+            // Video is always copied here; the audio codec depends on whether
+            // anything is being done to it. `-c copy` would copy both and make
+            // audio filters impossible.
+            "-c:v", "copy",
+            ...videoAudioArgs(audio),
             newFilePath,
         ];
 
@@ -226,6 +277,7 @@ export async function cropVideo(
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
     quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
+    audio?: VideoAudioOptions,
 ) {
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
@@ -248,7 +300,7 @@ export async function cropVideo(
         "-i", originalVideo.localPath,
         "-filter:v", filterArg,
         ...videoEncoderArgs(quality),
-        "-c:a", "copy",       // Copy audio track to save time
+        ...videoAudioArgs(audio),
         newFilePath
     ];
 
@@ -303,6 +355,7 @@ export async function trimAndCrop(
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
     quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
+    audio?: VideoAudioOptions,
 ) {
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
@@ -322,7 +375,7 @@ export async function trimAndCrop(
         ...trimArgs(originalVideo.localPath, startTime, endTime, true),
         "-filter:v", filterArg,
         ...videoEncoderArgs(quality),
-        "-c:a", "copy",
+        ...videoAudioArgs(audio),
         newFilePath
     ];
 
@@ -625,6 +678,7 @@ export async function trimBurnSubtitles(
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
     quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
+    audio?: VideoAudioOptions,
 ) {
     ensureSubtitleFilterSupport();
     const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
@@ -642,7 +696,7 @@ export async function trimBurnSubtitles(
 
     try {
         const filterArg = buildSubtitlesFilter(tmpAssPath);
-        const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime, true), "-vf", filterArg, ...videoEncoderArgs(quality), "-c:a", "copy", newFilePath];
+        const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime, true), "-vf", filterArg, ...videoEncoderArgs(quality), ...videoAudioArgs(audio), newFilePath];
         console.log(`[FFmpeg TrimBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args, onProgress, registerProc);
     } finally {
@@ -676,6 +730,7 @@ export async function cropBurnSubtitles(
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
     quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
+    audio?: VideoAudioOptions,
 ) {
     ensureSubtitleFilterSupport();
     const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
@@ -692,7 +747,7 @@ export async function cropBurnSubtitles(
 
     try {
         const filterArg = `crop=${w}:${h}:${x}:${y},${buildSubtitlesFilter(tmpAssPath)}`;
-        const args = ["-y", ...decodeArgs(), "-i", originalVideo.localPath, "-vf", filterArg, ...videoEncoderArgs(quality), "-c:a", "copy", newFilePath];
+        const args = ["-y", ...decodeArgs(), "-i", originalVideo.localPath, "-vf", filterArg, ...videoEncoderArgs(quality), ...videoAudioArgs(audio), newFilePath];
         console.log(`[FFmpeg CropBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args, onProgress, registerProc);
     } finally {
@@ -727,6 +782,7 @@ export async function trimCropBurnSubtitles(
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
     quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
+    audio?: VideoAudioOptions,
 ) {
     ensureSubtitleFilterSupport();
     const originalVideo = await prisma.video.findUnique({ where: { id: videoId } });
@@ -743,7 +799,7 @@ export async function trimCropBurnSubtitles(
 
     try {
         const filterArg = `crop=${w}:${h}:${x}:${y},${buildSubtitlesFilter(tmpAssPath)}`;
-        const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime, true), "-vf", filterArg, ...videoEncoderArgs(quality), "-c:a", "copy", newFilePath];
+        const args = ["-y", ...trimArgs(originalVideo.localPath, startTime, endTime, true), "-vf", filterArg, ...videoEncoderArgs(quality), ...videoAudioArgs(audio), newFilePath];
         console.log(`[FFmpeg TrimCropBurn] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args, onProgress, registerProc);
     } finally {
@@ -776,6 +832,7 @@ export async function burnSubtitles(
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
     quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
+    audio?: VideoAudioOptions,
 ) {
     ensureSubtitleFilterSupport();
 
@@ -795,7 +852,7 @@ export async function burnSubtitles(
 
     try {
         const filterArg = buildSubtitlesFilter(tmpAssPath);
-        const args = ["-y", ...decodeArgs(), "-i", originalVideo.localPath, "-vf", filterArg, ...videoEncoderArgs(quality), "-c:a", "copy", newFilePath];
+        const args = ["-y", ...decodeArgs(), "-i", originalVideo.localPath, "-vf", filterArg, ...videoEncoderArgs(quality), ...videoAudioArgs(audio), newFilePath];
         console.log(`[FFmpeg BurnSubs] Running: ffmpeg ${args.join(" ")}`);
         await runFfmpeg(args, onProgress, registerProc);
     } finally {

@@ -1,3 +1,4 @@
+import type { VideoAudioOptions } from "@/lib/media-editor";
 import {
     trimVideo,
     cropVideo,
@@ -105,6 +106,8 @@ export function validateExportParams(action: string, p: ExportParams): string | 
 function launchExport(jobId: string, spec: ExportSpec, total: number): void {
     const { videoId, action, params: p } = spec;
     const quality: ExportQuality = isExportQuality(p.quality) ? p.quality : DEFAULT_EXPORT_QUALITY;
+    // Audio options apply to every video export; undefined means "leave it alone".
+    const audio = p.audio as VideoAudioOptions | undefined;
     // Prefer the duration we computed up front; if it's unknown (0), fall back to
     // the total ffmpeg reports from the source file so the bar still advances.
     const onProgress = (secs: number, totalSecs?: number) => {
@@ -125,19 +128,19 @@ function launchExport(jobId: string, spec: ExportSpec, total: number): void {
             } else if (action === "trim-audio") {
                 out = await trimAudio(videoId, p.startTime, p.endTime, onProgress, registerProc);
             } else if (action === "trim") {
-                out = await trimVideo(videoId, p.startTime, p.endTime, p.inheritSrtContent, onProgress, registerProc, quality, p.precise === true);
+                out = await trimVideo(videoId, p.startTime, p.endTime, p.inheritSrtContent, onProgress, registerProc, quality, p.precise === true, audio);
             } else if (action === "crop") {
-                out = await cropVideo(videoId, p.w, p.h, p.x, p.y, p.inheritSrtContent, onProgress, registerProc, quality);
+                out = await cropVideo(videoId, p.w, p.h, p.x, p.y, p.inheritSrtContent, onProgress, registerProc, quality, audio);
             } else if (action === "trim-crop") {
-                out = await trimAndCrop(videoId, p.startTime, p.endTime, p.w, p.h, p.x, p.y, p.inheritSrtContent, onProgress, registerProc, quality);
+                out = await trimAndCrop(videoId, p.startTime, p.endTime, p.w, p.h, p.x, p.y, p.inheritSrtContent, onProgress, registerProc, quality, audio);
             } else if (action === "burn-subtitles") {
-                out = await burnSubtitles(videoId, p.assContent, p.inheritSrtContent, onProgress, registerProc, quality);
+                out = await burnSubtitles(videoId, p.assContent, p.inheritSrtContent, onProgress, registerProc, quality, audio);
             } else if (action === "trim-burn") {
-                out = await trimBurnSubtitles(videoId, p.startTime, p.endTime, p.assContent, p.inheritSrtContent, onProgress, registerProc, quality);
+                out = await trimBurnSubtitles(videoId, p.startTime, p.endTime, p.assContent, p.inheritSrtContent, onProgress, registerProc, quality, audio);
             } else if (action === "crop-burn") {
-                out = await cropBurnSubtitles(videoId, p.w, p.h, p.x, p.y, p.assContent, p.inheritSrtContent, onProgress, registerProc, quality);
+                out = await cropBurnSubtitles(videoId, p.w, p.h, p.x, p.y, p.assContent, p.inheritSrtContent, onProgress, registerProc, quality, audio);
             } else { // trim-crop-burn
-                out = await trimCropBurnSubtitles(videoId, p.startTime, p.endTime, p.w, p.h, p.x, p.y, p.assContent, p.inheritSrtContent, onProgress, registerProc, quality);
+                out = await trimCropBurnSubtitles(videoId, p.startTime, p.endTime, p.w, p.h, p.x, p.y, p.assContent, p.inheritSrtContent, onProgress, registerProc, quality, audio);
             }
             await finishExportJob(jobId, { downloadPath: out?.localPath });
         } catch (err: unknown) {
