@@ -27,7 +27,7 @@ import { useTimelineAssets } from "@/hooks/use-timeline-assets";
 import { AudioControls, DEFAULT_AUDIO_SETTINGS, type VideoAudioSettings } from "./audio-controls";
 import { toast } from "sonner";
 import { useVideoExport } from "@/hooks/use-video-export";
-import { ExportQualityMenu } from "@/components/video-editor/export-quality-menu";
+import { ExportDialog } from "@/components/video-editor/export-dialog";
 import { motion, AnimatePresence, useAnimationFrame } from "framer-motion";
 import { CropOverlay, CropState } from "./crop-overlay";
 import { SubtitleRenderer } from "./subtitle-renderer";
@@ -431,6 +431,7 @@ export function VideoEditorModal({
      * way out when the exact frame matters more than the speed.
      */
     const [preciseTrim, setPreciseTrim] = useState(false);
+    const [exportOpen, setExportOpen] = useState(false);
 
     // Preview volume is separate from export audio on purpose — muting what you
     // hear while editing must not silently mute the file you export.
@@ -444,7 +445,7 @@ export function VideoEditorModal({
         videoRef.current.muted = previewMuted;
     }, [previewVolume, previewMuted]);
     const { keyframes, available: canSnap } = useKeyframes(video.id, mode === "trim");
-    const { peaks, filmstripUrl } = useTimelineAssets(video.id, mode === "trim");
+    const { peaks } = useTimelineAssets(video.id, mode === "trim");
 
     // Export submit (trim / crop / burn-subtitles + combinations) lives in a hook;
     // it composes the burn ASS exactly like the preview so they stay 1:1.
@@ -569,22 +570,6 @@ export function VideoEditorModal({
                 </div>
 
                 <div className="flex items-center gap-2 sm:gap-3">
-                    {/* Include Subtitles toggle — visible in trim/crop when subtitles exist */}
-                    {mode !== "subtitles" && hasSubtitles && (
-                        <label
-                            className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none whitespace-nowrap"
-                            title="Include subtitles in the export"
-                        >
-                            <input
-                                type="checkbox"
-                                checked={includeSubtitles}
-                                onChange={(e) => setIncludeSubtitles(e.target.checked)}
-                                className="rounded border-border"
-                            />
-                            <Captions className="w-3.5 h-3.5 shrink-0" />
-                            <span className="hidden xl:inline">Include Subtitles</span>
-                        </label>
-                    )}
                     <Button
                         variant="secondary"
                         size="sm"
@@ -599,13 +584,10 @@ export function VideoEditorModal({
                     </Button>
                     {/* Quality picker — only meaningful when the export re-encodes.
                         A plain trim is a stream copy, so no encoder runs at all. */}
-                    {willReencode && (
-                        <ExportQualityMenu value={quality} onChange={setQuality} />
-                    )}
                     <Button
                         size="sm"
                         
-                        onClick={handleApplyExport}
+                        onClick={() => setExportOpen(true)}
                         disabled={isExporting || (mode === "subtitles" && !hasSubtitles)}
                     >
                         {isExporting ? (
@@ -917,13 +899,17 @@ export function VideoEditorModal({
 
                     <div className="hidden sm:block sm:flex-1" />
 
-                    {/* Aspect Ratio selector — animated sliding pill (own row on mobile) */}
+                    {/* Aspect ratio. The rectangle icon IS the "original"
+                        option rather than a decoration beside a word spelling
+                        it out — "Original" is the longest label here and was
+                        taking the most room to say the least. */}
                     <div className="order-last w-full sm:order-none sm:w-auto flex items-center justify-center sm:justify-start gap-1 bg-muted/80 rounded-lg p-0.5 ring-1 ring-border/50">
-                        <RectangleHorizontal className="w-3 h-3 text-muted-foreground ml-1.5 mr-0.5" />
                         {ASPECT_RATIOS.map((ar) => (
                             <button
                                 key={ar.id}
                                 onClick={() => applyAspectRatio(ar.id)}
+                                title={ar.id === "original" ? "Original aspect ratio" : ar.label}
+                                aria-label={ar.id === "original" ? "Original aspect ratio" : ar.label}
                                 className="relative px-2 py-0.5"
                             >
                                 {aspectRatio === ar.id && (
@@ -934,10 +920,12 @@ export function VideoEditorModal({
                                     />
                                 )}
                                 <span className={cn(
-                                    "relative z-10 text-[10px] font-medium transition-colors duration-150",
+                                    "relative z-10 flex items-center text-[10px] font-medium transition-colors duration-150",
                                     aspectRatio === ar.id ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground"
                                 )}>
-                                    {ar.label}
+                                    {ar.id === "original"
+                                        ? <RectangleHorizontal className="w-3.5 h-3.5" />
+                                        : ar.label}
                                 </span>
                             </button>
                         ))}
@@ -963,33 +951,15 @@ export function VideoEditorModal({
                                 onSeek={handleSeek}
                                 keyframes={keyframes}
                                 precise={preciseTrim}
-                                filmstripUrl={filmstripUrl}
                                 peaks={peaks}
                             />
 
-                            {/* Only meaningful when there is a real limit to opt
-                                out of — if the probe found nothing, snapping
-                                isn't happening and the choice would be noise. */}
-                            {canSnap && (
-                                <label className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground select-none cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={preciseTrim}
-                                        onChange={(e) => setPreciseTrim(e.target.checked)}
-                                        className="rounded border-border"
-                                    />
-                                    <span>
-                                        Precise cut
-                                        <span className="hidden sm:inline">
-                                            {" "}— cut exactly here instead of at the nearest marker. Re-encodes, so it takes longer.
-                                        </span>
-                                    </span>
-                                </label>
-                            )}
                         </motion.div>
                     )}
                 </AnimatePresence>
             </div>
+
+
 
             {/* Floating style panel for trim/crop modes with "Include Subtitles" on */}
             <AnimatePresence>
@@ -1011,6 +981,23 @@ export function VideoEditorModal({
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            <ExportDialog
+                open={exportOpen}
+                onOpenChange={setExportOpen}
+                mode={mode}
+                quality={quality}
+                onQualityChange={setQuality}
+                hasSubtitles={hasSubtitles}
+                includeSubtitles={includeSubtitles}
+                onIncludeSubtitlesChange={setIncludeSubtitles}
+                canChoosePrecision={mode === "trim" && canSnap && aspectRatio === "original" && !(includeSubtitles && hasSubtitles)}
+                precise={preciseTrim}
+                onPreciseChange={setPreciseTrim}
+                willReencode={willReencode}
+                isExporting={isExporting}
+                onExport={() => { setExportOpen(false); void handleApplyExport(); }}
+            />
         </motion.div>
     );
 }

@@ -23,6 +23,12 @@ function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
   return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
 }
 
+/**
+ * Portalled overlays sit at z-100, above full-screen views like the video
+ * editor (z-[60]). At z-50 a dialog opened from inside the editor rendered
+ * BEHIND it — present in the DOM, correctly sized, opacity 1, and completely
+ * invisible, so the button that opened it looked broken.
+ */
 function DialogOverlay({
   className,
   ...props
@@ -31,7 +37,7 @@ function DialogOverlay({
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-black/10 [--tw-duration:200ms] [--tw-animation-duration:200ms] [--tw-ease:ease-in-out] supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 isolate z-100 bg-black/10 [--tw-duration:200ms] [--tw-animation-duration:200ms] [--tw-ease:ease-in-out] supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className
       )}
       {...props}
@@ -53,7 +59,7 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-[12px] bg-popover p-4 text-[13px] shadow-[0_20px_60px_-12px_rgb(0_0_0/0.45)] ring-[0.5px] ring-foreground/15 [--tw-duration:200ms] [--tw-animation-duration:200ms] [--tw-ease:ease-in-out] outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-1/2 left-1/2 z-100 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-[12px] bg-popover p-4 text-[13px] shadow-[0_20px_60px_-12px_rgb(0_0_0/0.45)] ring-[0.5px] ring-foreground/15 [--tw-duration:200ms] [--tw-animation-duration:200ms] [--tw-ease:ease-in-out] outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}

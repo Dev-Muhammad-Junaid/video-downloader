@@ -11,13 +11,10 @@ interface TimelineScrubberProps {
     trimEnd: number;
     onTrimChange: (start: number, end: number) => void;
     onSeek: (time: number) => void;
-    /** Positions a stream-copy cut can actually land on. Drawn as ticks and
-     *  used to snap the handles, so the slider stops offering precision the
-     *  export can't honour. Empty = snapping unavailable. */
+    /** Positions a stream-copy cut can actually land on. Used to snap the
+     *  handles — deliberately NOT drawn, since a tick per keyframe turned the
+     *  track into visual noise. Empty = snapping unavailable. */
     keyframes?: number[];
-    /** Tiled thumbnail strip drawn as the track background, so the timeline
-     *  shows what is actually in the video rather than a blank bar. */
-    filmstripUrl?: string | null;
     /** Normalised amplitude peaks (0–1), drawn along the bottom so speech and
      *  silence are visible without playing through. */
     peaks?: number[];
@@ -26,7 +23,7 @@ interface TimelineScrubberProps {
     precise?: boolean;
 }
 
-export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTrimChange, onSeek, keyframes = [], precise = false, filmstripUrl = null, peaks = [] }: TimelineScrubberProps) {
+export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTrimChange, onSeek, keyframes = [], precise = false, peaks = [] }: TimelineScrubberProps) {
     const [localTrim, setLocalTrim] = useState([trimStart, trimEnd]);
 
     // Motion values for ultra-smooth UI
@@ -96,26 +93,15 @@ export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTri
 
     return (
         <div className="relative w-full h-14 bg-muted rounded-lg flex items-center px-6 overflow-hidden ring-1 ring-border/50">
-            {/* Thumbnails behind everything, dimmed so the controls stay
-                readable over whatever the video happens to look like. */}
-            {filmstripUrl && (
-                <div
-                    className="pointer-events-none absolute inset-x-6 inset-y-0 opacity-70"
-                    style={{
-                        backgroundImage: `url(${filmstripUrl})`,
-                        // Stretch the whole strip across the track, not `cover`,
-                        // which centre-crops it — only the middle of the video
-                        // would show, and a thumbnail would no longer sit above
-                        // the moment it came from.
-                        backgroundSize: "100% 100%",
-                        backgroundRepeat: "no-repeat",
-                    }}
-                />
-            )}
-            {filmstripUrl && <div className="pointer-events-none absolute inset-x-6 inset-y-0 bg-background/25" />}
-
             {/* Waveform along the bottom. Drawn as one polygon rather than a
                 bar per peak — 400 DOM nodes per render is not worth it. */}
+            {/* Current position. Sits above the waveform so it stays visible
+                over it, and below the slider so it never blocks a handle. */}
+            <motion.div
+                className="pointer-events-none absolute top-0 bottom-0 z-10 w-0.5 bg-red-500"
+                style={{ left: playheadLeft }}
+            />
+
             {/* An <svg> carries its own intrinsic size, so `inset-x-6` alone left
                 it 80px wide instead of filling the track — the wrapper owns the
                 geometry and the svg just fills it. */}
@@ -134,25 +120,6 @@ export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTri
                     </svg>
                 </div>
             )}
-            {/* Where a fast cut can actually land. Hidden in precise mode,
-                where the export re-encodes and any position is valid. */}
-            {!precise && duration > 0 && keyframes.length > 0 && keyframes.length < 600 && (
-                <div className="pointer-events-none absolute inset-x-6 inset-y-0">
-                    {keyframes.map((k, i) => (
-                        <span
-                            key={i}
-                            className="absolute top-1.5 bottom-1.5 w-px bg-foreground/15"
-                            style={{ left: `${(k / duration) * 100}%` }}
-                        />
-                    ))}
-                </div>
-            )}
-            {/* Visual playhead tracking current time */}
-            <motion.div 
-                className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10" 
-                style={{ left: playheadLeft }} 
-            />
-
             <div className="w-full relative z-20">
                 <Slider
                     defaultValue={[0, duration]}
