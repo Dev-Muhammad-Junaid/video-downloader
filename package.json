@@ -29,7 +29,8 @@
     "postelectron:build": "npm run rebuild:node",
     "rebuild:electron": "electron-rebuild -f -w better-sqlite3",
     "rebuild:node": "npm rebuild better-sqlite3",
-    "build:icon": "node scripts/build-icon.cjs"
+    "build:icon": "node scripts/build-icon.cjs",
+    "test:release": "vitest run && tsc --noEmit"
   },
   "build": {
     "appId": "com.snapdown.app",

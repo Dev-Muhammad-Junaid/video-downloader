@@ -19,6 +19,16 @@ VERSION="${1:?usage: release.sh <version> <title> <notes-file>}"
 TITLE="${2:?missing title}"
 NOTES_FILE="${3:?missing notes file}"
 
+# Every regression suite runs before anything is published. These exist because
+# the same defects shipped repeatedly — media written inside the app bundle
+# (five times), the library deleting its own rows, a video link downloading a
+# 552-entry playlist. Publishing past a red suite is how those reach users, so
+# it is not possible from here.
+echo "Running tests before publishing..."
+npm test --silent || { echo "error: tests failed — not publishing" >&2; exit 1; }
+npx tsc --noEmit || { echo "error: typecheck failed — not publishing" >&2; exit 1; }
+echo
+
 DMG="dist/SnapDown-${VERSION}-arm64.dmg"
 MANIFEST="dist/latest-mac.yml"
 SIG="${DMG}.sig"
