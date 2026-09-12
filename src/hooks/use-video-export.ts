@@ -64,6 +64,10 @@ interface UseVideoExportParams {
     subtitles: Subtitle[];
     styleConfig: SubtitleStyleConfig;
     videoRef: React.RefObject<HTMLVideoElement | null>;
+    /** Re-encode so the cut lands exactly where asked, rather than snapping to
+     *  the nearest keyframe. Only applies to a pure trim; every other action
+     *  re-encodes anyway. */
+    precise?: boolean;
     onRefreshLibrary?: () => void;
     onClose: () => void;
 }
@@ -85,6 +89,7 @@ export function useVideoExport({
     subtitles,
     styleConfig,
     videoRef,
+    precise = false,
     onRefreshLibrary,
     onClose,
 }: UseVideoExportParams) {
@@ -159,7 +164,7 @@ export function useVideoExport({
                     bodyPayload.params = { startTime: trimStart, endTime: trimEnd, assContent: composeBurnAss(clippedSubtitles, displayDims), inheritSrtContent };
                 } else {
                     bodyPayload.action = "trim";
-                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, inheritSrtContent };
+                    bodyPayload.params = { startTime: trimStart, endTime: trimEnd, inheritSrtContent, precise };
                 }
             } else if (mode === "crop") {
                 const cropPx = getCropPixels();

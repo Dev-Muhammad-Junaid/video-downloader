@@ -125,7 +125,7 @@ function launchExport(jobId: string, spec: ExportSpec, total: number): void {
             } else if (action === "trim-audio") {
                 out = await trimAudio(videoId, p.startTime, p.endTime, onProgress, registerProc);
             } else if (action === "trim") {
-                out = await trimVideo(videoId, p.startTime, p.endTime, p.inheritSrtContent, onProgress, registerProc);
+                out = await trimVideo(videoId, p.startTime, p.endTime, p.inheritSrtContent, onProgress, registerProc, quality, p.precise === true);
             } else if (action === "crop") {
                 out = await cropVideo(videoId, p.w, p.h, p.x, p.y, p.inheritSrtContent, onProgress, registerProc, quality);
             } else if (action === "trim-crop") {

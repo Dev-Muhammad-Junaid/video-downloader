@@ -127,6 +127,20 @@ function ensureSubtitleFilterSupport() {
     subtitlesFilterSupported = true;
 }
 
+/**
+ * Trim a video.
+ *
+ * Two cuts are possible and they are genuinely different:
+ *
+ *  - Stream copy (`precise: false`) is instant and lossless, but can only cut
+ *    at a keyframe. On a typical download those sit 0.5–6 seconds apart, so the
+ *    cut lands wherever the nearest one is. The editor snaps its handles to
+ *    those points so this stays an honest choice rather than a silent shift.
+ *
+ *  - Re-encoding (`precise: true`) cuts exactly where asked, at the cost of an
+ *    encode. Cheap now that exports run on the hardware media engine, so it is
+ *    a reasonable thing to offer rather than a last resort.
+ */
 export async function trimVideo(
     videoId: string,
     startTime: string,
@@ -134,6 +148,8 @@ export async function trimVideo(
     inheritSrtContent?: string,
     onProgress?: (outSeconds: number, totalSeconds?: number) => void,
     registerProc?: (proc: FfmpegProc) => void,
+    quality: ExportQuality = DEFAULT_EXPORT_QUALITY,
+    precise = false,
 ) {
     const originalVideo = await prisma.video.findUnique({
         where: { id: videoId }
@@ -147,16 +163,25 @@ export async function trimVideo(
     const newFileName = `${parsedPath.name}_clipped_${newId}${parsedPath.ext}`;
     const newFilePath = path.join(parsedPath.dir, newFileName);
 
-    // Fast keyframe-accurate clip via stream copy. trimArgs uses -ss + -t
-    // (duration) so the output is exactly the trimmed length.
-    const args = [
-        "-y",               // Overwrite
-        ...trimArgs(originalVideo.localPath, startTime, endTime),
-        "-c", "copy",       // Stream copy (very fast, but respects keyframes only)
-        newFilePath
-    ];
+    // trimArgs uses -ss + -t (duration) so the output is exactly the trimmed
+    // length. Precise cuts re-encode the video and keep the audio as-is;
+    // otherwise both streams are copied and the cut snaps to a keyframe.
+    const args = precise
+        ? [
+            "-y",
+            ...trimArgs(originalVideo.localPath, startTime, endTime, true),
+            ...videoEncoderArgs(quality),
+            "-c:a", "copy",
+            newFilePath,
+        ]
+        : [
+            "-y",
+            ...trimArgs(originalVideo.localPath, startTime, endTime),
+            "-c", "copy",   // Instant and lossless, but keyframe-bound
+            newFilePath,
+        ];
 
-    console.log(`[FFmpeg Trim] Running: ffmpeg ${args.join(" ")}`);
+    console.log(`[FFmpeg Trim${precise ? " (precise)" : ""}] Running: ffmpeg ${args.join(" ")}`);
     await runFfmpeg(args, onProgress, registerProc);
 
     let fileSize = 0;

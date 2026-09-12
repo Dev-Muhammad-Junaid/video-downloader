@@ -134,3 +134,49 @@ export function ensureFfmpegFilterSupported(filterName: string, featureName: str
     }
 }
 
+/**
+ * Timestamps (seconds) of every keyframe in a video's primary video stream.
+ *
+ * A stream-copy trim can only cut at a keyframe, so these are the only points
+ * a fast trim can actually honour. The editor's slider steps in 0.1s, which
+ * quietly promised precision the export could not deliver: measured on a real
+ * download, keyframes sat 0.48s to 5.8s apart, so a cut set at 7.5s actually
+ * began at 6.8s with nothing said about it.
+ *
+ * Cheap enough to run when the editor opens — 0.15s for a 7.5 minute file,
+ * roughly a third of a millisecond per second of video.
+ *
+ * Returns [] when the file can't be probed; callers should treat that as
+ * "snapping unavailable" rather than an error.
+ */
+export function probeKeyframes(filePath: string): number[] {
+    try {
+        const out = spawnSync(getFfprobePath(), [
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "packet=pts_time,flags",
+            "-of", "csv=p=0",
+            filePath,
+        ], { encoding: "utf-8", timeout: 60_000, maxBuffer: 32 * 1024 * 1024 });
+
+        return (out.stdout || "")
+            .split("\n")
+            .filter((line) => line.includes("K"))          // K_ flag marks a keyframe
+            .map((line) => parseFloat(line.split(",")[0]))
+            .filter((t) => Number.isFinite(t))
+            .sort((a, b) => a - b);
+    } catch {
+        return [];
+    }
+}
+
+/** The keyframe at or before `time`, i.e. where a stream copy would really
+ *  start if asked to cut there. Falls back to `time` when unknown. */
+export function keyframeAtOrBefore(keyframes: number[], time: number): number {
+    let best = keyframes.length > 0 ? keyframes[0] : time;
+    for (const k of keyframes) {
+        if (k > time + 1e-6) break;
+        best = k;
+    }
+    return best;
+}

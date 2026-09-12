@@ -11,9 +11,16 @@ interface TimelineScrubberProps {
     trimEnd: number;
     onTrimChange: (start: number, end: number) => void;
     onSeek: (time: number) => void;
+    /** Positions a stream-copy cut can actually land on. Drawn as ticks and
+     *  used to snap the handles, so the slider stops offering precision the
+     *  export can't honour. Empty = snapping unavailable. */
+    keyframes?: number[];
+    /** When true the export re-encodes, so any position is valid and the
+     *  handles are left exactly where the user puts them. */
+    precise?: boolean;
 }
 
-export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTrimChange, onSeek }: TimelineScrubberProps) {
+export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTrimChange, onSeek, keyframes = [], precise = false }: TimelineScrubberProps) {
     const [localTrim, setLocalTrim] = useState([trimStart, trimEnd]);
 
     // Motion values for ultra-smooth UI
@@ -48,9 +55,26 @@ export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTri
         }
     };
 
+    /** Nearest keyframe, or the value untouched when snapping doesn't apply. */
+    const snap = (time: number) => {
+        if (precise || keyframes.length === 0) return time;
+        let best = keyframes[0];
+        for (const k of keyframes) {
+            if (Math.abs(time - k) < Math.abs(time - best)) best = k;
+        }
+        return best;
+    };
+
     const handleCommit = (val: number | readonly number[]) => {
         const valueArray = Array.isArray(val) ? val : [val, val];
-        onTrimChange(valueArray[0], valueArray[1]);
+        const start = snap(valueArray[0]);
+        const end = snap(valueArray[1]);
+        // Show the snapped position rather than leaving the handle where the
+        // pointer was — the cut is what matters, not the gesture.
+        setLocalTrim([start, end]);
+        mvTrimStart.set(start);
+        mvTrimEnd.set(end);
+        onTrimChange(start, end);
     };
 
     // Calculate motion templates for GPU rendering
@@ -65,7 +89,20 @@ export function TimelineScrubber({ duration, videoRef, trimStart, trimEnd, onTri
     const endRegionWidth = useMotionTemplate`calc(1.5rem + ${rightWidth}% - (2rem * ${rightWidth}/100))`;
 
     return (
-        <div className="relative w-full h-24 bg-muted rounded-lg flex items-center px-6 overflow-hidden ring-1 ring-border/50">
+        <div className="relative w-full h-12 bg-muted rounded-lg flex items-center px-6 overflow-hidden ring-1 ring-border/50">
+            {/* Where a fast cut can actually land. Hidden in precise mode,
+                where the export re-encodes and any position is valid. */}
+            {!precise && duration > 0 && keyframes.length > 0 && keyframes.length < 600 && (
+                <div className="pointer-events-none absolute inset-x-6 top-0 h-1.5">
+                    {keyframes.map((k, i) => (
+                        <span
+                            key={i}
+                            className="absolute top-0 h-1.5 w-px bg-foreground/25"
+                            style={{ left: `${(k / duration) * 100}%` }}
+                        />
+                    ))}
+                </div>
+            )}
             {/* Visual playhead tracking current time */}
             <motion.div 
                 className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10" 

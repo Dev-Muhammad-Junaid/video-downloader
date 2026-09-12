@@ -22,6 +22,7 @@ import {
     Palette,
 } from "lucide-react";
 import { TimelineScrubber } from "./timeline-scrubber";
+import { useKeyframes } from "@/hooks/use-keyframes";
 import { toast } from "sonner";
 import { useVideoExport } from "@/hooks/use-video-export";
 import { ExportQualityMenu } from "@/components/video-editor/export-quality-menu";
@@ -282,28 +283,79 @@ export function VideoEditorModal({
         }
     }, [mode, trimEnd, trimStart]);
 
-    // Keyboard shortcuts (subtitle mode)
+    /**
+     * Editor keyboard shortcuts.
+     *
+     * These used to be gated behind `mode !== "subtitles"`, so spacebar didn't
+     * play the video while trimming — the mode where transport control matters
+     * most. They now apply everywhere, with the trim-specific keys (I/O to set
+     * in and out points) active only where a trim range exists.
+     *
+     * Frame stepping assumes ~30fps: the exact rate isn't available from a
+     * HTMLVideoElement, and a 33ms nudge is the right feel either way.
+     */
     useEffect(() => {
-        if (mode !== "subtitles") return;
+        const FRAME = 1 / 30;
+
+        const seekBy = (delta: number) => {
+            const v = videoRef.current;
+            if (!v) return;
+            v.currentTime = Math.min(duration, Math.max(0, v.currentTime + delta));
+        };
+
         const handler = (e: KeyboardEvent) => {
             const tag = (e.target as HTMLElement)?.tagName;
-            if (tag === "INPUT" || tag === "TEXTAREA") return;
+            if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) return;
+            if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+            const at = videoRef.current?.currentTime ?? 0;
+
             switch (e.key) {
                 case " ":
                     e.preventDefault();
                     togglePlay();
                     break;
                 case "j":
-                    if (videoRef.current) videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 5);
+                    seekBy(-5);
                     break;
                 case "l":
-                    if (videoRef.current) videoRef.current.currentTime = Math.min(duration, videoRef.current.currentTime + 5);
+                    seekBy(5);
+                    break;
+                case "k":
+                    e.preventDefault();
+                    togglePlay();
+                    break;
+                case "ArrowLeft":
+                    e.preventDefault();
+                    seekBy(e.shiftKey ? -1 : -FRAME);
+                    break;
+                case "ArrowRight":
+                    e.preventDefault();
+                    seekBy(e.shiftKey ? 1 : FRAME);
+                    break;
+                case "Home":
+                    e.preventDefault();
+                    if (videoRef.current) videoRef.current.currentTime = 0;
+                    break;
+                case "End":
+                    e.preventDefault();
+                    if (videoRef.current) videoRef.current.currentTime = duration;
+                    break;
+                case "i":
+                case "I":
+                    // Set the in point where you're watching — the standard
+                    // trim gesture, and far quicker than dragging a handle.
+                    if (mode === "trim" && at < trimEnd) setTrimStart(at);
+                    break;
+                case "o":
+                case "O":
+                    if (mode === "trim" && at > trimStart) setTrimEnd(at);
                     break;
             }
         };
         document.addEventListener("keydown", handler);
         return () => document.removeEventListener("keydown", handler);
-    }, [mode, togglePlay, duration]);
+    }, [mode, togglePlay, duration, trimStart, trimEnd]);
 
     const handleSeek = (time: number) => {
         if (videoRef.current) {
@@ -370,6 +422,15 @@ export function VideoEditorModal({
         }
     };
 
+    /**
+     * A fast trim is a stream copy, which can only cut at a keyframe; a precise
+     * one re-encodes and cuts exactly where asked. Snapping is on by default so
+     * the handles show where the cut will really land, and the toggle is the
+     * way out when the exact frame matters more than the speed.
+     */
+    const [preciseTrim, setPreciseTrim] = useState(false);
+    const { keyframes, available: canSnap } = useKeyframes(video.id, mode === "trim");
+
     // Export submit (trim / crop / burn-subtitles + combinations) lives in a hook;
     // it composes the burn ASS exactly like the preview so they stay 1:1.
     const { isExporting, includeSubtitles, setIncludeSubtitles, quality, setQuality, handleApplyExport } = useVideoExport({
@@ -382,11 +443,13 @@ export function VideoEditorModal({
         subtitles,
         styleConfig,
         videoRef,
+        precise: preciseTrim,
         onRefreshLibrary,
         onClose,
     });
 
     const hasSubtitles = subtitles.length > 0;
+
 
     // Whether this export will actually run an encoder. Trim alone is a stream
     // copy (`-c copy`), so quality is not a choice there; everything else
@@ -873,7 +936,29 @@ export function VideoEditorModal({
                                 trimEnd={trimEnd}
                                 onTrimChange={(start, end) => { setTrimStart(start); setTrimEnd(end); }}
                                 onSeek={handleSeek}
+                                keyframes={keyframes}
+                                precise={preciseTrim}
                             />
+
+                            {/* Only meaningful when there is a real limit to opt
+                                out of — if the probe found nothing, snapping
+                                isn't happening and the choice would be noise. */}
+                            {canSnap && (
+                                <label className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground select-none cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={preciseTrim}
+                                        onChange={(e) => setPreciseTrim(e.target.checked)}
+                                        className="rounded border-border"
+                                    />
+                                    <span>
+                                        Precise cut
+                                        <span className="hidden sm:inline">
+                                            {" "}— cut exactly here instead of at the nearest marker. Re-encodes, so it takes longer.
+                                        </span>
+                                    </span>
+                                </label>
+                            )}
                         </motion.div>
                     )}
                 </AnimatePresence>
