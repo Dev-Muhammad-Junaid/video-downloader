@@ -12,9 +12,13 @@ contextBridge.exposeInMainWorld("snapdown", {
     isDesktop: true,
 
     update: {
-        /** Download, verify and install the latest release. Resolves when the
-         *  installer has been scheduled; the app quits immediately after. */
-        install: () => ipcRenderer.invoke("update:install"),
+        /** Download and verify the latest release. Resolves once it's staged —
+         *  nothing is installed and the app keeps running. */
+        download: () => ipcRenderer.invoke("update:download"),
+
+        /** Install the already-verified update and relaunch. The app quits
+         *  immediately after this resolves. */
+        restart: () => ipcRenderer.invoke("update:restart"),
 
         /** Subscribe to progress. Returns an unsubscribe function. */
         onProgress: (callback) => {

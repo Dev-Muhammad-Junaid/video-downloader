@@ -2,7 +2,8 @@
 export interface SnapDownDesktop {
     isDesktop: true;
     update: {
-        install: () => Promise<{ version: string }>;
+        download: () => Promise<{ version: string }>;
+        restart: () => Promise<{ version: string }>;
         onProgress: (cb: (p: { received: number; total: number }) => void) => () => void;
         onStatus: (cb: (s: { phase: string; version?: string; size?: number }) => void) => () => void;
     };

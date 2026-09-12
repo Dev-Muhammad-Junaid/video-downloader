@@ -222,14 +222,24 @@ function resolveAppBundlePath() {
 }
 
 /**
- * Download, verify and install the latest release.
+ * A verified update, downloaded and waiting for the user to say when.
+ *
+ * Downloading and installing are deliberately separate: the install replaces
+ * the app and quits it, so it has to be the user's decision, taken after the
+ * download has finished rather than before it starts.
+ */
+let staged = null; // { version, dmgPath }
+
+/**
+ * Download and verify the latest release. Does NOT install — call
+ * installStagedUpdate() for that.
  *
  * Takes no URL on purpose: the renderer can ask for an update, not choose what
  * gets executed.
  */
-async function runUpdate(sender) {
+async function downloadUpdate(sender) {
     const emit = (channel, payload) => {
-        if (!sender.isDestroyed()) sender.send(channel, payload);
+        if (sender && !sender.isDestroyed()) sender.send(channel, payload);
     };
 
     const appPath = resolveAppBundlePath();
@@ -256,10 +266,35 @@ async function runUpdate(sender) {
     const dmgPath = path.join(os.tmpdir(), release.dmgName);
     fs.writeFileSync(dmgPath, dmgBuffer, { mode: 0o600 });
 
-    emit("update:status", { phase: "installing", version: release.version });
-    scheduleInstall({ dmgPath, appPath });
-
+    staged = { version: release.version, dmgPath };
+    emit("update:status", { phase: "ready", version: release.version });
     return { version: release.version };
 }
 
-module.exports = { runUpdate, verifySignature, RELEASE_PUBLIC_KEY };
+/** Whether a verified update is sitting on disk waiting to be installed. */
+function getStagedUpdate() {
+    if (staged && !fs.existsSync(staged.dmgPath)) staged = null;
+    return staged;
+}
+
+/**
+ * Install the update downloaded earlier and relaunch.
+ *
+ * Refuses if nothing has been verified and staged, so this can never be used
+ * to install something that skipped the signature check.
+ */
+function installStagedUpdate(appPath) {
+    const ready = getStagedUpdate();
+    if (!ready) throw new Error("No verified update is ready to install.");
+    scheduleInstall({ dmgPath: ready.dmgPath, appPath });
+    return { version: ready.version };
+}
+
+module.exports = {
+    downloadUpdate,
+    installStagedUpdate,
+    getStagedUpdate,
+    resolveAppBundlePath,
+    verifySignature,
+    RELEASE_PUBLIC_KEY,
+};

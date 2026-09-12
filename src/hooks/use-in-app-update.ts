@@ -2,16 +2,24 @@
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
-export type UpdatePhase = "idle" | "locating" | "downloading" | "verifying" | "installing" | "error";
+export type UpdatePhase =
+    | "idle"
+    | "locating"
+    | "downloading"
+    | "verifying"
+    | "ready"       // downloaded and verified, waiting for the user to restart
+    | "installing"
+    | "error";
 
 /**
  * Drives the desktop app's in-app update.
  *
- * Only available inside the Electron shell — in a browser `window.snapdown` is
- * undefined and callers fall back to the manual download link.
+ * Downloading and restarting are separate steps on purpose: the install
+ * replaces the app and quits it, so that has to be the user's call — taken
+ * once the download is done, not before it starts.
  *
- * The renderer deliberately has no say in WHAT gets downloaded; it can only
- * ask the main process to update, and watch it happen.
+ * Only available inside the Electron shell; in a browser `window.snapdown` is
+ * undefined and callers fall back to the GitHub link.
  */
 export function useInAppUpdate() {
     const [phase, setPhase] = useState<UpdatePhase>("idle");
@@ -36,20 +44,36 @@ export function useInAppUpdate() {
         return () => { offStatus(); offProgress(); };
     }, []);
 
-    const install = useCallback(async () => {
+    const download = useCallback(async () => {
         const api = window.snapdown?.update;
         if (!api) return;
         setError(null);
         setPhase("locating");
         try {
-            await api.install();
+            await api.download();
+        } catch (err) {
+            setPhase("error");
+            setError(err instanceof Error ? err.message : "The download failed.");
+        }
+    }, []);
+
+    const restart = useCallback(async () => {
+        const api = window.snapdown?.update;
+        if (!api) return;
+        setPhase("installing");
+        try {
+            await api.restart();
             // The app quits itself from here — the installer is waiting for
             // this process to exit before it swaps the bundle.
         } catch (err) {
             setPhase("error");
-            setError(err instanceof Error ? err.message : "The update failed.");
+            setError(err instanceof Error ? err.message : "The update couldn't be installed.");
         }
     }, []);
 
-    return { available, phase, progress, error, install };
+    const percent = progress && progress.total > 0
+        ? Math.round((progress.received / progress.total) * 100)
+        : null;
+
+    return { available, phase, progress, percent, error, download, restart };
 }
