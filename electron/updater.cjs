@@ -235,6 +235,23 @@ function resolveAppBundlePath() {
 let staged = null; // { version, dmgPath }
 
 /**
+ * What the updater is doing right now, so a renderer that reloads can pick the
+ * thread back up instead of starting over.
+ *
+ * The download runs here, in the main process — it survives a page reload
+ * perfectly well. Only the UI's memory of it was being lost, which made a
+ * refresh (or anything that caused one) look like the download had been
+ * cancelled and the update was newly available again.
+ */
+let progress = null; // { phase, version, received, total }
+
+function getUpdateState() {
+    if (progress) return progress;
+    const ready = getStagedUpdate();
+    return ready ? { phase: "ready", version: ready.version } : { phase: "idle" };
+}
+
+/**
  * Download and verify the latest release. Does NOT install — call
  * installStagedUpdate() for that.
  *
@@ -246,6 +263,20 @@ async function downloadUpdate(sender) {
         if (sender && !sender.isDestroyed()) sender.send(channel, payload);
     };
 
+    // A previous attempt that threw must not leave stale progress behind.
+    progress = null;
+    try {
+        return await runDownload(emit);
+    } catch (err) {
+        // Otherwise a failure leaves the indicator frozen mid-download for the
+        // rest of the session, with no way to retry.
+        progress = null;
+        throw err;
+    }
+}
+
+async function runDownload(emit) {
+
     const appPath = resolveAppBundlePath();
     if (!appPath) {
         throw new Error("In-app updates are only available in the installed app, not in development.");
@@ -254,14 +285,20 @@ async function downloadUpdate(sender) {
         throw new Error(`Can't find the installed app at ${appPath}.`);
     }
 
+    progress = { phase: "locating" };
     emit("update:status", { phase: "locating" });
     const release = await fetchLatestRelease();
 
+    progress = { phase: "downloading", version: release.version, received: 0, total: release.size };
     emit("update:status", { phase: "downloading", version: release.version, size: release.size });
     const dmgBuffer = await httpsGet(release.dmgUrl, {
-        onProgress: (received, total) => emit("update:progress", { received, total }),
+        onProgress: (received, total) => {
+            progress = { phase: "downloading", version: release.version, received, total };
+            emit("update:progress", { received, total });
+        },
     });
 
+    progress = { phase: "verifying", version: release.version };
     emit("update:status", { phase: "verifying" });
     const signature = (await httpsGet(release.sigUrl)).toString("utf-8");
     verifySignature(dmgBuffer, signature);
@@ -271,6 +308,7 @@ async function downloadUpdate(sender) {
     fs.writeFileSync(dmgPath, dmgBuffer, { mode: 0o600 });
 
     staged = { version: release.version, dmgPath };
+    progress = null; // getStagedUpdate() is the source of truth from here
     emit("update:status", { phase: "ready", version: release.version });
     return { version: release.version };
 }
@@ -296,6 +334,7 @@ function installStagedUpdate(appPath) {
 
 module.exports = {
     downloadUpdate,
+    getUpdateState,
     installStagedUpdate,
     getStagedUpdate,
     resolveAppBundlePath,

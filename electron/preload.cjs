@@ -12,6 +12,10 @@ contextBridge.exposeInMainWorld("snapdown", {
     isDesktop: true,
 
     update: {
+        /** What the updater is doing right now. A reload loses the renderer's
+         *  memory but not the download, which runs in the main process. */
+        state: () => ipcRenderer.invoke("update:state"),
+
         /** Download and verify the latest release. Resolves once it's staged —
          *  nothing is installed and the app keeps running. */
         download: () => ipcRenderer.invoke("update:download"),

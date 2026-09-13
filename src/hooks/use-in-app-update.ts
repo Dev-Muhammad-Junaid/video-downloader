@@ -39,9 +39,31 @@ export function useInAppUpdate() {
     useEffect(() => {
         const api = typeof window !== "undefined" ? window.snapdown?.update : undefined;
         if (!api) return;
+        let cancelled = false;
+
         const offStatus = api.onStatus((s) => setPhase(s.phase as UpdatePhase));
         const offProgress = api.onProgress((p) => setProgress(p));
-        return () => { offStatus(); offProgress(); };
+
+        /**
+         * Pick up whatever the main process is already doing.
+         *
+         * The download lives there and survives a page reload; only this
+         * component's memory of it was lost. Without this, reloading — or
+         * anything that caused one, such as clicking the Dock icon — showed
+         * "Update available" again as though the download had never started,
+         * and starting over was the only option.
+         */
+        api.state()
+            .then((s) => {
+                if (cancelled || !s || s.phase === "idle") return;
+                setPhase(s.phase as UpdatePhase);
+                if (s.received !== undefined && s.total !== undefined) {
+                    setProgress({ received: s.received, total: s.total });
+                }
+            })
+            .catch(() => { /* no update in flight */ });
+
+        return () => { cancelled = true; offStatus(); offProgress(); };
     }, []);
 
     const download = useCallback(async () => {

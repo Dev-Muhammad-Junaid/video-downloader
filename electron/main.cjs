@@ -6,7 +6,7 @@ const path = require("path");
 const fs = require("fs");
 const http = require("http");
 const { spawn } = require("child_process");
-const { downloadUpdate, installStagedUpdate, resolveAppBundlePath } = require("./updater.cjs");
+const { downloadUpdate, installStagedUpdate, resolveAppBundlePath, getUpdateState } = require("./updater.cjs");
 
 const isDev = !app.isPackaged;
 const PORT = process.env.SNAPDOWN_PORT || 3000;
@@ -272,11 +272,34 @@ function showStartupFailure(err) {
 }
 
 /** Bring the app back up, whether from launch or from the Dock. */
-async function openApp() {
+/**
+ * Bring the app up, or bring it forward if it is already up.
+ *
+ * `reload: false` is the re-activation case — clicking the Dock icon, or
+ * ⌘-Tab. That used to call loadURL() unconditionally, which reloads the page
+ * and throws away everything the renderer was holding: most visibly an update
+ * that was midway through downloading, which reset to "Update available" and
+ * started over. Nothing about focusing a window should reload it.
+ */
+async function openApp({ reload = true } = {}) {
     try {
         await ensureServerRunning();
-        if (!mainWindow) createWindow();
-        mainWindow.loadURL(APP_URL);
+        if (!mainWindow) {
+            createWindow();
+            mainWindow.loadURL(APP_URL);
+            return;
+        }
+
+        // An existing window that is already showing the app just needs
+        // focus. Only reload one that has nothing loaded, or is sitting on the
+        // startup-failure page.
+        const current = mainWindow.webContents.getURL();
+        if (reload || !current || !current.startsWith(APP_URL)) {
+            mainWindow.loadURL(APP_URL);
+        }
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
     } catch (err) {
         console.error("[SnapDown] failed to start:", err);
         // A failure here used to quit the app outright on launch, and produce a
@@ -298,7 +321,7 @@ if (!app.requestSingleInstanceLock()) {
             if (mainWindow.isMinimized()) mainWindow.restore();
             mainWindow.focus();
         } else {
-            void openApp();
+            void openApp({ reload: false });
         }
     });
 
@@ -307,6 +330,11 @@ if (!app.requestSingleInstanceLock()) {
 
         // In-app update. The renderer can request one but has no say in what
         // gets downloaded or where it's installed — see electron/updater.cjs.
+        // Lets a freshly-loaded renderer pick up a download already in flight,
+        // or an update already verified and waiting, instead of showing
+        // "Update available" as though nothing had happened.
+        ipcMain.handle("update:state", () => getUpdateState());
+
         ipcMain.handle("update:download", async (event) => downloadUpdate(event.sender));
 
         ipcMain.handle("update:restart", async () => {
@@ -322,9 +350,10 @@ if (!app.requestSingleInstanceLock()) {
         });
 
         app.on("activate", () => {
-            // Re-opening from the Dock has to re-check the server, not just the
-            // window — the two can outlive each other.
-            void openApp();
+            // Re-opening from the Dock still has to re-check the server (the
+            // two can outlive each other) but must NOT reload a window that is
+            // already working.
+            void openApp({ reload: false });
         });
     });
 }
