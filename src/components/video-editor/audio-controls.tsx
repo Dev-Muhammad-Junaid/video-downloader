@@ -9,16 +9,13 @@ import { cn } from "@/lib/utils";
 /**
  * Preview volume for the editor.
  *
- * Just a slider. It sits under a speaker icon in a media editor, which says
- * everything a label would — and the panel had grown a heading, a Mute link
- * and an explanatory sentence for what is ultimately one control.
+ * The slider expands along the control row rather than floating above it. As a
+ * popover it was a panel hovering over the video to hold one control, when
+ * there is room for it right where the other transport controls already live.
  *
- * Zero IS muted rather than a separate state to keep in sync: dragging to the
- * bottom silences it and flips the icon, which is what dragging a volume
- * slider to zero should do.
- *
- * Rendered inline rather than in a Popover — a Popover portals to
- * document.body and, inside this editor, painted behind the modal.
+ * Zero IS muted rather than a separate flag to keep in sync: dragging to the
+ * bottom silences the video and flips the icon, which is what dragging a
+ * volume slider to zero should do.
  */
 interface AudioControlsProps {
     /** 0–1. Zero means muted. */
@@ -39,27 +36,26 @@ export function AudioControls({ volume, onVolumeChange }: AudioControlsProps) {
         if (volume > 0) lastAudible.current = volume;
     }, [volume]);
 
+    // Collapse when attention moves elsewhere, so an expanded slider doesn't
+    // sit there taking room in the row indefinitely.
     useEffect(() => {
         if (!open) return;
         const onDown = (e: MouseEvent) => {
             if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
         };
-        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } };
         document.addEventListener("mousedown", onDown);
-        document.addEventListener("keydown", onKey, true);
-        return () => {
-            document.removeEventListener("mousedown", onDown);
-            document.removeEventListener("keydown", onKey, true);
-        };
+        return () => document.removeEventListener("mousedown", onDown);
     }, [open]);
 
     return (
-        <div className="relative shrink-0" ref={wrapRef}>
+        <div
+            ref={wrapRef}
+            className="flex shrink-0 items-center gap-1.5"
+            onMouseLeave={() => setOpen(false)}
+        >
             <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
-                // Alt-click mutes without opening, since that's the one action
-                // worth having without a trip through the slider.
                 onDoubleClick={() => onVolumeChange(muted ? lastAudible.current : 0)}
                 title="Volume"
                 aria-label="Volume"
@@ -69,17 +65,22 @@ export function AudioControls({ volume, onVolumeChange }: AudioControlsProps) {
                 <Icon className="size-4" />
             </button>
 
-            {open && (
-                <div className="absolute bottom-full left-1/2 z-50 mb-2 w-40 -translate-x-1/2 rounded-lg border bg-popover px-3 py-2.5 shadow-lg ring-1 ring-foreground/10">
-                    <Slider
-                        aria-label="Volume"
-                        value={[Math.round(volume * 100)]}
-                        max={100}
-                        step={1}
-                        onValueChange={(v) => onVolumeChange(((Array.isArray(v) ? v[0] : v) as number) / 100)}
-                    />
-                </div>
-            )}
+            {/* Width rather than mount/unmount, so the row's other controls
+                slide instead of jumping when it opens. */}
+            <div
+                className={cn(
+                    "overflow-hidden transition-[width,opacity] duration-200",
+                    open ? "w-24 opacity-100" : "w-0 opacity-0",
+                )}
+            >
+                <Slider
+                    aria-label="Volume"
+                    value={[Math.round(volume * 100)]}
+                    max={100}
+                    step={1}
+                    onValueChange={(v) => onVolumeChange(((Array.isArray(v) ? v[0] : v) as number) / 100)}
+                />
+            </div>
         </div>
     );
 }
